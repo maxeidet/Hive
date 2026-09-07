@@ -216,3 +216,28 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+
+# Obsidian - ignore workspace state
+**/.obsidian/workspace.json
+**/.obsidian/workspace-mobile.json
+
+# Obsidian cache
+**/.obsidian/cache/
+
+# OS files
+
+.DS_Store
+Thumbs.db
+
+# Temporary/editor files
+
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+
+.env
+.env.*
