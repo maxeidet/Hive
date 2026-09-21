@@ -209,6 +209,45 @@ PX4, agenten och ROS 2 kommunicerar inuti samma container, så host-nätverk beh
 - Ge Docker minst 4 CPU och 8 GB RAM.
 - Containrar på macOS kan i regel inte använda GPU:n, så all träning bör ske på superdatorn.
 
+#### 5.4.1 Steg-för-steg: allt igång på macOS (Apple Silicon)
+
+1. **Installera Docker Desktop** (Apple Silicon-version) eller **OrbStack**. I Docker Desktop → Settings → Resources: ge minst 4 CPU och 8 GB RAM.
+2. **Installera VS Code** och tillägget **Dev Containers** (`ms-vscode-remote.remote-containers`).
+3. **Klona repot:**
+   ```bash
+   git clone <repo-url>
+   cd projekt
+   ```
+4. **Öppna i Dev Container:** öppna mappen i VS Code → kommandopalett (`Cmd+Shift+P`) → **"Dev Containers: Reopen in Container"**. Detta bygger/hämtar containern enligt `.devcontainer/devcontainer.json` och `docker/Dockerfile` (ARM64-imagen hämtas automatiskt på Apple Silicon).
+5. **Verifiera att du är inne i containern:** terminalen i VS Code ska nu vara en shell inuti containern (prompten ändras). Kontrollera Ubuntu-versionen:
+   ```bash
+   cat /etc/os-release
+   ```
+6. **Bygg ROS 2-workspacen** (inklusive din Python-backend som paket under `ros2_ws/src/`, se avsnitt 5.7):
+   ```bash
+   cd ros2_ws
+   colcon build --symlink-install
+   source install/setup.bash
+   ```
+7. **Starta PX4 + headless Gazebo + DDS-agent** i containerterminalen:
+   ```bash
+   HEADLESS=1 /usr/local/bin/ros2-entrypoint.sh px4-gazebo
+   ```
+8. **Öppna en andra terminal i samma container** (VS Code: `+` i terminalpanelen öppnar en ny shell i samma Dev Container) och kontrollera att topics finns:
+   ```bash
+   source install/setup.bash
+   ros2 topic list
+   ```
+   Du bör se `/fmu/out/...` och `/fmu/in/...`-topics från PX4.
+9. **Starta din Python-backend** som ROS 2-nod, i en tredje terminal i samma container:
+   ```bash
+   source install/setup.bash
+   ros2 run swarm_backend backend_node
+   ```
+10. **Visualisera från macOS:** installera **QGroundControl** (native macOS-app, laddas ner separat, inte i containern) och anslut den mot simuleringen för att se drönaren flyga. RViz kan köras inuti containern om X11-forwarding sätts upp, men det rekommenderas inte på macOS (se ovan) — luta dig mot QGroundControl och `ros2 topic echo` för felsökning istället.
+
+Om du behöver Gazebo-GUI (inte bara headless) lokalt: sätt upp en Ubuntu 24.04 ARM64-VM (UTM/Parallels/VMware Fusion) med Docker inuti och upprepa steg 3–9 där.
+
 ### 5.5 Windows
 
 - Docker Desktop med **WSL2**.
@@ -225,9 +264,20 @@ PX4, agenten och ROS 2 kommunicerar inuti samma container, så host-nätverk beh
 - **Git:** feature-branches och pull requests. CI kör `colcon build` och `colcon test` i containern.
 - **Versionsfastlåsning:** pinna image-digest, Python-beroenden (`requirements.txt` med versioner) och PX4-version.
 
+### 5.7 Python-backend: kör i samma container (rekommenderat lokalt)
+
+Kör Python-backenden som en vanlig **ROS 2-nod** (`rclpy`) inuti samma container som PX4, Gazebo och resten av ROS 2 — inte som en separat process på host-datorn.
+
+- **Varför:** ingen container-till-host-nätverkskonfiguration för DDS-diskovery krävs. Allt delar samma `ROS_DOMAIN_ID` och ser varandra direkt.
+- **Alternativet (backend på host, `localhost`) fungerar dåligt på Mac/Windows:** Docker Desktop kör containern i en VM, så `--network host` delar inte host-nätverket tillförlitligt där. På **Linux (t.ex. superdatorn)** fungerar `--network host` bra, men det är inte värt att ha olika uppsättningar lokalt kontra HPC bara för det.
+- **Live-utveckling fungerar ändå:** `ros2_ws/src` är bind-mountad (avsnitt 5.6), så ändringar i Python-koden på laptopen syns direkt inuti containern. Starta om noden/launch-filen för att ladda in ändringen — ingen rebuild av imagen krävs. VS Code Dev Containers kan även attacha debuggern och sätta breakpoints i kod som körs inuti containern.
+- **Placering i repot:** lägg backenden som ett eget paket under `ros2_ws/src/` (t.ex. `swarm_backend/`), byggt med `colcon` tillsammans med övriga ROS 2-paket.
+
 ---
 
 ## 6. Superdatorn (HPC)
+
+Superdatorn kör **Linux** som värdoperativsystem (inte macOS eller Windows). Det innebär att ingen virtualiseringslager som Docker Desktop eller WSL2 behövs där, till skillnad från laptoparna i avsnitt 5 — containern (via Apptainer) körs direkt på värdens Linux-kärna, vilket normalt ger bättre prestanda och enklare GPU-passthrough.
 
 ### 6.1 Frågor att ställa till administratörerna först
 
