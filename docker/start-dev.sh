@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Bygger och startar Gazebo-VNC-containern, och öppnar automatiskt ett nytt
-# Terminal-fönster som startar PX4 + Gazebo (drönare 0) däri.
+# Builds and starts the Gazebo-VNC container, and automatically opens a new
+# Terminal window that starts PX4 + Gazebo (drone 0) inside it.
 #
-# Använd terminal.app (macOS standard).
+# Uses Terminal.app (macOS default).
 #
-# Användning:
-#   ./start-dev.sh                        # standarddrönare (gz_x500)
-#   ./start-dev.sh -m gz_x500_depth        # drönare med djupkamera
+# Usage:
+#   ./start-dev.sh                        # default drone (gz_x500)
+#   ./start-dev.sh -m gz_x500_depth        # drone with a depth camera
 #   ./start-dev.sh --model gz_x500_lidar_front
 #
-# Se README.md i denna mapp för alla giltiga PX4_SIM_MODEL-värden.
+# See README.md in this folder for all valid PX4_SIM_MODEL values.
 set -e
 
 MODEL="gz_x500"
@@ -25,7 +25,7 @@ while [ $# -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "Okänd flagga: $1"
+      echo "Unknown flag: $1"
       exit 1
       ;;
   esac
@@ -33,12 +33,12 @@ done
 
 cd "$(dirname "$0")"
 
-echo "Bygger image (hive-px4-vnc)..."
+echo "Building image (hive-px4-vnc)..."
 docker build -t hive-px4-vnc .
 
 docker rm -f px4-gazebo-vnc >/dev/null 2>&1 || true
 
-echo "Öppnar en ny terminal som väntar på containern och startar PX4 (modell: ${MODEL})..."
+echo "Opening a new terminal that waits for the container and starts PX4 (model: ${MODEL})..."
 osascript <<APPLESCRIPT
 tell application "Terminal"
     activate
@@ -46,7 +46,7 @@ tell application "Terminal"
 end tell
 APPLESCRIPT
 
-echo "Startar containern (Ctrl+C här stänger ned allt)..."
+echo "Starting the container (Ctrl+C here shuts everything down)..."
 docker run --rm -it --name px4-gazebo-vnc \
   -p 6080:6080 -p 5900:5900 \
   -v "$(pwd)/..":/workspace \
