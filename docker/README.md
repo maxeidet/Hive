@@ -3,13 +3,35 @@
 ## Starting local dev
 
 ```bash
-./start-dev.sh                        # default drone (gz_x500)
+./start-dev.sh                        # default drone (gz_x500) in baylands
 ./start-dev.sh -m gz_x500_depth        # pick a different sensor loadout
 ./start-dev.sh --model gz_x500_lidar_front
+./start-dev.sh -w forest               # pick a different world
+./start-dev.sh -m gz_x500_depth -w ridge
 ./start-dev.sh -h                      # show usage
 ```
 
 The `-m`/`--model` flag sets which drone variant gets spawned — any value from the `PX4_SIM_MODEL` table below. Defaults to `gz_x500` (no extra sensors) if omitted.
+
+The `-w`/`--world` flag sets which Gazebo world gets loaded — any value from the world table below. **Defaults to `baylands`** if omitted.
+
+**Available worlds** (all bundled in the image already, no download needed):
+
+| `-w` value | Description |
+|---|---|
+| `baylands` (default) | Terrain + water, more realistic environment. Takes noticeably longer to load than the others — the "Waiting for Gazebo world..." line can repeat for 30–60s, that's normal, not a hang. |
+| `default` | Flat empty ground plane |
+| `forest` | Trees / vegetation |
+| `ridge` | Hilly / elevated terrain |
+| `walls` | Enclosed walled area |
+| `lawn` | Grass field |
+| `windy` | Wind-affected environment |
+| `aruco` | Contains ArUco markers (for vision/tag detection) |
+| `frictionless` | Frictionless ground (rover/testing edge cases) |
+| `underwater` | Underwater environment |
+| `rover` | Rover-oriented terrain |
+| `kthspacelab`, `kth_marinarium` | KTH-specific scenario worlds |
+| `moving_platform` | Includes a moving landing platform |
 
 **What the script actually starts:**
 
