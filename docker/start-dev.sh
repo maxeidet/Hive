@@ -15,11 +15,7 @@
 set -e
 
 MODEL="gz_x500"
-<<<<<<< Updated upstream
 WORLD="baylands"
-=======
-WORLD="default"
->>>>>>> Stashed changes
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -53,11 +49,8 @@ echo "Opening a new terminal that waits for the container and starts PX4 (model:
 osascript <<APPLESCRIPT
 tell application "Terminal"
     activate
-<<<<<<< Updated upstream
-    do script "until docker inspect -f '{{.State.Running}}' px4-gazebo-vnc 2>/dev/null | grep -q true; do sleep 1; done; docker exec -it px4-gazebo-vnc bash -c 'export PX4_SIM_MODEL=${MODEL} PX4_GZ_WORLD=${WORLD} PX4_GZ_MODEL_POSE=0,0,0,0,0,0; /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0'"
-=======
     do script "until docker inspect -f '{{.State.Running}}' px4-gazebo-vnc 2>/dev/null | grep -q true; do sleep 1; done; docker exec -it px4-gazebo-vnc bash -c 'cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true; export PX4_GZ_WORLD=${WORLD} PX4_SIM_MODEL=${MODEL} PX4_GZ_MODEL_POSE=0,0,0,0,0,0; /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0'"
->>>>>>> Stashed changes
+
 end tell
 APPLESCRIPT
 

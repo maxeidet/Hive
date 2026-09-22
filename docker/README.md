@@ -17,21 +17,21 @@ The `-w`/`--world` flag sets which Gazebo world gets loaded — any value from t
 
 **Available worlds** (all bundled in the image already, no download needed):
 
-| `-w` value | Description |
-|---|---|
-| `baylands` (default) | Terrain + water, more realistic environment. Takes noticeably longer to load than the others — the "Waiting for Gazebo world..." line can repeat for 30–60s, that's normal, not a hang. |
-| `default` | Flat empty ground plane |
-| `forest` | Trees / vegetation |
-| `ridge` | Hilly / elevated terrain |
-| `walls` | Enclosed walled area |
-| `lawn` | Grass field |
-| `windy` | Wind-affected environment |
-| `aruco` | Contains ArUco markers (for vision/tag detection) |
-| `frictionless` | Frictionless ground (rover/testing edge cases) |
-| `underwater` | Underwater environment |
-| `rover` | Rover-oriented terrain |
-| `kthspacelab`, `kth_marinarium` | KTH-specific scenario worlds |
-| `moving_platform` | Includes a moving landing platform |
+| `-w` value                      | Description                                                                                                                                                                             |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `baylands` (default)            | Terrain + water, more realistic environment. Takes noticeably longer to load than the others — the "Waiting for Gazebo world..." line can repeat for 30–60s, that's normal, not a hang. |
+| `default`                       | Flat empty ground plane                                                                                                                                                                 |
+| `forest`                        | Trees / vegetation                                                                                                                                                                      |
+| `ridge`                         | Hilly / elevated terrain                                                                                                                                                                |
+| `walls`                         | Enclosed walled area                                                                                                                                                                    |
+| `lawn`                          | Grass field                                                                                                                                                                             |
+| `windy`                         | Wind-affected environment                                                                                                                                                               |
+| `aruco`                         | Contains ArUco markers (for vision/tag detection)                                                                                                                                       |
+| `frictionless`                  | Frictionless ground (rover/testing edge cases)                                                                                                                                          |
+| `underwater`                    | Underwater environment                                                                                                                                                                  |
+| `rover`                         | Rover-oriented terrain                                                                                                                                                                  |
+| `kthspacelab`, `kth_marinarium` | KTH-specific scenario worlds                                                                                                                                                            |
+| `moving_platform`               | Includes a moving landing platform                                                                                                                                                      |
 
 **What the script actually starts:**
 
@@ -57,10 +57,10 @@ Verified by inspecting the model files directly inside the `px4io/px4-sitl-gazeb
 No matter which `PX4_SIM_MODEL` variant we pick, they all build on the base model `x500_base`, which always includes:
 
 1. Every drone (base `x500`) already has, regardless of variant — confirmed from `x500_base/model.sdf`:
-   * IMU (`imu_sensor`)
-   * Magnetometer (`magnetometer_sensor`)
-   * Barometer (`air_pressure_sensor`)
-   * GPS (`navsat_sensor`)
+   - IMU (`imu_sensor`)
+   - Magnetometer (`magnetometer_sensor`)
+   - Barometer (`air_pressure_sensor`)
+   - GPS (`navsat_sensor`)
 
 No camera, LiDAR, or radar is included in the base model.
 
@@ -72,17 +72,17 @@ We switch the sensor loadout by setting this environment variable before startin
 export PX4_SIM_MODEL=gz_x500_depth
 ```
 
-| `PX4_SIM_MODEL` value | Extra sensor(s) on top of the default |
-|---|---|
-| `gz_x500` | None — just IMU/magnetometer/barometer/GPS |
-| `gz_x500_mono_cam` | Regular camera (`mono_cam`) |
-| `gz_x500_depth` | RGB camera + depth camera (OAK-D Lite: `camera` + `depth_camera`) |
-| `gz_x500_lidar_2d` | 2D LiDAR |
-| `gz_x500_lidar_front` | 3D LiDAR, forward-facing (`gpu_lidar`) |
-| `gz_x500_lidar_down` | 3D LiDAR, downward-facing (`gpu_lidar`) |
-| `gz_x500_flow` | Optical flow sensor + LiDAR (altitude hold without GPS) |
-| `gz_x500_vision` | No extra sensor — for external vision/mocap input instead |
-| `gz_x500_gimbal` | Gimbal mount (pair with a camera model) |
+| `PX4_SIM_MODEL` value | Extra sensor(s) on top of the default                             |
+| --------------------- | ----------------------------------------------------------------- |
+| `gz_x500`             | None — just IMU/magnetometer/barometer/GPS                        |
+| `gz_x500_mono_cam`    | Regular camera (`mono_cam`)                                       |
+| `gz_x500_depth`       | RGB camera + depth camera (OAK-D Lite: `camera` + `depth_camera`) |
+| `gz_x500_lidar_2d`    | 2D LiDAR                                                          |
+| `gz_x500_lidar_front` | 3D LiDAR, forward-facing (`gpu_lidar`)                            |
+| `gz_x500_lidar_down`  | 3D LiDAR, downward-facing (`gpu_lidar`)                           |
+| `gz_x500_flow`        | Optical flow sensor + LiDAR (altitude hold without GPS)           |
+| `gz_x500_vision`      | No extra sensor — for external vision/mocap input instead         |
+| `gz_x500_gimbal`      | Gimbal mount (pair with a camera model)                           |
 
 **Radar doesn't exist** as a built-in sensor in PX4/Gazebo. For Counter-UAS detection, we'll either need to fake it with a scripted "detection radius" node, or build a custom Gazebo sensor plugin.
 
@@ -96,7 +96,7 @@ If the container is running via `./start-dev.sh` (container name `px4-gazebo-vnc
 
 ## Example: adding a second drone with a depth camera
 
-To add an *extra* drone with a depth camera alongside whatever `start-dev.sh` already started (drone 0), run this in a new terminal — note the different container name, instance number, and spawn pose so it doesn't collide with drone 0:
+To add an _extra_ drone with a depth camera alongside whatever `start-dev.sh` already started (drone 0), run this in a new terminal — note the different container name, instance number, and spawn pose so it doesn't collide with drone 0:
 
 ```bash
 docker exec -it px4-gazebo-vnc bash -c "
