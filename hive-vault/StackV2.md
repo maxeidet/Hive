@@ -159,57 +159,16 @@ projekt/
 └── README.md
 ```
 
-### 5.2 Dockerfile (utgångspunkt)
-
-PX4 tillhandahåller `px4io/px4-sitl-gazebo-ros2`, som innehåller PX4, Gazebo, ROS 2, uXRCE-DDS-agenten och `px4_msgs` som matchar firmwaren. Bilden finns för både `amd64` och `arm64`, så Mac (M2) och Windows-datorer får varsin nativ bild utan emulering.
-
-```dockerfile
-# Pinna digest i stället för "latest" så att alla har exakt samma miljö
-FROM px4io/px4-sitl-gazebo-ros2@sha256:<DIGEST>
-
-RUN apt-get update && apt-get install -y \
-    python3-pip python3-colcon-common-extensions \
-    && rm -rf /var/lib/apt/lists/*
-
-# Python-beroenden för AI-delen
-COPY requirements.txt /tmp/requirements.txt
-RUN pip3 install --break-system-packages -r /tmp/requirements.txt
-```
-
-> **Viktigt:** Ändrar ni PX4-firmware eller meddelandedefinitioner måste ROS-workspacen (`px4_msgs`) byggas om så att den matchar. Antag inte att de medföljande meddelandena är kompatibla.
-
-Kontrollera vilken Gazebo-version (och ROS 2-distribution) den valda bilden faktiskt innehåller innan ni låser er, och skriv ner den i README.
-
-### 5.3 Snabbstart: headless simulering
-
-Kör i tre olika terminaler:
-
-```bash
-# Terminal 1: container + DDS-agent
-docker run --rm -it --name px4-gazebo-ros2 \
-  px4io/px4-sitl-gazebo-ros2:latest MicroXRCEAgent udp4 -p 8888
-
-# Terminal 2: PX4 + headless Gazebo
-docker exec -it px4-gazebo-ros2 \
-  /usr/local/bin/ros2-entrypoint.sh env HEADLESS=1 px4-gazebo
-
-# Terminal 3: lista ROS 2-topics
-docker exec -it px4-gazebo-ros2 \
-  /usr/local/bin/ros2-entrypoint.sh ros2 topic list
-```
-
-PX4, agenten och ROS 2 kommunicerar inuti samma container, så host-nätverk behövs inte. ROS-noder utanför containern kräver extra DDS-nätverkskonfiguration, så kör helst era egna noder i samma container.
-
-### 5.4 macOS (Apple Silicon)
+### 5.2 macOS (Apple Silicon)
 
 - Använd **ARM64-images** och tvinga aldrig `--platform linux/amd64` (emulering är långsam och Gazebo kraschar ofta).
 - **Gazebo körs headless** (`HEADLESS=1`) som standard för vanlig kodning/iteration — snabbast, minst resurskrävande.
 - Följ simuleringen via **QGroundControl** (nativ macOS-app) och ROS 2-topics när du inte behöver se 3D-världen.
-- Behövs Gazebo-GUI: använd **VNC-lagret i avsnitt 5.4.3 (verifierat, rekommenderat)** — inte XQuartz (opålitlig rendering av Gazebo på macOS) och inte en Ubuntu-VM om det går att undvika (tyngre att sätta upp per person).
+- Behövs Gazebo-GUI: använd **VNC-lagret i avsnitt 5.2.3 (verifierat, rekommenderat)** — inte XQuartz (opålitlig rendering av Gazebo på macOS) och inte en Ubuntu-VM om det går att undvika (tyngre att sätta upp per person).
 - Ge Docker minst 4 CPU och 8 GB RAM.
-- **Containrar på macOS kan inte använda GPU:n** (hård plattformsbegränsning, inget som går att fixa i containern) — Gazebo renderar därför alltid med mjukvara (`llvmpipe`) på Mac, vilket äter CPU och gör GUI-läget märkbart segt. Se avsnitt 5.9 om ni vill köra på en dator med GPU istället.
+- **Containrar på macOS kan inte använda GPU:n** (hård plattformsbegränsning, inget som går att fixa i containern) — Gazebo renderar därför alltid med mjukvara (`llvmpipe`) på Mac, vilket äter CPU och gör GUI-läget märkbart segt. Se avsnitt 5.6 om ni vill köra på en dator med GPU istället.
 
-#### 5.4.1 Steg-för-steg: verifierad snabbstart på macOS (manuellt, utan Dev Container ännu)
+#### 5.2.1 Steg-för-steg: verifierad snabbstart på macOS (manuellt, utan Dev Container ännu)
 
 Detta är den faktiska sekvens som testats och verifierats fungera end-to-end (container → PX4 SITL → Gazebo → QGroundControl → flera drönare). Kör varje steg i en egen terminal och lämna dem igång.
 
@@ -238,13 +197,13 @@ Detta är den faktiska sekvens som testats och verifierats fungera end-to-end (c
    commander takeoff
    ```
    Om det ger `Arming denied: Resolve system health failures first` — det är nästan alltid att QGroundControl inte är anslutet än (steg 5). Anslut QGC först, arma/lyft sedan antingen via `commander takeoff` igen eller QGC:s egna arm/takeoff-knappar.
-7. **Starta din Python-backend** som ROS 2-nod (avsnitt 5.7), i en egen terminal:
+7. **Starta din Python-backend** som ROS 2-nod (avsnitt 5.5), i en egen terminal:
    ```bash
    docker exec -it px4-gazebo-ros2 \
      /usr/local/bin/ros2-entrypoint.sh python3 /workspace/backend.py
    ```
 
-#### 5.4.2 Flera drönare (verifierat)
+#### 5.2.2 Flera drönare (verifierat)
 
 PX4 SITL stödjer flera instanser i **samma** Gazebo-värld och **samma** ROS 2-graf i samma container — inget behov av flera containrar eller flera Gazebo-instanser.
 
@@ -273,7 +232,7 @@ for i in range(num_drones):
 export PX4_HOME_LAT=<lat> PX4_HOME_LON=<lon> PX4_HOME_ALT=0
 ```
 
-#### 5.4.3 Gazebo-GUI via VNC (verifierat, rekommenderat)
+#### 5.2.3 Gazebo-GUI via VNC (verifierat, rekommenderat)
 
 Byggs **en gång** ovanpå basimagen, sen får hela teamet samma GUI-åtkomst oavsett OS — istället för att varje person kämpar med XQuartz eller sätter upp en egen VM.
 
@@ -303,16 +262,16 @@ docker exec -it px4-gazebo-vnc bash -c "
 **Kända begränsningar:**
 - **Mjukvarurendering + VNC-encoding är tungt** — förvänta ~250–300 % CPU-användning och märkbar lagg, särskilt i webbläsaren. Native VNC-klient är oftast snabbare än noVNC.
 - Använd detta läge **vid behov** (t.ex. när ni bygger/felsöker er världs-SDF), inte som standardläge för vardagskodning — kör headless annars.
-- Se avsnitt 5.9 för hur ni kan flytta GUI-körningen till en dator med GPU för bättre prestanda.
+- Se avsnitt 5.6 för hur ni kan flytta GUI-körningen till en dator med GPU för bättre prestanda.
 
-### 5.5 Windows
+### 5.3 Windows
 
 - Docker Desktop med **WSL2**.
 - **Lägg repot i WSL:s filsystem** (`~/projekt`), inte under `/mnt/c/...`, annars blir filåtkomsten mycket långsam.
 - Sätt `eol=lf` för skript i `.gitattributes`, annars kraschar shell-skript med Windows-radslut (CRLF) i containern.
 - Gazebo-GUI via WSLg kan fungera, men GPU-acceleration har extra krav på drivrutiner och Docker-backend. Mjukvarurendering fungerar utan GPU-passthrough men är långsam.
 
-### 5.6 Gemensamma arbetsrutiner
+### 5.4 Gemensamma arbetsrutiner
 
 - **Dev Containers:** alla öppnar repot i samma VS Code Dev Container.
 - **Färdig image:** bygg multi-arch-bilden i CI (`docker buildx`, `linux/amd64,linux/arm64`) och publicera till GitHub Container Registry. Ingen ska behöva bygga bilden lokalt.
@@ -321,21 +280,21 @@ docker exec -it px4-gazebo-vnc bash -c "
 - **Git:** feature-branches och pull requests. CI kör `colcon build` och `colcon test` i containern.
 - **Versionsfastlåsning:** pinna image-digest, Python-beroenden (`requirements.txt` med versioner) och PX4-version.
 
-### 5.7 Python-backend: kör i samma container (rekommenderat lokalt)
+### 5.5 Python-backend: kör i samma container (rekommenderat lokalt)
 
 Kör Python-backenden som en vanlig **ROS 2-nod** (`rclpy`) inuti samma container som PX4, Gazebo och resten av ROS 2 — inte som en separat process på host-datorn.
 
 - **Varför:** ingen container-till-host-nätverkskonfiguration för DDS-diskovery krävs. Allt delar samma `ROS_DOMAIN_ID` och ser varandra direkt.
 - **Alternativet (backend på host, `localhost`) fungerar dåligt på Mac/Windows:** Docker Desktop kör containern i en VM, så `--network host` delar inte host-nätverket tillförlitligt där. På **Linux (t.ex. superdatorn)** fungerar `--network host` bra, men det är inte värt att ha olika uppsättningar lokalt kontra HPC bara för det.
-- **Live-utveckling fungerar ändå:** `ros2_ws/src` är bind-mountad (avsnitt 5.6), så ändringar i Python-koden på laptopen syns direkt inuti containern. Starta om noden/launch-filen för att ladda in ändringen — ingen rebuild av imagen krävs. VS Code Dev Containers kan även attacha debuggern och sätta breakpoints i kod som körs inuti containern.
+- **Live-utveckling fungerar ändå:** `ros2_ws/src` är bind-mountad (avsnitt 5.4), så ändringar i Python-koden på laptopen syns direkt inuti containern. Starta om noden/launch-filen för att ladda in ändringen — ingen rebuild av imagen krävs. VS Code Dev Containers kan även attacha debuggern och sätta breakpoints i kod som körs inuti containern.
 - **Placering i repot:** lägg backenden som ett eget paket under `ros2_ws/src/` (t.ex. `swarm_backend/`), byggt med `colcon` tillsammans med övriga ROS 2-paket.
 
-### 5.9 Prestanda: GPU och fjärrkörning
+### 5.6 Prestanda: GPU och fjärrkörning
 
-Om Gazebo-GUI (avsnitt 5.4.3) känns för segt eller äter för mycket CPU lokalt, två alternativ utöver att bara köra headless oftare:
+Om Gazebo-GUI (avsnitt 5.2.3) känns för segt eller äter för mycket CPU lokalt, två alternativ utöver att bara köra headless oftare:
 
 - **En dator med NVIDIA-GPU (t.ex. en gaming-PC) på Windows/Linux:** installera Docker Desktop med WSL2 (Windows) eller Docker nativt (Linux) plus **NVIDIA Container Toolkit**, och kör samma image med `--gpus all`. Då renderar Gazebo med riktig hårdvaruacceleration istället för mjukvaru-rendering (`llvmpipe`), vilket löser både CPU-belastningen och laggen vid källan. Detta är inte möjligt på macOS — Docker där har ingen GPU-åtkomst, en hård plattformsbegränsning.
-- **Superdatorn, via interaktiv Slurm-session + SSH-tunnel:** kör samma VNC-container (avsnitt 5.4.3) i en interaktiv allokering (`srun --pty ...`) istället för ett batch-jobb, och tunnla VNC-porten till din laptop:
+- **Superdatorn, via interaktiv Slurm-session + SSH-tunnel:** kör samma VNC-container (avsnitt 5.2.3) i en interaktiv allokering (`srun --pty ...`) istället för ett batch-jobb, och tunnla VNC-porten till din laptop:
   ```bash
   ssh -L 6080:localhost:6080 -L 5900:localhost:5900 you@superdatorn
   ```
