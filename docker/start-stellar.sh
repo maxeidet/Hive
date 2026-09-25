@@ -5,20 +5,23 @@
 # THIS terminal (you get the pxh> shell). Open another terminal for the backend:
 #   ./ros2_ws/src/swarm_backend/mount-backend.sh
 #
-# Usage:
-#   ./start-stellar.sh                        # default drone (gz_x500) in baylands, GUI via VNC
-#   ./start-stellar.sh -m gz_x500_depth       # drone with a depth camera
-#   ./start-stellar.sh -w hive_base           # our own world (worlds/hive_base.sdf)
-#   ./start-stellar.sh --headless             # no GUI, no ports published
-#   ./start-stellar.sh --native-gui           # Gazebo window on THIS computer's own screen (no VNC)
-#   ./start-stellar.sh --gpu                  # give the container the GPU(s), see below
-#   ./start-stellar.sh --native-gui --gpu     # GUI rendered on the GPU
+# Default: --native-gui -w hive_base (Gazebo window on this computer's own screen).
 #
-# GUI via VNC (default): open http://localhost:6080/vnc.html in a browser ON THIS
-# COMPUTER (course students have no remote access). Ports are bound to 127.0.0.1
-# only and are protected by a random password printed below. Another user may
-# already hold 6080/5900 on a shared computer, so they can be overridden:
-#   HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 ./start-stellar.sh
+# Usage:
+#   ./start-stellar.sh                        # = --native-gui -w hive_base, drone gz_x500
+#   ./start-stellar.sh -m gz_x500_depth       # drone with a depth camera
+#   ./start-stellar.sh -w baylands            # another world
+#   ./start-stellar.sh --vnc                  # GUI through a browser on this computer instead
+#   ./start-stellar.sh --headless             # no GUI, no ports published
+#   ./start-stellar.sh --gpu                  # give the container the GPU(s), see below
+#
+# --native-gui (default): the Gazebo window opens on the screen you are sitting at
+#   (course students have no remote access, so we always are). No VNC involved.
+# --vnc: open http://localhost:6080/vnc.html in a browser ON THIS COMPUTER. Ports are
+#   bound to 127.0.0.1 only and protected by a random password printed below. Another
+#   user may already hold 6080/5900 on a shared computer, so they can be overridden:
+#     HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 ./start-stellar.sh --vnc
+# The last of --native-gui / --vnc / --headless on the command line wins.
 #
 # GPU: --gpu passes `--device nvidia.com/gpu=all` (Stellar rootless Docker guide),
 # which gives the container ALL GPUs in the computer, and prints nvidia-smi first:
@@ -30,13 +33,13 @@
 # Stop: Ctrl+C or type `shutdown` at the pxh> prompt. The container is removed
 # automatically. Agent logs: docker logs -f px4-gazebo-vnc
 #
-# See README.md in this folder for all valid PX4_SIM_MODEL and world values.
+# See README.md in this folder for all valid PX4_SIM_MODEL and world values, and
+# README-stellar.md for the full Stellar guide (including cleanup after a session).
 set -e
 
 MODEL="gz_x500"
-WORLD="baylands"
-HEADLESS_MODE=0
-NATIVE_GUI=0
+WORLD="hive_base"
+GUI_MODE="native"   # native | vnc | headless
 USE_GPU=0
 HOST_NOVNC_PORT="${HOST_NOVNC_PORT:-6080}"
 HOST_VNC_PORT="${HOST_VNC_PORT:-5900}"
@@ -51,12 +54,16 @@ while [ $# -gt 0 ]; do
       WORLD="$2"
       shift 2
       ;;
-    --headless)
-      HEADLESS_MODE=1
+    --native-gui)
+      GUI_MODE="native"
       shift
       ;;
-    --native-gui)
-      NATIVE_GUI=1
+    --vnc)
+      GUI_MODE="vnc"
+      shift
+      ;;
+    --headless)
+      GUI_MODE="headless"
       shift
       ;;
     --gpu)
@@ -79,13 +86,9 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 1
 fi
 
-if [ "$HEADLESS_MODE" = "1" ] && [ "$NATIVE_GUI" = "1" ]; then
-  echo "--headless and --native-gui cannot be combined."
-  exit 1
-fi
-
-if [ "$NATIVE_GUI" = "1" ] && [ -z "${DISPLAY:-}" ]; then
-  echo "--native-gui needs a graphical session on this computer (DISPLAY is not set)."
+if [ "$GUI_MODE" = "native" ] && [ -z "${DISPLAY:-}" ]; then
+  echo "--native-gui (the default) needs a graphical session on this computer, but DISPLAY is not set."
+  echo "Use --vnc (browser on this computer) or --headless (no GUI) instead."
   exit 1
 fi
 
@@ -131,7 +134,7 @@ PORT_ARGS=()
 GUI_ARGS=()
 GPU_ARGS=()
 
-if [ "$NATIVE_GUI" = "1" ]; then
+if [ "$GUI_MODE" = "native" ]; then
   # Draw on this computer's own X display. Container root is our own user under
   # rootless Docker, so the display's cookie file is readable.
   GUI_ARGS=(-e "DISPLAY=${DISPLAY}" -e NO_VNC=1 -e QT_X11_NO_MITSHM=1 -v /tmp/.X11-unix:/tmp/.X11-unix)
@@ -139,7 +142,7 @@ if [ "$NATIVE_GUI" = "1" ]; then
   if [ -f "$XAUTH_FILE" ]; then
     GUI_ARGS+=(-e XAUTHORITY=/tmp/.Xauthority -v "${XAUTH_FILE}":/tmp/.Xauthority:ro)
   fi
-elif [ "$HEADLESS_MODE" = "0" ]; then
+elif [ "$GUI_MODE" = "vnc" ]; then
   PORT_ARGS=(-p "127.0.0.1:${HOST_NOVNC_PORT}:6080" -p "127.0.0.1:${HOST_VNC_PORT}:5900")
 fi
 
@@ -153,7 +156,7 @@ if ! docker run -d --rm --name px4-gazebo-vnc \
     -v "${REPO_ROOT}":/workspace \
     hive-px4-vnc MicroXRCEAgent udp4 -p 8888 >/dev/null; then
   echo "Could not start the container. If a port is taken by another user, try:"
-  echo "  HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 $0"
+  echo "  HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 $0 --vnc"
   exit 1
 fi
 
@@ -170,9 +173,9 @@ if [ "$USE_GPU" = "1" ]; then
 fi
 
 echo ""
-if [ "$NATIVE_GUI" = "1" ]; then
+if [ "$GUI_MODE" = "native" ]; then
   echo "  GUI: the Gazebo window opens on this computer's own screen (no VNC)."
-elif [ "$HEADLESS_MODE" = "0" ]; then
+elif [ "$GUI_MODE" = "vnc" ]; then
   echo "  GUI (browser on this computer):  http://localhost:${HOST_NOVNC_PORT}/vnc.html"
   echo "  VNC client:                      vnc://127.0.0.1:${HOST_VNC_PORT}"
   echo "  VNC password:                    ${VNC_PASSWORD}"
@@ -184,7 +187,7 @@ echo ""
 echo "Starting PX4 + Gazebo (model: ${MODEL}, world: ${WORLD}). Ctrl+C or 'shutdown' stops everything."
 
 HEADLESS_ENV=""
-if [ "$HEADLESS_MODE" = "1" ]; then
+if [ "$GUI_MODE" = "headless" ]; then
   HEADLESS_ENV="HEADLESS=1 "
 fi
 

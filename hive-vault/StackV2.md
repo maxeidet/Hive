@@ -240,7 +240,7 @@ Byggs **en gång** ovanpå basimagen, sen får hela teamet samma GUI-åtkomst oa
 
 **Vad den lägger till:** `Xvfb` (virtuell display, containern har ingen egen skärm), `fluxbox` (fönsterhanterare), `x11vnc` (VNC-server mot displayen, port 5900), `novnc` + `websockify` (webbläsarklient mot samma VNC-server, port 6080). Filerna finns i `docker/Dockerfile` och `docker/start-vnc.sh`.
 
-Enklast är `docker/start-dev.sh` på macOS (bygger, startar containern och öppnar en andra terminal med PX4) och `docker/start-stellar.sh` på Stellar/Ubuntu (en terminal, flaggor för `--headless`, `--native-gui` och `--gpu`; se `docker/README.md`). Manuellt motsvarar det:
+Enklast är `docker/start-dev.sh` på macOS (bygger, startar containern och öppnar en andra terminal med PX4) och `docker/start-stellar.sh` på Stellar/Ubuntu (en terminal; standard är `--native-gui -w hive_base`, flaggor `--vnc`, `--headless` och `--gpu`; se `docker/README-stellar.md`). Manuellt motsvarar det:
 
 ```bash
 cd docker
@@ -313,7 +313,7 @@ Om Gazebo-GUI (avsnitt 5.2.3) känns för segt eller äter för mycket CPU lokal
 
 ## 6. Superdatorn (HPC)
 
-> **Obs — outestat mot Stellar.** Avsnitt 6 (Slurm, Apptainer, batchjobb) skrevs innan vi läste [Stellar rules](https://gitlab.liu.se/stellar-support/rules). Stellar-guiden bekräftar att varje labbdator (desktop) ger varje användare en egen **rootless Docker**-daemon (inget att installera, egna images per dator), varken reglerna eller guiden nämner Slurm eller Apptainer, och **kursstudenter har ingen fjärråtkomst**. Anta därför att Slurm/Apptainer nedan *inte* gäller. Se `docker/README.md` ("Running on Stellar") för vad som gäller nu.
+> **Obs — outestat mot Stellar.** Avsnitt 6 (Slurm, Apptainer, batchjobb) skrevs innan vi läste [Stellar rules](https://gitlab.liu.se/stellar-support/rules). Stellar-guiden bekräftar att varje labbdator (desktop) ger varje användare en egen **rootless Docker**-daemon (inget att installera, egna images per dator), varken reglerna eller guiden nämner Slurm eller Apptainer, och **kursstudenter har ingen fjärråtkomst**. Anta därför att Slurm/Apptainer nedan *inte* gäller. Se `docker/README-stellar.md` för vad som gäller nu.
 
 Superdatorn kör **Linux** som värdoperativsystem (inte macOS eller Windows). Det innebär att ingen virtualiseringslager som Docker Desktop eller WSL2 behövs där, till skillnad från laptoparna i avsnitt 5 — containern (via Apptainer) körs direkt på värdens Linux-kärna, vilket normalt ger bättre prestanda och enklare GPU-passthrough.
 
