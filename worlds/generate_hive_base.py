@@ -45,9 +45,6 @@ GLASS = (0.10, 0.14, 0.17, 1)
 CANVAS = (0.30, 0.33, 0.22, 1)
 WOOD = (0.50, 0.36, 0.22, 1)
 ASH = (0.20, 0.19, 0.18, 1)
-SE_BLUE = (0.0, 0.32, 0.58, 1)
-SE_YELLOW = (1.0, 0.80, 0.0, 1)
-HELIPAD = (0.12, 0.12, 0.12, 1)
 WHITE = (0.9, 0.9, 0.9, 1)
 
 
@@ -116,7 +113,7 @@ models = []
 # ----------------------------------------------------------------------------
 # Layout
 # ----------------------------------------------------------------------------
-# Lägret ligger inne i tät skog kring origo (helipaden, där drönaren spawnar).
+# Lägret ligger inne i tät skog kring origo, där drönaren spawnar.
 # Träd växer ända fram till och mellan tälten; bara objekten själva har fri yta.
 # Grusvägen går öst-väst söder om lägret med en svag kurva, och en infart
 # leder norrut in till fordonsplatsen.
@@ -126,6 +123,7 @@ MIN_TREE_D = 3.8
 
 TENTS = [(-14, 10, 0.3), (-4, 17, -0.2), (7, 16, 0.5), (-18, -2, 1.2), (17, 6, 2.4)]
 # Fria cirklar (x, y, radie) kring lägrets objekt
+# Origo hålls fri för drönarens start
 CAMP_ZONES = [(0, 0, 7.0)] + [(tx, ty, 4.2) for tx, ty, _ in TENTS] + [
     (-3, 6, 3.0),     # eldstad
     (-9, -5.5, 4.5),  # stabsbord under kamouflagenät
@@ -333,16 +331,6 @@ for i in range(30):
 models.append(logs)
 
 # ----------------------------------------------------------------------------
-# Helipad (drönarens start, origo)
-# ----------------------------------------------------------------------------
-pad = Model("helipad", (0, 0, 0, 0, 0, 0))
-pad.add("box", (4, 4, 0.1), (0, 0, 0.05, 0, 0, 0), HELIPAD, collide=True)
-pad.add("box", (0.3, 1.8, 0.01), (-0.5, 0, 0.105, 0, 0, 0), WHITE, shadows=False)
-pad.add("box", (0.3, 1.8, 0.01), (0.5, 0, 0.105, 0, 0, 0), WHITE, shadows=False)
-pad.add("box", (0.8, 0.3, 0.01), (0, 0, 0.105, 0, 0, 0), WHITE, shadows=False)
-models.append(pad)
-
-# ----------------------------------------------------------------------------
 # Tält 20 (fem stycken): tolvkantigt pyramidtält med mittstång, låga väggar,
 # ingång och kaminrör.
 # ----------------------------------------------------------------------------
@@ -389,13 +377,6 @@ for (lx, ly, lyaw) in ((-3, 8.3, 0), (-5.3, 6, 1.57), (-0.7, 6.3, 1.4)):
 for row in range(3):
     for k in range(6 - row):
         camp.add("cyl", (0.1, 0.6), (-10 + k * 0.2 + row * 0.1, 18.5, 0.1 + row * 0.18, math.pi / 2, 0, 0), WOOD)
-# Flaggstång med svensk flagga
-camp.add("cyl", (0.05, 8), (0, 9, 4, 0, 0, 0), WHITE, collide=True)
-camp.add("sphere", (0.08,), (0, 9, 8.05, 0, 0, 0), SE_YELLOW)
-FX, FZ = 0.05 + 0.8, 7.2
-camp.add("box", (1.6, 0.02, 1.0), (FX, 9, FZ, 0, 0, 0), SE_BLUE)
-camp.add("box", (1.62, 0.03, 0.2), (FX, 9, FZ, 0, 0, 0), SE_YELLOW)
-camp.add("box", (0.2, 0.03, 1.02), (FX - 0.2, 9, FZ, 0, 0, 0), SE_YELLOW)
 # Vapenställ / lådor och drivmedelsdunkar vid fordonsplatsen
 for k in range(4):
     camp.add("box", (1.2, 0.6, 0.5), (8 + k * 1.3, -19, 0.25, 0, 0, 0), FM_GREEN, collide=True)
