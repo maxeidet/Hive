@@ -10,7 +10,7 @@ The script for all of this is `docker/start-stellar.sh`. It only works on Linux.
 - **Course students:** no remote access, use the rooms only when we need a GPU, normally one computer per group, leave at once when someone with higher priority needs it, no reservation notes.
 - **Don't hog.** Use the computer our work needs, not the best free one. `--gpu` gives the container **all** GPUs in the computer, so check `nvidia-smi` first that nobody is using it.
 - **Nothing reachable from outside the university network.** No reverse tunnels, ngrok or Tailscale. Our script binds ports to `127.0.0.1` only. Never change that to `0.0.0.0`.
-- **Shared disk, no backup.** Images live in `~/.local/share/docker` on a disk shared with everyone on that computer. Files stay on the computer they were made on. Anything that matters goes to Git. Clean up after every session (section 6).
+- **Shared disk, no backup.** Images live in `~/.local/share/docker` on a disk shared with everyone on that computer (1-2 TB, the login screen shows how much is free). Files stay on the computer they were made on and are never backed up, so anything that matters goes to Git. Disks that fill up get cleared by stellar-support, and people who repeatedly fill them can get a notice. If we ever need to keep a lot of data, write to stellar-support before the disk fills. Clean up after every session (section 6), and when the project ends move off or delete what we no longer use.
 - **Log out when leaving.** Never switch a computer off. The last one out of the room arms the alarm.
 
 ## 2. First time on a computer
@@ -135,7 +135,7 @@ docker system prune
 
 ### C. When we won't be back soon (end of a work block, end of a phase)
 
-Remove the multi-GB images too. The next session downloads them again, which takes a few minutes. Our Docker daemon is our own, so this only affects our images:
+Remove the multi-GB images too. The Stellar cleaning guide says images we remove come back quickly from the lab's own cache when we need them again, so this is cheap. Our Docker daemon is our own, so this only affects our own images:
 ```bash
 docker system prune -a
 ```
@@ -145,7 +145,24 @@ Check the result (the guide says Docker's data lives here):
 du -sh ~/.local/share/docker
 ```
 
-### D. Files in our clone
+### D. Find what else fills our home directory
+
+Old checkpoints, logs and caches grow unnoticed. To see what takes space (in `ncdu`, `d` deletes and `q` quits):
+```bash
+cd ~ && ncdu
+```
+
+The same without `ncdu`:
+```bash
+du -h -d1 ~ | sort -h
+```
+
+Caches such as pip and Hugging Face:
+```bash
+du -sh ~/.cache/*
+```
+
+### E. Files in our clone
 
 ROS 2 build output from the backend is regenerated on the next build and is not in Git. Remove it:
 ```bash
@@ -153,7 +170,7 @@ cd ~/Hive && rm -rf ros2_ws/build ros2_ws/install ros2_ws/log
 ```
 Under rootless Docker these files belong to our own user, so no root is needed.
 
-### E. Keep what matters
+### F. Keep what matters
 
 Nothing on Stellar is backed up. Check for changes made on this computer and push what's worth keeping:
 ```bash
@@ -165,7 +182,7 @@ PX4 flight logs (`.ulg`) live inside the container and disappear when it stops. 
 docker cp px4-gazebo-vnc:/root/.local/share/px4/rootfs/0/fs/log ./px4-logs
 ```
 
-### F. Leave the computer
+### G. Leave the computer
 
 Log out. Don't shut it down, and only restart it if nobody else is using it. If we're the last ones out of the room, arm the alarm. When the whole project ends, delete the clone too.
 
@@ -181,14 +198,12 @@ Log out. Don't shut it down, and only restart it if nobody else is using it. If 
 
 ## 8. Not verified yet
 
-Checked on a Stellar computer so far: Docker works, `x86_64`, an NVIDIA GPU (RTX 3090 Ti) is visible.
+Checked on a Stellar computer so far: Docker works, `x86_64`, an NVIDIA GPU (RTX 3090 Ti) is visible, the image builds, PX4 + Gazebo start, and the backend arms the drone without QGroundControl and it hovers at 5 m.
 
 Checked only on a Mac: the image build, the container starting, VNC password login, and the script's flag handling.
 
 Not checked anywhere yet, so update this list as we learn:
 
-- `docker build` on Stellar, and whether it can reach Docker Hub and Gazebo's online model library.
-- PX4 + Gazebo booting in the container on Stellar, and `hive_base` loading.
 - `--native-gui`: whether the window opens through the container's X11 access.
 - `--gpu`: whether `--device nvidia.com/gpu=all` works for us, and whether Gazebo really renders on the GPU.
-- **QGroundControl:** the image sends MAVLink to `192.168.65.254`, which is Docker Desktop for macOS's address and doesn't exist on Linux, so QGC on a Stellar computer will not auto-connect. We don't need it for flying: the image now disables PX4's "return home on ground-station link loss" setting (`NAV_DLL_ACT=0`, simulation only), and on a Mac with no QGC running the backend armed and hovered at 5 m. That was verified there, not yet on Stellar. You get the change by running `start-stellar.sh`, which rebuilds the image (`git pull` first).
+- **QGroundControl:** the image sends MAVLink to `192.168.65.254`, which is Docker Desktop for macOS's address and doesn't exist on Linux, so QGC on a Stellar computer will not auto-connect. We don't need it for flying: the image now disables PX4's "return home on ground-station link loss" setting (`NAV_DLL_ACT=0`, simulation only), and with no QGC running the backend armed and hovered at 5 m, verified on a Mac and on a Stellar computer. You get the change by running `start-stellar.sh`, which rebuilds the image (`git pull` first).
