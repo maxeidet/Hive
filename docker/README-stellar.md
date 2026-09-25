@@ -82,7 +82,14 @@ Open a second terminal (Ctrl+Alt+T):
 cd ~/Hive && ./ros2_ws/src/swarm_backend/mount-backend.sh
 ```
 
-It builds the ROS 2 workspace inside the container and starts the backend. You should see `position: [...]` lines. After about a second the backend arms the drone and it climbs to about 5 m.
+It builds the ROS 2 workspace inside the container and starts the backend, which flies the drone to 5 m above its start point and hovers there. In the log you should see, in this order:
+
+1. `PX4 pre-flight checks now PASS` (the backend waits for this, and prints a warning every few seconds while it is still failing. This can take 10-20 seconds after PX4 starts.)
+2. `PX4 accepted the offboard mode command` and `PX4 accepted the arm command`
+3. `PX4 is now ARMED` and `PX4 is now in OFFBOARD mode`
+4. `position x=... altitude=...` once per second, then `Reached 5.0 m, hovering`
+
+If PX4 refuses a command the backend keeps retrying once per second and prints `PX4 denied the ... command` (the reason is in the PX4 terminal). **Stopping the backend (Ctrl+C) makes PX4 land the drone**, because it treats the lost offboard stream as a failsafe.
 
 ## 5. Looking at the world, and the GPU
 
@@ -170,7 +177,7 @@ Log out. Don't shut it down, and only restart it if nobody else is using it. If 
 - **`--native-gui ... DISPLAY is not set`:** we're not in a graphical session. Use `--vnc` or `--headless`.
 - **No Gazebo window with `--native-gui`:** use `--vnc`, and tell the others so we can fix it.
 - **Stuck on `Waiting for Gazebo world...`:** `baylands` is slow (30-60 s or more). For `hive_base` it may be the online model download. Try `-w default` to tell which.
-- **`Arming denied` in the PX4 terminal:** QGroundControl isn't connected on Stellar. See section 8.
+- **The backend keeps printing `pre-flight checks are failing`:** read the `Preflight Fail` lines in the PX4 terminal. `no valid barometer data` is normal for the first seconds after PX4 starts. Anything that stays is a real problem, paste it to us.
 
 ## 8. Not verified yet
 
@@ -184,4 +191,4 @@ Not checked anywhere yet, so update this list as we learn:
 - PX4 + Gazebo booting in the container on Stellar, and `hive_base` loading.
 - `--native-gui`: whether the window opens through the container's X11 access.
 - `--gpu`: whether `--device nvidia.com/gpu=all` works for us, and whether Gazebo really renders on the GPU.
-- **QGroundControl:** the image sends MAVLink to `192.168.65.254`, which is Docker Desktop for macOS's address and doesn't exist on Linux. PX4 denied arming until QGC was connected when we tried it manually, and we haven't checked whether the backend can arm without it. It needs its own solution, for example a configurable GCS target IP, or disabling that preflight check in SITL.
+- **QGroundControl:** the image sends MAVLink to `192.168.65.254`, which is Docker Desktop for macOS's address and doesn't exist on Linux, so QGC on a Stellar computer will not auto-connect. We don't need it for flying: the image now disables PX4's "return home on ground-station link loss" setting (`NAV_DLL_ACT=0`, simulation only), and on a Mac with no QGC running the backend armed and hovered at 5 m. That was verified there, not yet on Stellar. You get the change by running `start-stellar.sh`, which rebuilds the image (`git pull` first).

@@ -37,7 +37,7 @@ The `-w`/`--world` flag sets which Gazebo world gets loaded — any value from t
 
 **What the script actually starts:**
 
-1. Builds the `hive-px4-vnc` image from `docker/Dockerfile` (the official `px4io/px4-sitl-gazebo-ros2` base image, plus `Xvfb` + `fluxbox` + `x11vnc` + `noVNC`/`websockify` for the GUI layer).
+1. Builds the `hive-px4-vnc` image from `docker/Dockerfile` (the official `px4io/px4-sitl-gazebo-ros2` base image, plus `Xvfb` + `fluxbox` + `x11vnc` + `noVNC`/`websockify` for the GUI layer). The Dockerfile also sets PX4's `NAV_DLL_ACT` to 0 in the x500 airframe (simulation only), so the drone can be armed by the backend without QGroundControl connected.
 2. Runs that image as a container named `px4-gazebo-vnc`, publishing:
    - port `6080` → noVNC in the browser (`http://localhost:6080/vnc.html`)
    - port `5900` → native VNC client (`vnc://127.0.0.1:5900`)

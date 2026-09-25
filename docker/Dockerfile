@@ -16,6 +16,14 @@ RUN apt-get update && apt-get install -y \
     websockify \
     && rm -rf /var/lib/apt/lists/*
 
+# Simulation only: the x500 airframe (and every x500 variant, they all source it) sets
+# NAV_DLL_ACT=2, "return home when the ground-station link is lost". With that on, PX4
+# refuses to arm ("No connection to the GCS") until QGroundControl is connected. Our
+# backend arms over ROS 2 and there is no QGC on Stellar, so switch it off (0 = disabled).
+# Fails the build if the line is not found, so a changed base image is noticed.
+RUN grep -q "^param set-default NAV_DLL_ACT 2$" /opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500 \
+    && sed -i 's/^param set-default NAV_DLL_ACT 2$/param set-default NAV_DLL_ACT 0/' /opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500
+
 ENV DISPLAY=:1
 ENV VNC_PORT=5900
 ENV NOVNC_PORT=6080

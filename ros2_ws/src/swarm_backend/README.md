@@ -19,3 +19,14 @@ docker exec -it px4-gazebo-vnc bash -c "
   ros2 run swarm_backend backend_node
 "
 ```
+
+## What the node does
+
+`backend_node.py` flies the drone to 5 m above its start point and hovers:
+
+- It streams an offboard heartbeat and a hover setpoint to PX4 at 10 Hz (PX4 needs this stream before it accepts offboard mode).
+- Once PX4 reports that its pre-flight checks pass, it sends the offboard-mode and arm commands, and repeats them once per second until PX4 says it is armed and in offboard mode. It logs PX4's answers, so a refusal is visible instead of silent.
+- It logs the position once per second and `Reached 5.0 m, hovering` when it gets there.
+- Stopping the node makes PX4 land the drone (offboard-loss failsafe).
+
+Setpoint fields the node does not control (velocity, acceleration) are set to NaN, as the PX4 message definition requires. Leaving them at the ROS default of 0 would command zero velocity while climbing.

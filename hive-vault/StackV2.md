@@ -196,7 +196,7 @@ Detta är den faktiska sekvens som testats och verifierats fungera end-to-end (c
    ```
    commander takeoff
    ```
-   Om det ger `Arming denied: Resolve system health failures first` — det är nästan alltid att QGroundControl inte är anslutet än (steg 5). Anslut QGC först, arma/lyft sedan antingen via `commander takeoff` igen eller QGC:s egna arm/takeoff-knappar.
+   Om det ger `Arming denied: Resolve system health failures first`: imagen stänger av PX4:s krav på ansluten markstation (`NAV_DLL_ACT=0`, bara i simulering), så det beror då på en annan preflight-check. Läs `Preflight Fail`-raderna i PX4-terminalen (t.ex. `no valid barometer data` försvinner av sig själv efter några sekunder). Med en äldre image utan ändringen krävdes att QGC var ansluten först.
 7. **Starta din Python-backend** som ROS 2-nod (avsnitt 5.5), i en egen terminal:
    ```bash
    docker exec -it px4-gazebo-ros2 \
