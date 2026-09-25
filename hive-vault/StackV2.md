@@ -240,7 +240,7 @@ Byggs **en gång** ovanpå basimagen, sen får hela teamet samma GUI-åtkomst oa
 
 **Vad den lägger till:** `Xvfb` (virtuell display, containern har ingen egen skärm), `fluxbox` (fönsterhanterare), `x11vnc` (VNC-server mot displayen, port 5900), `novnc` + `websockify` (webbläsarklient mot samma VNC-server, port 6080). Filerna finns i `docker/Dockerfile` och `docker/start-vnc.sh`.
 
-Enklast är `docker/start-dev.sh` (bygger, startar containern och öppnar en andra terminal med PX4). Manuellt motsvarar det:
+Enklast är `docker/start-dev.sh` på macOS (bygger, startar containern och öppnar en andra terminal med PX4) och `docker/start-stellar.sh` på Stellar/Ubuntu (en terminal, flaggor för `--headless`, `--native-gui` och `--gpu`; se `docker/README.md`). Manuellt motsvarar det:
 
 ```bash
 cd docker

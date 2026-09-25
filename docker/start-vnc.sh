@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
+# NO_VNC=1: skip the virtual display + VNC layer (start-stellar.sh --native-gui draws on
+# the computer's own display instead) and go straight to the normal entrypoint.
+if [ -n "${NO_VNC}" ]; then
+  exec /usr/local/bin/ros2-entrypoint.sh "$@"
+fi
+
 # Starta virtuell display (1920x1080 matchar ett vanligt browserfönster bättre än 1280x720,
 # så noVNC behöver skala mindre för att fylla ytan)
 Xvfb "${DISPLAY}" -screen 0 1920x1080x24 &
