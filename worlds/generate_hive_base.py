@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Genererar worlds/hive_base.sdf: ett militärt tältläger i en svensk barrskog.
 
-Allt byggs av SDF-primitiver (box, cylinder, cone, ellipsoid, capsule), så världen
-kräver inga nedladdningar från Gazebo Fuel. Kräver Gazebo Harmonic (sdformat 14).
+Träden är Fuel-modellerna "Pine Tree" och "Oak tree" (samma trädfamilj som
+Baylands), så första starten laddar ner dem (<1 MB). Allt annat är SDF-primitiver.
+Kräver Gazebo Harmonic (sdformat 14).
 
 Kör från repots rot:  python3 worlds/generate_hive_base.py
 Slumpen är seedad, så samma skript ger alltid samma värld.
@@ -115,11 +116,23 @@ models = []
 # ----------------------------------------------------------------------------
 # Layout
 # ----------------------------------------------------------------------------
-# Lägret ligger i en glänta kring origo (helipaden, där drönaren spawnar).
+# Lägret ligger inne i tät skog kring origo (helipaden, där drönaren spawnar).
+# Träd växer ända fram till och mellan tälten; bara objekten själva har fri yta.
 # Grusvägen går öst-väst söder om lägret med en svag kurva, och en infart
-# leder norrut in i gläntan.
-CLEARING_R = 30.0
-WORLD_R = 140.0
+# leder norrut in till fordonsplatsen.
+WORLD_R = 120.0
+TREE_TARGET = 1800
+MIN_TREE_D = 3.8
+
+TENTS = [(-14, 10, 0.3), (-4, 17, -0.2), (7, 16, 0.5), (-18, -2, 1.2), (17, 6, 2.4)]
+# Fria cirklar (x, y, radie) kring lägrets objekt
+CAMP_ZONES = [(0, 0, 7.0)] + [(tx, ty, 4.2) for tx, ty, _ in TENTS] + [
+    (-3, 6, 3.0),     # eldstad
+    (-9, -5.5, 4.5),  # stabsbord under kamouflagenät
+    (-10, 18.5, 1.5), # vedtrave
+    (-24, -12, 3.0),  # flyttblock
+]
+VEH_AREA = (5.0, 23.0, -21.0, -8.0)  # xmin, xmax, ymin, ymax
 
 
 def road_y(x):
@@ -150,8 +163,6 @@ ground.parts.append(
 ground.parts.append(
     f"<visual name=\"visual\"><geometry><plane><normal>0 0 1</normal><size>1000 1000</size></plane></geometry>{material(MOSS)}</visual>"
 )
-# Gläntan: lite ljusare, upptrampat gräs
-ground.add("cyl", (CLEARING_R - 2, 0.01), (0, 0, 0.005, 0, 0, 0), (0.33, 0.38, 0.20, 1), shadows=False)
 models.append(ground)
 
 # ----------------------------------------------------------------------------
@@ -184,100 +195,102 @@ road.add("box", (16, 10, 0.04), (14, -14, 0.022, 0, 0, 0), GRAVEL, shadows=False
 models.append(road)
 
 # ----------------------------------------------------------------------------
-# Skog: gran, tall och björk. En modell per ~sektor håller antalet entiteter nere.
+# Skog: tall- och lövträdsmodellerna från Gazebo Fuel (samma trädfamilj som
+# Baylands använder). Meshen refereras direkt så att vi kan skala dem; varje
+# 40x40 m-ruta blir en statisk modell för att hålla antalet entiteter nere.
 # ----------------------------------------------------------------------------
+FUEL = "https://fuel.gazebosim.org/1.0/OpenRobotics/models"
+# name: (mesh, grenlövstextur, barktextur, kronradie/skala, höjd/skala, stamradie/skala)
+TREE_TYPES = {
+    "pine": ("Pine Tree/tip/files/meshes/pine_tree.dae",
+             "Pine Tree/tip/files/materials/textures/branch_2_diffuse.png",
+             "Pine Tree/tip/files/materials/textures/bark_diffuse.png", 1.6, 5.0, 0.15),
+    "oak": ("Oak tree/tip/files/meshes/oak_tree.dae",
+            "Oak tree/tip/files/materials/textures/branch_diffuse.png",
+            "Oak tree/tip/files/materials/textures/bark_diffuse.png", 5.0, 6.5, 0.2),
+}
 
 
-def tree_spot_ok(x, y, placed, min_d):
-    r = math.hypot(x, y)
-    if r < CLEARING_R + rng.uniform(-3, 4) or r > WORLD_R:
-        return False
-    if dist_to_road(x, y) < ROAD_W / 2 + 2.5 or in_access(x, y, 2.0):
-        return False
-    for px, py in placed:
-        if (px - x) ** 2 + (py - y) ** 2 < min_d * min_d:
-            return False
-    return True
-
-
-def add_spruce(m, x, y, s):
-    h = rng.uniform(14, 22) * s
-    m.add("cyl", (0.22 * s, h * 0.35), (x, y, h * 0.175, 0, 0, 0), SPRUCE_BARK, collide=True)
-    # Granens krona: staplade koner, bredast nedtill
-    tiers = 5
-    base_z = h * 0.12
-    crown_h = h - base_z
-    for i in range(tiers):
-        t = i / tiers
-        rad = (2.6 - 2.0 * t) * s * rng.uniform(0.9, 1.1)
-        th = crown_h * 0.38
-        z = base_z + crown_h * t * 0.85 + th / 2
-        col = SPRUCE if i % 2 else SPRUCE_DARK
-        m.add("cone", (rad, th), (x, y, z, 0, 0, 0), col, collide=(i == 0))
-
-
-def add_pine(m, x, y, s):
-    h = rng.uniform(16, 24) * s
-    trunk_h = h * 0.72
-    lean = rng.uniform(-0.04, 0.04)
-    m.add("cyl", (0.2 * s, trunk_h), (x, y, trunk_h / 2, lean, 0, 0), PINE_BARK, collide=True)
-    # Tallens krona: några oregelbundna "moln" högt upp
-    for _ in range(3):
-        m.add(
-            "ell",
-            (rng.uniform(1.8, 2.8) * s, rng.uniform(1.8, 2.8) * s, rng.uniform(1.0, 1.6) * s),
-            (x + rng.uniform(-1, 1), y + rng.uniform(-1, 1), trunk_h + rng.uniform(0, 3) * s, 0, 0, 0),
-            PINE_CROWN,
+def add_tree(m, kind, x, y, s, yaw):
+    mesh, leaf, bark, crown_r, height, trunk_r = TREE_TYPES[kind]
+    m.n += 1
+    p = pose(x, y, 0, 0, 0, yaw)
+    for sub, tex, extra in (("Branch", leaf, "<double_sided>true</double_sided>"), ("Bark", bark, "")):
+        m.parts.append(
+            f'<visual name="v{m.n}_{sub}"><pose>{p}</pose><geometry><mesh><uri>{FUEL}/{mesh}</uri>'
+            f"<submesh><name>{sub}</name></submesh><scale>{pose(s, s, s)}</scale></mesh></geometry>"
+            f"<material>{extra}<diffuse>1 1 1</diffuse><pbr><metal><albedo_map>{FUEL}/{tex}</albedo_map>"
+            f"</metal></pbr></material></visual>"
         )
+    # Förenklad kollision: stam + smal cylinder genom kronan
+    h = height * s
+    cr = crown_r * s * 0.35
+    m.parts.append(
+        f'<collision name="c{m.n}"><pose>{pose(x, y, h / 2, 0, 0, 0)}</pose>'
+        f"<geometry>{geom('cyl', max(trunk_r * s, cr), h)}</geometry></collision>"
+    )
 
 
-def add_birch(m, x, y, s):
-    h = rng.uniform(10, 15) * s
-    m.add("cyl", (0.13 * s, h * 0.8), (x, y, h * 0.4, 0, 0, 0), BIRCH_BARK, collide=True)
-    # Svarta fläckar på stammen
-    for i in range(4):
-        z = h * (0.1 + 0.15 * i)
-        m.add("cyl", (0.135 * s, 0.08), (x, y, z, 0, 0, 0), FM_BLACK)
-    m.add("ell", (2.0 * s, 2.0 * s, 3.2 * s), (x, y, h * 0.75, 0, 0, 0), BIRCH_LEAF)
+def zone_clearance(x, y):
+    """Avstånd från (x, y) till närmaste lägerobjekt (negativt = inuti)."""
+    d = min(math.hypot(x - zx, y - zy) - zr for zx, zy, zr in CAMP_ZONES)
+    # Fordonsplatsen är en rektangel
+    dx = max(VEH_AREA[0] - x, 0, x - VEH_AREA[1])
+    dy = max(VEH_AREA[2] - y, 0, y - VEH_AREA[3])
+    return min(d, math.hypot(dx, dy))
 
 
-N_SECTORS = 8
-forests = [Model(f"forest_{i}") for i in range(N_SECTORS)]
-placed = []
-target = 420
+def clear_of_road(x, y, margin):
+    return dist_to_road(x, y) > ROAD_W / 2 + margin and not in_access(x, y, margin)
+
+
+CELL = 40.0
+forests = {}
+grid = {}
+placed = 0
 tries = 0
-while len(placed) < target and tries < 40000:
+while placed < TREE_TARGET and tries < 200000:
     tries += 1
-    # Tätare skog nära gläntan (sämplas i r med viss bias)
-    r = CLEARING_R + (WORLD_R - CLEARING_R) * math.sqrt(rng.random())
-    a = rng.uniform(0, 2 * math.pi)
-    x, y = r * math.cos(a), r * math.sin(a)
-    if not tree_spot_ok(x, y, placed, 4.2):
+    x, y = rng.uniform(-WORLD_R, WORLD_R), rng.uniform(-WORLD_R, WORLD_R)
+    if math.hypot(x, y) > WORLD_R:
         continue
-    placed.append((x, y))
-    sector = int(((a % (2 * math.pi)) / (2 * math.pi)) * N_SECTORS) % N_SECTORS
-    m = forests[sector]
-    s = rng.uniform(0.8, 1.15)
-    roll = rng.random()
-    # Björk vid vägkanten och gläntan, annars mest gran och tall
-    edge = dist_to_road(x, y) < 12 or r < CLEARING_R + 8
-    if roll < (0.35 if edge else 0.12):
-        add_birch(m, x, y, s)
-    elif roll < 0.62:
-        add_spruce(m, x, y, s)
-    else:
-        add_pine(m, x, y, s)
-models.extend(forests)
+    # Lövträd mest längs vägen, annars tall/gran
+    near_road = dist_to_road(x, y) < 12
+    kind = "oak" if rng.random() < (0.3 if near_road else 0.08) else "pine"
+    s = rng.uniform(1.3, 1.7) if kind == "oak" else rng.uniform(2.6, 4.0)
+    crown = TREE_TYPES[kind][3] * s
+    # Kronan får hänga ut över vägkanten men inte ner på lägret
+    if not clear_of_road(x, y, 1.5 + crown * 0.3):
+        continue
+    clear = zone_clearance(x, y)
+    if clear < crown * 0.75:
+        continue
+    gx, gy = int(x // 5), int(y // 5)
+    ok = True
+    for ix in range(gx - 2, gx + 3):
+        for iy in range(gy - 2, gy + 3):
+            for px, py in grid.get((ix, iy), ()):
+                if (px - x) ** 2 + (py - y) ** 2 < MIN_TREE_D ** 2:
+                    ok = False
+    if not ok:
+        continue
+    grid.setdefault((gx, gy), []).append((x, y))
+    placed += 1
+    key = (int(x // CELL), int(y // CELL))
+    if key not in forests:
+        forests[key] = Model(f"forest_{len(forests)}")
+    add_tree(forests[key], kind, x, y, s, rng.uniform(0, 2 * math.pi))
+models.extend(forests.values())
 
 # ----------------------------------------------------------------------------
 # Markvegetation: blåbärsris, granitblock, fallna stockar
 # ----------------------------------------------------------------------------
 under = Model("undergrowth")
-for i in range(260):
-    r = rng.uniform(CLEARING_R - 4, WORLD_R)
+for i in range(600):
+    r = WORLD_R * math.sqrt(rng.random())
     a = rng.uniform(0, 2 * math.pi)
     x, y = r * math.cos(a), r * math.sin(a)
-    if dist_to_road(x, y) < ROAD_W / 2 + 0.8 or in_access(x, y):
+    if not clear_of_road(x, y, 0.8) or zone_clearance(x, y) < 1.0:
         continue
     under.add(
         "ell",
@@ -289,11 +302,11 @@ for i in range(260):
 models.append(under)
 
 rocks = Model("granite_boulders")
-for i in range(45):
-    r = rng.uniform(CLEARING_R - 6, WORLD_R)
+for i in range(60):
+    r = WORLD_R * math.sqrt(rng.random())
     a = rng.uniform(0, 2 * math.pi)
     x, y = r * math.cos(a), r * math.sin(a)
-    if dist_to_road(x, y) < ROAD_W / 2 + 1.5 or in_access(x, y, 1.5):
+    if not clear_of_road(x, y, 1.5) or zone_clearance(x, y) < 3.0:
         continue
     sz = rng.uniform(0.6, 2.2)
     col = GRANITE if rng.random() < 0.6 else GRANITE_LICHEN
@@ -309,11 +322,11 @@ rocks.add("ell", (3.2, 2.4, 1.8), (-24, -12, 0.6, 0, 0.05, 0.4), GRANITE, collid
 models.append(rocks)
 
 logs = Model("fallen_logs")
-for i in range(18):
-    r = rng.uniform(CLEARING_R + 2, WORLD_R)
+for i in range(30):
+    r = WORLD_R * math.sqrt(rng.random())
     a = rng.uniform(0, 2 * math.pi)
     x, y = r * math.cos(a), r * math.sin(a)
-    if dist_to_road(x, y) < ROAD_W / 2 + 2 or in_access(x, y, 2):
+    if not clear_of_road(x, y, 2) or zone_clearance(x, y) < 6.0:
         continue
     L = rng.uniform(4, 9)
     logs.add("cyl", (rng.uniform(0.15, 0.3), L), (x, y, 0.22, 0, math.pi / 2, rng.uniform(0, 3.14)), SPRUCE_BARK, collide=True)
@@ -333,7 +346,6 @@ models.append(pad)
 # Tält 20 (fem stycken): tolvkantigt pyramidtält med mittstång, låga väggar,
 # ingång och kaminrör.
 # ----------------------------------------------------------------------------
-TENTS = [(-14, 10, 0.3), (-4, 17, -0.2), (7, 16, 0.5), (-18, -2, 1.2), (17, 6, 2.4)]
 for i, (tx, ty, yaw) in enumerate(TENTS, 1):
     t = Model(f"tent_{i}", (tx, ty, 0, 0, 0, yaw))
     R = 3.0
@@ -571,7 +583,7 @@ HEADER = """<?xml version="1.0" ?>
   Källa: worlds/generate_hive_base.py  (kör: python3 worlds/generate_hive_base.py)
 
   Militärt tältläger i svensk barrskog: fem tält 20, grusväg, Bv 206 och Tgb 40.
-  Byggd enbart av SDF-primitiver (kräver Gazebo Harmonic), ingen nedladdning behövs.
+  Träden laddas från Gazebo Fuel (Pine Tree / Oak tree), resten är SDF-primitiver.
 -->
 <sdf version="1.11">
   <world name="hive_base">
@@ -626,4 +638,4 @@ FOOTER = """
 """
 
 OUT.write_text(HEADER + "".join(m.sdf() for m in models) + FOOTER)
-print(f"Wrote {OUT} ({len(placed)} trees, {sum(m.n for m in models)} parts)")
+print(f"Wrote {OUT} ({placed} trees, {sum(m.n for m in models)} parts)")

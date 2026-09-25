@@ -55,7 +55,7 @@ What happens:
 2. It starts the container in the background (DDS agent, repo mounted at `/workspace`).
 3. It runs PX4 + Gazebo in **this** terminal. You get the `pxh>` prompt, and the Gazebo window opens on the computer's own screen.
 
-`hive_base` downloads its barrier and truck models from Gazebo's online library, so it needs internet access.
+`hive_base` is a military tent camp inside a dense forest. Its trees are the Fuel models `Pine Tree` and `Oak tree` (same family as Baylands), so the first start downloads them (under 1 MB) and needs internet. Regenerate it with `python3 worlds/generate_hive_base.py`.
 
 ### Flags
 
@@ -193,7 +193,7 @@ Log out. Don't shut it down, and only restart it if nobody else is using it. If 
 - **`port is already allocated`** (with `--vnc`): another user holds the port. Use the `HOST_NOVNC_PORT` / `HOST_VNC_PORT` overrides in section 3.
 - **`--native-gui ... DISPLAY is not set`:** we're not in a graphical session. Use `--vnc` or `--headless`.
 - **No Gazebo window with `--native-gui`:** use `--vnc`, and tell the others so we can fix it.
-- **Stuck on `Waiting for Gazebo world...`:** `baylands` is slow (30-60 s or more). For `hive_base` it may be the online model download. Try `-w default` to tell which.
+- **Stuck on `Waiting for Gazebo world...`:** `baylands` is slow (30-60 s or more). Try `-w default` to tell which.
 - **The backend keeps printing `pre-flight checks are failing`:** read the `Preflight Fail` lines in the PX4 terminal. `no valid barometer data` is normal for the first seconds after PX4 starts. Anything that stays is a real problem, paste it to us.
 
 ## 8. Not verified yet
