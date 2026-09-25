@@ -11,8 +11,16 @@ fluxbox &
 
 # Dela displayen över VNC (native klient, port 5900). macOS Skärmdelning hanterar
 # "None"-autentisering opålitligt (hänger på "Ansluter..."), så vi sätter ett lösenord.
-VNC_PASSWORD="${VNC_PASSWORD:-hive1234}"
-x11vnc -display "${DISPLAY}" -forever -shared -passwd "${VNC_PASSWORD}" -rfbport "${VNC_PORT}" -bg -o /var/log/x11vnc.log
+# No hardcoded password: the repo is shared and Stellar machines are multi-user, so a
+# fixed password would let other people take over the session. start-dev.sh passes a
+# random one in; for a manual `docker run` we generate one and print it here.
+if [ -z "${VNC_PASSWORD}" ]; then
+  VNC_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8)"
+  echo "VNC password: ${VNC_PASSWORD}"
+fi
+# -passwdfile instead of -passwd so the password is not visible in `ps`.
+(umask 077; printf '%s\n' "${VNC_PASSWORD}" > /tmp/vncpass)
+x11vnc -display "${DISPLAY}" -forever -shared -passwdfile /tmp/vncpass -rfbport "${VNC_PORT}" -bg -o /var/log/x11vnc.log
 
 # Dela samma VNC-server via webbläsaren (noVNC, port 6080)
 websockify --web=/usr/share/novnc "${NOVNC_PORT}" "localhost:${VNC_PORT}" &

@@ -38,13 +38,39 @@ The `-w`/`--world` flag sets which Gazebo world gets loaded — any value from t
 1. Builds the `hive-px4-vnc` image from `docker/Dockerfile` (the official `px4io/px4-sitl-gazebo-ros2` base image, plus `Xvfb` + `fluxbox` + `x11vnc` + `noVNC`/`websockify` for the GUI layer).
 2. Runs that image as a container named `px4-gazebo-vnc`, publishing:
    - port `6080` → noVNC in the browser (`http://localhost:6080/vnc.html`)
-   - port `5900` → native VNC client (`vnc://127.0.0.1:5900`, password `hive1234`)
+   - port `5900` → native VNC client (`vnc://127.0.0.1:5900`)
+   - both bound to `127.0.0.1` only, and protected by a **random password generated on every run** (printed by the script, nothing hardcoded in the repo)
    - the repo root mounted at `/workspace` inside the container
    - the container's default command starts the DDS agent (`MicroXRCEAgent udp4 -p 8888`), bridging PX4 ↔ ROS 2
 3. Opens a **second terminal window** automatically, which waits for the container to be running, then starts PX4 + Gazebo (drone instance `0`, GUI mode — not headless) with the chosen `PX4_SIM_MODEL`.
 4. Connect QGroundControl separately (it auto-detects the running PX4 instance on macOS via Docker Desktop's gateway IP) — see `hive-vault/StackV2.md`, section 5.2.1.
 
 Stop everything with `Ctrl+C` in the first terminal (the container runs with `--rm`, so it's removed on exit).
+
+## Running on Stellar (LiU lab computers)
+
+Based on the [Stellar rules](https://gitlab.liu.se/stellar-support/rules) (last read 2026-09-25 — they change, and keeping up is our responsibility, so re-read them). What they mean for us:
+
+- **No root, no sudo, nothing to install.** Every Stellar desktop gives each user their own rootless Docker daemon (Stellar guide: rootless Docker). First time on a computer: log in and run `docker run --rm hello-world`. **Do not run `dockerd-rootless-setuptool.sh`** (that instruction is out of date, it's done for us). If the daemon isn't running: `systemctl --user start docker`, or log out and in.
+- **Each computer has its own daemon and its own images**, so we build on the computer we use (`./start-dev.sh` does that). Images live in `~/.local/share/docker` on the disk shared with everyone on that computer: check with `docker system df`, clean with `docker system prune`.
+- **Nothing reachable from outside the university network.** No reverse SSH tunnels, ngrok, Tailscale. `start-dev.sh` binds ports to `127.0.0.1` only. Never change that to `0.0.0.0`.
+- **Shared, multi-user machines.** That's why the VNC password is random per run (a fixed one in the repo would let other users take over our session) and why ports can be overridden if someone else already holds them:
+  ```bash
+  HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 ./start-dev.sh
+  ```
+- **Course students have no remote access.** We sit at the machine in the room and open `http://localhost:6080/vnc.html` in a browser on that same computer. SSH (`ssh -J`, port forwarding) is only for people stellar-support has granted remote access.
+- **Course students should use the rooms only when they need a GPU**, when resources are free, and with respect for research and AI Academy projects. Normally one computer per group; leave at once when someone needs it; no reservation notes. So we go to Stellar when we actually need a GPU (heavy rendering, RL training) and do everything else on our own computers.
+- **Use the computer our work needs, not the best free one.** A PX4 sim is CPU-heavy but does not need a top GPU. Check `computers.md` in the rules repo before picking. Don't hog.
+- **Clean up.** Images are several GB and disks are shared and get cleared when full: `docker system prune`, `ncdu`, and remove what we don't use when a phase ends.
+- **When done: `Ctrl+C` the container, then log out.** Never leave containers running.
+- **Storage is not backed up and stays on that machine.** Everything that matters goes to Git (push before leaving). Don't keep the only copy of anything on Stellar.
+
+**Not tested on Stellar yet** (only verified on macOS + Docker Desktop):
+
+- Whether the machine can pull from Docker Hub and clone from GitHub (`docker run --rm hello-world` tests the first, `git clone` the second) and so whether `docker build` of our image works there.
+- **QGroundControl:** the image sends MAVLink to `192.168.65.254`, which is Docker Desktop for macOS's host gateway. That address does not exist on Linux, so QGC on the Stellar machine will not auto-connect. It also matters beyond visualization: PX4 denied arming ("No connection to the GCS") until QGC was connected when we tried it manually, and we have not verified that the backend's offboard arm works without a GCS link. Needs its own solution (e.g. a configurable GCS target IP, or disabling that preflight check in SITL).
+- **GPU:** the Stellar way is `--device nvidia.com/gpu=all` (not `--gpus all`), after checking with `nvidia-smi` that nobody else is using the GPU. `start-dev.sh` does not pass it yet, and our image draws through Xvfb, which renders in software, so Gazebo would not use the GPU for rendering even with the flag. That needs a native-display or EGL setup, untested.
+- Native GUI instead of VNC: we are always at the machine (no remote access), so forwarding its own display into the container is the natural next step and would be faster than VNC. Not built yet.
 
 ---
 

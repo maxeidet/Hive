@@ -240,14 +240,18 @@ Byggs **en gång** ovanpå basimagen, sen får hela teamet samma GUI-åtkomst oa
 
 **Vad den lägger till:** `Xvfb` (virtuell display, containern har ingen egen skärm), `fluxbox` (fönsterhanterare), `x11vnc` (VNC-server mot displayen, port 5900), `novnc` + `websockify` (webbläsarklient mot samma VNC-server, port 6080). Filerna finns i `docker/Dockerfile` och `docker/start-vnc.sh`.
 
+Enklast är `docker/start-dev.sh` (bygger, startar containern och öppnar en andra terminal med PX4). Manuellt motsvarar det:
+
 ```bash
 cd docker
 docker build -t hive-px4-vnc .
 docker run --rm -it --name px4-gazebo-vnc \
-  -p 6080:6080 -p 5900:5900 \
+  -p 127.0.0.1:6080:6080 -p 127.0.0.1:5900:5900 \
   -v $(pwd)/..:/workspace \
   hive-px4-vnc MicroXRCEAgent udp4 -p 8888
 ```
+
+Portarna binds till `127.0.0.1` så att VNC inte nås från andra datorer.
 
 Starta PX4 **utan** `HEADLESS=1` denna gång så att `gz sim -g` (GUI-klienten) faktiskt öppnas:
 
@@ -261,7 +265,7 @@ docker exec -it px4-gazebo-vnc bash -c "
 **Anslut med endera:**
 
 - **Webbläsare (noVNC):** `http://localhost:6080/vnc.html`. Om Gazebo-fönstret inte fyller hela ytan: öppna sidopanelen (liten grå flik längst till vänster) → **Scaling Mode** → "Remote Resizing" eller "Local Scaling".
-- **Native VNC-klient** (macOS Skärmdelning, RealVNC Viewer etc.): `vnc://127.0.0.1:5900` (använd `127.0.0.1`, inte `localhost` — macOS Skärmdelning kan hänga på "Ansluter..." annars). Lösenord: `hive1234` (satt i `start-vnc.sh`, byt via miljövariabeln `VNC_PASSWORD`).
+- **Native VNC-klient** (macOS Skärmdelning, RealVNC Viewer etc.): `vnc://127.0.0.1:5900` (använd `127.0.0.1`, inte `localhost` — macOS Skärmdelning kan hänga på "Ansluter..." annars). Lösenordet är **slumpat vid varje start** och skrivs ut av `start-dev.sh` (vid manuell `docker run` skrivs det ut av containern). Inget lösenord ligger i repot — på delade maskiner (Stellar) skulle ett fast lösenord låta andra ta över sessionen.
 
 **Kända begränsningar:**
 
@@ -299,7 +303,7 @@ Kör Python-backenden som en vanlig **ROS 2-nod** (`rclpy`) inuti samma containe
 Om Gazebo-GUI (avsnitt 5.2.3) känns för segt eller äter för mycket CPU lokalt, två alternativ utöver att bara köra headless oftare:
 
 - **En dator med NVIDIA-GPU (t.ex. en gaming-PC) på Windows/Linux:** installera Docker Desktop med WSL2 (Windows) eller Docker nativt (Linux) plus **NVIDIA Container Toolkit**, och kör samma image med `--gpus all`. Då renderar Gazebo med riktig hårdvaruacceleration istället för mjukvaru-rendering (`llvmpipe`), vilket löser både CPU-belastningen och laggen vid källan. Detta är inte möjligt på macOS — Docker där har ingen GPU-åtkomst, en hård plattformsbegränsning.
-- **Superdatorn, via interaktiv Slurm-session + SSH-tunnel:** kör samma VNC-container (avsnitt 5.2.3) i en interaktiv allokering (`srun --pty ...`) istället för ett batch-jobb, och tunnla VNC-porten till din laptop:
+- **Superdatorn, via interaktiv Slurm-session + SSH-tunnel** *(ej verifierat mot Stellar — kräver att gruppen har fått fjärråtkomst, se avsnitt 6)*: kör samma VNC-container (avsnitt 5.2.3) i en interaktiv allokering (`srun --pty ...`) istället för ett batch-jobb, och tunnla VNC-porten till din laptop:
   ```bash
   ssh -L 6080:localhost:6080 -L 5900:localhost:5900 you@superdatorn
   ```
@@ -308,6 +312,8 @@ Om Gazebo-GUI (avsnitt 5.2.3) känns för segt eller äter för mycket CPU lokal
 ---
 
 ## 6. Superdatorn (HPC)
+
+> **Obs — outestat mot Stellar.** Avsnitt 6 (Slurm, Apptainer, batchjobb) skrevs innan vi läste [Stellar rules](https://gitlab.liu.se/stellar-support/rules). Stellar-guiden bekräftar att varje labbdator (desktop) ger varje användare en egen **rootless Docker**-daemon (inget att installera, egna images per dator), varken reglerna eller guiden nämner Slurm eller Apptainer, och **kursstudenter har ingen fjärråtkomst**. Anta därför att Slurm/Apptainer nedan *inte* gäller. Se `docker/README.md` ("Running on Stellar") för vad som gäller nu.
 
 Superdatorn kör **Linux** som värdoperativsystem (inte macOS eller Windows). Det innebär att ingen virtualiseringslager som Docker Desktop eller WSL2 behövs där, till skillnad från laptoparna i avsnitt 5 — containern (via Apptainer) körs direkt på värdens Linux-kärna, vilket normalt ger bättre prestanda och enklare GPU-passthrough.
 
