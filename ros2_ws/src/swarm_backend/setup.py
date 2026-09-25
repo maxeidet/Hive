@@ -21,6 +21,7 @@ setup(
     entry_points={
         'console_scripts': [
             'backend_node = swarm_backend.backend_node:main',
+            'keyboard = swarm_backend.keyboard:main',
         ],
     },
 )
