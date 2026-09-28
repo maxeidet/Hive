@@ -55,7 +55,7 @@ What happens:
 2. It starts the container in the background (DDS agent, repo mounted at `/workspace`).
 3. It runs PX4 + Gazebo in **this** terminal. You get the `pxh>` prompt, and the Gazebo window opens on the computer's own screen.
 
-`hive_base` is a military tent camp inside a dense forest. Its trees are the Fuel models `Pine Tree` and `Oak tree` (same family as Baylands), so the first start downloads them (under 1 MB) and needs internet. Regenerate it with `python3 worlds/generate_hive_base.py`.
+`hive_base` is a military tent camp inside a dense forest. Its tree meshes (from the CC0 Fuel models `Pine Tree` and `Oak tree`) are stored in `worlds/trees/` and read from `/workspace`, so no internet is needed. Regenerate it with `python3 worlds/generate_hive_base.py`.
 
 ### Flags
 

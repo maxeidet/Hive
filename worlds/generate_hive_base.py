@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Genererar worlds/hive_base.sdf: ett militärt tältläger i en svensk barrskog.
 
-Träden är Fuel-modellerna "Pine Tree" och "Oak tree" (samma trädfamilj som
-Baylands), så första starten laddar ner dem (<1 MB). Allt annat är SDF-primitiver.
+Träden är meshen från Fuel-modellerna "Pine Tree" och "Oak tree" (samma trädfamilj
+som Baylands), lagrade i worlds/trees/. Allt annat är SDF-primitiver.
 Kräver Gazebo Harmonic (sdformat 14).
 
 Kör från repots rot:  python3 worlds/generate_hive_base.py
@@ -118,8 +118,9 @@ models = []
 # Grusvägen går öst-väst söder om lägret med en svag kurva, och en infart
 # leder norrut in till fordonsplatsen.
 WORLD_R = 120.0
-TREE_TARGET = 1800
-MIN_TREE_D = 3.8
+TREE_TARGET = 900
+MIN_TREE_D = 4.8
+SPAWN_FREE_R = 12.0
 
 TENTS = [(-14, 10, 0.3), (-4, 17, -0.2), (7, 16, 0.5), (-18, -2, 1.2), (17, 6, 2.4)]
 # Fria cirklar (x, y, radie) kring lägrets objekt
@@ -193,19 +194,16 @@ road.add("box", (16, 10, 0.04), (14, -14, 0.022, 0, 0, 0), GRAVEL, shadows=False
 models.append(road)
 
 # ----------------------------------------------------------------------------
-# Skog: tall- och lövträdsmodellerna från Gazebo Fuel (samma trädfamilj som
-# Baylands använder). Meshen refereras direkt så att vi kan skala dem; varje
-# 40x40 m-ruta blir en statisk modell för att hålla antalet entiteter nere.
+# Skog: tall- och lövträdsmeshen från Fuel-modellerna "Pine Tree" och "Oak tree"
+# (samma trädfamilj som Baylands, CC0), lagrade i worlds/trees/. De refereras
+# via /workspace där startskripten monterar repot, så inget hämtas över nätet.
+# Varje 40x40 m-ruta blir en statisk modell för att hålla nere antalet entiteter.
 # ----------------------------------------------------------------------------
-FUEL = "https://fuel.gazebosim.org/1.0/OpenRobotics/models"
+TREES = "/workspace/worlds/trees"
 # name: (mesh, grenlövstextur, barktextur, kronradie/skala, höjd/skala, stamradie/skala)
 TREE_TYPES = {
-    "pine": ("Pine Tree/tip/files/meshes/pine_tree.dae",
-             "Pine Tree/tip/files/materials/textures/branch_2_diffuse.png",
-             "Pine Tree/tip/files/materials/textures/bark_diffuse.png", 1.6, 5.0, 0.15),
-    "oak": ("Oak tree/tip/files/meshes/oak_tree.dae",
-            "Oak tree/tip/files/materials/textures/branch_diffuse.png",
-            "Oak tree/tip/files/materials/textures/bark_diffuse.png", 5.0, 6.5, 0.2),
+    "pine": ("pine_tree.dae", "pine_branch.png", "pine_bark.png", 1.6, 5.0, 0.15),
+    "oak": ("oak_tree.dae", "oak_branch.png", "oak_bark.png", 5.0, 6.5, 0.2),
 }
 
 
@@ -215,10 +213,10 @@ def add_tree(m, kind, x, y, s, yaw):
     p = pose(x, y, 0, 0, 0, yaw)
     for sub, tex, extra in (("Branch", leaf, "<double_sided>true</double_sided>"), ("Bark", bark, "")):
         m.parts.append(
-            f'<visual name="v{m.n}_{sub}"><pose>{p}</pose><geometry><mesh><uri>{FUEL}/{mesh}</uri>'
+            f'<visual name="v{m.n}_{sub}"><pose>{p}</pose><geometry><mesh><uri>{TREES}/{mesh}</uri>'
             f"<submesh><name>{sub}</name></submesh><scale>{pose(s, s, s)}</scale></mesh></geometry>"
-            f"<material>{extra}<diffuse>1 1 1</diffuse><pbr><metal><albedo_map>{FUEL}/{tex}</albedo_map>"
-            f"</metal></pbr></material></visual>"
+            f"<material>{extra}<diffuse>1 1 1</diffuse><pbr><metal><albedo_map>{TREES}/{tex}</albedo_map>"
+            f"</metal></pbr></material><cast_shadows>false</cast_shadows></visual>"
         )
     # Förenklad kollision: stam + smal cylinder genom kronan
     h = height * s
@@ -262,6 +260,9 @@ while placed < TREE_TARGET and tries < 200000:
         continue
     clear = zone_clearance(x, y)
     if clear < crown * 0.75:
+        continue
+    # Hela kronan hålls utanför startytan så följkameran inte hamnar i ett träd
+    if math.hypot(x, y) - crown < SPAWN_FREE_R:
         continue
     gx, gy = int(x // 5), int(y // 5)
     ok = True
@@ -564,7 +565,7 @@ HEADER = """<?xml version="1.0" ?>
   Källa: worlds/generate_hive_base.py  (kör: python3 worlds/generate_hive_base.py)
 
   Militärt tältläger i svensk barrskog: fem tält 20, grusväg, Bv 206 och Tgb 40.
-  Träden laddas från Gazebo Fuel (Pine Tree / Oak tree), resten är SDF-primitiver.
+  Träden läses från /workspace/worlds/trees (repot monterat i containern), resten är SDF-primitiver.
 -->
 <sdf version="1.11">
   <world name="hive_base">

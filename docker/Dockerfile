@@ -24,6 +24,13 @@ RUN apt-get update && apt-get install -y \
 RUN grep -q "^param set-default NAV_DLL_ACT 2$" /opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500 \
     && sed -i 's/^param set-default NAV_DLL_ACT 2$/param set-default NAV_DLL_ACT 0/' /opt/px4-gazebo/etc/init.d-posix/airframes/4001_gz_x500
 
+# PX4 waits only 30 checks (~30 s) for the Gazebo world before giving up with
+# "Timed out waiting for Gazebo world". Heavy worlds (hive_base, baylands) can take longer
+# on a Mac, so read the count from PX4_GZ_WORLD_TIMEOUT instead (default stays 30).
+# Fails the build if the line is not found, so a changed base image is noticed.
+RUN grep -q "^ATTEMPTS=30$" /opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim \
+    && sed -i 's/^ATTEMPTS=30$/ATTEMPTS=${PX4_GZ_WORLD_TIMEOUT:-30}/' /opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim
+
 ENV DISPLAY=:1
 ENV VNC_PORT=5900
 ENV NOVNC_PORT=6080
