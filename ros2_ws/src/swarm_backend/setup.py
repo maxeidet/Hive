@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'swarm_backend'
@@ -5,11 +7,13 @@ package_name = 'swarm_backend'
 setup(
     name=package_name,
     version='0.0.1',
-    packages=find_packages(exclude=['test']),
+    packages=find_packages(exclude=['test', 'tests']),
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,6 +26,8 @@ setup(
         'console_scripts': [
             'backend_node = swarm_backend.backend_node:main',
             'keyboard = swarm_backend.keyboard:main',
+            'swarm_node = swarm_backend.nodes.swarm_node:main',
+            'swarm_shell = swarm_backend.shell:main',
         ],
     },
 )
