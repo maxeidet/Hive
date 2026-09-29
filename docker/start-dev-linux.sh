@@ -1,89 +1,152 @@
 #!/usr/bin/env bash
-
 set -e
 
 MODEL="gz_x500"
+WORLD="hive_base"
+
+# ============================================================
+# PX4 terminal mode
+# ============================================================
+
+if [[ "${1:-}" == "--px4-terminal" ]]; then
+    shift
+
+    MODEL="${1:-gz_x500}"
+    WORLD="${2:-hive_base}"
+
+    echo "Waiting for PX4 container..."
+
+    until docker inspect -f '{{.State.Running}}' px4-gazebo-vnc 2>/dev/null | grep -q true; do
+        sleep 1
+    done
+
+    echo "Container is running."
+    echo "Starting PX4 + Gazebo"
+    echo "  Model: ${MODEL}"
+    echo "  World: ${WORLD}"
+    echo
+
+    docker exec -it px4-gazebo-vnc bash -c "
+        echo '=== Copying custom worlds ==='
+        cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true
+
+        echo '=== Available worlds ==='
+        ls -lah /opt/px4-gazebo/share/gz/worlds/
+
+        export PX4_GZ_WORLDS=/opt/px4-gazebo/share/gz/worlds
+        export GZ_SIM_RESOURCE_PATH=/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds
+        export PX4_GZ_WORLD='${WORLD}'
+        export PX4_SIM_MODEL='${MODEL}'
+        export PX4_GZ_MODEL_POSE=0,0,0,0,0,0
+
+        echo
+        echo 'PX4_GZ_WORLD='\${PX4_GZ_WORLD}
+        echo 'PX4_SIM_MODEL='\${PX4_SIM_MODEL}
+        echo
+
+        /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0
+    "
+
+    exit 0
+fi
+
+# ============================================================
+# Argument parsing
+# ============================================================
 
 while [ $# -gt 0 ]; do
-  case "$1" in
-    -m|--model)
-      MODEL="$2"
-      shift 2
-      ;;
-    -h|--help)
-      grep '^#' "$0" | sed 's/^#//'
-      exit 0
-      ;;
-    *)
-      echo "Unknown flag: $1"
-      exit 1
-      ;;
-  esac
+    case "$1" in
+        -m|--model)
+            MODEL="$2"
+            shift 2
+            ;;
+
+        -w|--world)
+            WORLD="$2"
+            shift 2
+            ;;
+
+        -h|--help)
+            grep '^#' "$0" | sed 's/^#//'
+            exit 0
+            ;;
+
+        *)
+            echo "Unknown flag: $1"
+            exit 1
+            ;;
+    esac
 done
 
-cd "$(dirname "$0")"
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 echo "Building image (hive-px4-vnc)..."
 docker build -t hive-px4-vnc .
 
 docker rm -f px4-gazebo-vnc >/dev/null 2>&1 || true
 
-# Write the "wait for container, then exec PX4 inside it" logic to a temp
-# script rather than inlining it, so we don't have to fight each terminal
-# launcher's own quoting/escaping rules (cmd.exe and wt.exe in particular
-# mangle long semicolon/quote-heavy -c strings).
-WAIT_SCRIPT="$(mktemp /tmp/hive-px4-wait-XXXXXX.sh)"
-cat > "${WAIT_SCRIPT}" <<EOF
-#!/usr/bin/env bash
-until docker inspect -f '{{.State.Running}}' px4-gazebo-vnc 2>/dev/null | grep -q true; do
-  sleep 1
-done
-docker exec -it px4-gazebo-vnc bash -c 'export PX4_SIM_MODEL=${MODEL} PX4_GZ_MODEL_POSE=0,0,0,0,0,0; /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0'
-exec bash
-EOF
-chmod +x "${WAIT_SCRIPT}"
+# ============================================================
+# Open second terminal
+# ============================================================
 
-# Try to auto-open a terminal that waits for the container and starts PX4
-# (mirrors what start-dev.sh does with Terminal.app on macOS). Falls back to
-# printing manual instructions if no supported terminal emulator is found.
-OPENED_TERMINAL=0
-if command -v wt.exe >/dev/null 2>&1; then
-  echo "Opening a new Windows Terminal tab that waits for the container and starts PX4 (model: ${MODEL})..."
-  wt.exe new-tab bash "${WAIT_SCRIPT}" >/dev/null 2>&1 && OPENED_TERMINAL=1
-elif command -v cmd.exe >/dev/null 2>&1; then
-  echo "Opening a new terminal window that waits for the container and starts PX4 (model: ${MODEL})..."
-  cmd.exe /c start bash "${WAIT_SCRIPT}" >/dev/null 2>&1 && OPENED_TERMINAL=1
+echo
+echo "Opening PX4 terminal..."
+echo "Model: ${MODEL}"
+echo "World: ${WORLD}"
+echo
+
+SCRIPT_PATH="$(realpath "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v wt.exe >/dev/null 2>&1; then
+
+    echo "Detected WSL → Windows Terminal"
+
+    wt.exe new-tab \
+        --title "PX4 + Gazebo" \
+        wsl.exe -d "$WSL_DISTRO_NAME" \
+        -- bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD"
+
 elif command -v gnome-terminal >/dev/null 2>&1; then
-  echo "Opening a new gnome-terminal window that waits for the container and starts PX4 (model: ${MODEL})..."
-  gnome-terminal -- bash "${WAIT_SCRIPT}" >/dev/null 2>&1 && OPENED_TERMINAL=1
+
+    gnome-terminal \
+        --title="PX4 + Gazebo" \
+        -- bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD"
+
 elif command -v konsole >/dev/null 2>&1; then
-  echo "Opening a new konsole window that waits for the container and starts PX4 (model: ${MODEL})..."
-  konsole -e bash "${WAIT_SCRIPT}" >/dev/null 2>&1 && OPENED_TERMINAL=1
-elif command -v xterm >/dev/null 2>&1; then
-  echo "Opening a new xterm window that waits for the container and starts PX4 (model: ${MODEL})..."
-  xterm -e bash "${WAIT_SCRIPT}" >/dev/null 2>&1 && OPENED_TERMINAL=1
+
+    konsole \
+        --new-tab \
+        -e bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD"
+
+elif command -v xfce4-terminal >/dev/null 2>&1; then
+
+    xfce4-terminal \
+        --title="PX4 + Gazebo" \
+        --command="bash $SCRIPT_PATH --px4-terminal $MODEL $WORLD"
+
+else
+    echo "ERROR: Could not find a supported terminal emulator."
+    echo
+    echo "Start the container, then run:"
+    echo
+    echo "  $SCRIPT_PATH --px4-terminal $MODEL $WORLD"
+    exit 1
 fi
 
-if [ "${OPENED_TERMINAL}" -eq 0 ]; then
-  echo
-  echo "========================================"
-  echo " Couldn't auto-open a terminal for PX4"
-  echo "========================================"
-  echo
-  echo "Open another terminal and run:"
-  echo
-  echo "  docker exec -it px4-gazebo-vnc bash -c \\"
-  echo "    'export PX4_SIM_MODEL=${MODEL}; \\"
-  echo "     export PX4_GZ_MODEL_POSE=0,0,0,0,0,0; \\"
-  echo "     /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0'"
-  echo
-fi
+# ============================================================
+# Start Docker container
+# ============================================================
 
 echo
-echo "VNC: http://localhost:6080"
+echo "Starting the container..."
+echo "Ctrl+C here shuts everything down."
 echo
-echo "Starting the container (Ctrl+C here shuts everything down)..."
-docker run --rm -it --name px4-gazebo-vnc \
-  -p 6080:6080 -p 5900:5900 \
-  -v "$(pwd)/..":/workspace \
-  hive-px4-vnc MicroXRCEAgent udp4 -p 8888
+
+docker run --rm -it \
+    --name px4-gazebo-vnc \
+    -p 6080:6080 \
+    -p 5900:5900 \
+    -v "$(pwd)/..":/workspace \
+    hive-px4-vnc \
+    MicroXRCEAgent udp4 -p 8888
