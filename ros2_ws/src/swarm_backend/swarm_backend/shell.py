@@ -1,0 +1,225 @@
+"""Interactive Python shell for flying the swarm by hand while watching Gazebo.
+
+    ros2 run swarm_backend swarm_shell [--num-drones N] [--config path/to/swarm.yaml]
+
+ROS spins in the background, so drones keep streaming setpoints while you type.
+The helpers only act on drones that are actually connected, so the full config
+works even if only some PX4 instances are running.
+"""
+import argparse
+import code
+import sys
+
+import rclpy
+from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
+from rclpy.utilities import remove_ros_args
+
+from swarm_backend.config import default_config_path, load_config
+from swarm_backend.px4.px4_drone import PX4Drone
+from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
+from swarm_backend.swarm import formation as formation_module
+from swarm_backend.swarm.formation import Formation, centroid
+from swarm_backend.swarm.manager import SwarmManager
+from swarm_backend.swarm.swarm import Swarm
+
+CONNECT_WAIT_S = 10.0
+MOVE_TIMEOUT_S = 180.0  # long climbs are slow, more so when Gazebo runs below real time
+
+BANNER = """
+Swarm shell. Positions: x = north, y = east (metres from the Gazebo origin); alt = metres up.
+
+  status()                        table of every drone
+  takeoff(alt=None, ids=None)     arm, offboard, climb (default alt from config)
+  goto(id, x, y, alt=None)        fly one drone to a point
+  move(dx, dy, dalt=0, ids=None)  shift drones relative to their current target
+  form('grid'|'line'|'circle', spacing=None, alt=None)
+  land(ids=None)                  land and wait for disarm
+
+Waiting helpers block until done; Ctrl-C stops waiting (drones keep their last command).
+Pass wait=False to return immediately.
+
+Objects: swarm, manager, formation, config, d0, d1, ... (the PX4Drone objects, NED z)
+  e.g. d0.position, d1.set_velocity(1, 0, 0), manager.all_reached()
+
+Ctrl-D exits; any drone still armed is landed first.
+"""
+
+
+class Pilot:
+    """Blocking, forgiving wrappers around SwarmManager for use at a prompt."""
+
+    def __init__(self, manager: SwarmManager, config):
+        self.manager = manager
+        self.swarm = manager.swarm
+        self.config = config
+
+    def active(self, ids=None) -> list[int]:
+        """ids of connected drones (restricted to `ids` if given)."""
+        return [d.id for d in self.swarm.select(ids) if d.connected and d.position is not None]
+
+    def status(self) -> None:
+        print(f'{"id":>3} {"conn":>5} {"pre":>5} {"armed":>6} {"mode":>9} '
+              f'{"x":>7} {"y":>7} {"alt":>6}   target')
+        for d in self.swarm:
+            mode = 'offboard' if d.offboard else 'landing' if d.landing else (
+                f'nav {d.nav_state}' if d.nav_state is not None else '-')
+            if d.position is None:
+                pos = f'{"-":>7} {"-":>7} {"-":>6}'
+            else:
+                pos = f'{d.position[0]:7.2f} {d.position[1]:7.2f} {d.altitude:6.2f}'
+            target = '-' if d.target is None else (
+                f'({d.target[0]:.1f}, {d.target[1]:.1f}, alt {d.home[2] - d.target[2]:.1f})')
+            print(f'{d.id:>3} {yes(d.connected):>5} {yes(d.preflight_ok):>5} {yes(d.armed):>6} '
+                  f'{mode:>9} {pos}   {target}')
+
+    def takeoff(self, alt=None, ids=None, wait=True) -> bool:
+        ids = self.active(ids)
+        if not ids:
+            return self._nothing_connected()
+        not_ready = [d.id for d in self.swarm.select(ids) if not d.ready]
+        if not_ready:
+            print(f'Drones {not_ready} are not ready (pre-flight checks failing); '
+                  'waiting for them...')
+            if not self._wait(lambda: all(self.swarm[i].ready for i in ids), 60, 'pre-flight'):
+                return False
+        alt = self.config.takeoff_altitude if alt is None else alt
+        self.manager.takeoff(alt, ids)
+        print(f'Taking off drones {ids} to {alt} m')
+        return not wait or self._wait(lambda: self.manager.all_reached(ids), MOVE_TIMEOUT_S, 'takeoff')
+
+    def goto(self, drone_id, x, y, alt=None, wait=True) -> bool:
+        drone = self.swarm[drone_id]
+        if not drone.offboard:
+            print(f'Drone {drone_id} is not flying in offboard mode; takeoff() first')
+            return False
+        if alt is not None:
+            z = drone.home[2] - alt
+        elif drone.target is not None:
+            z = drone.target[2]  # keep the current altitude
+        else:
+            z = drone.home[2] - self.config.takeoff_altitude
+        drone.set_position(x, y, z)
+        return not wait or self._wait(lambda: drone.reached(self.manager.tolerance), MOVE_TIMEOUT_S, 'goto')
+
+    def move(self, dx, dy, dalt=0.0, ids=None, wait=True) -> bool:
+        ids = [i for i in self.active(ids) if self.swarm[i].offboard]
+        if not ids:
+            print('No drone is flying in offboard mode; takeoff() first')
+            return False
+        for i in ids:
+            drone = self.swarm[i]
+            x, y, z = drone.target or drone.position
+            drone.set_position(x + dx, y + dy, z - dalt)
+        return not wait or self._wait(lambda: self.manager.all_reached(ids), MOVE_TIMEOUT_S, 'move')
+
+    def form(self, shape='grid', spacing=None, alt=None, wait=True) -> bool:
+        ids = [i for i in self.active() if self.swarm[i].offboard]
+        if not ids:
+            print('No drone is flying in offboard mode; takeoff() first')
+            return False
+        drones = self.swarm.select(ids)
+        spacing = self.config.formation_spacing if spacing is None else spacing
+        cx, cy, cz = centroid([d.target or d.position for d in drones])
+        if alt is not None:
+            cz = centroid([d.home for d in drones])[2] - alt
+        shapes = Formation(len(drones))
+        if shape == 'grid':
+            points = shapes.grid((cx, cy, cz), spacing)
+        elif shape == 'line':
+            points = shapes.line((cx, cy, cz), spacing)
+        elif shape == 'circle':
+            radius = formation_module.circle_radius_for_spacing(len(drones), spacing)
+            points = shapes.circle((cx, cy, cz), radius)
+        else:
+            print("shape must be 'grid', 'line' or 'circle'")
+            return False
+        positions = [d.position for d in drones]
+        for drone, (x, y, z) in zip(drones, formation_module.assign_targets(positions, points)):
+            drone.set_position(x, y, z)
+        print(f'Forming {shape} with drones {ids}')
+        return not wait or self._wait(lambda: self.manager.all_reached(ids), MOVE_TIMEOUT_S, shape)
+
+    def land(self, ids=None, wait=True) -> bool:
+        ids = [d.id for d in self.swarm.select(ids) if d.armed]
+        if not ids:
+            print('No drone is armed')
+            return True
+        self.manager.land(ids)
+        print(f'Landing drones {ids}')
+        return not wait or self._wait(
+            lambda: not any(self.swarm[i].armed for i in ids), LAND_TIMEOUT_S, 'landing')
+
+    def _wait(self, predicate, timeout, what) -> bool:
+        try:
+            wait_until(predicate, timeout, what)
+            print('done')
+            return True
+        except TimeoutError as e:
+            print(f'{e}. Check status() and the PX4 terminal.')
+        except KeyboardInterrupt:
+            print('\nStopped waiting; drones keep their last command.')
+        return False
+
+    def _nothing_connected(self) -> bool:
+        print('No drone is connected yet. Is PX4 running? See status().')
+        return False
+
+
+def yes(flag: bool) -> str:
+    return 'yes' if flag else 'no'
+
+
+def main(args=None):
+    parser = argparse.ArgumentParser(description='Interactive swarm shell')
+    parser.add_argument('--config', help='swarm.yaml (default: the installed one)')
+    parser.add_argument('--num-drones', type=int, help='use only the first N drones in the config')
+    cli = parser.parse_args(remove_ros_args(sys.argv)[1:])
+
+    config = load_config(cli.config or default_config_path(), cli.num_drones)
+
+    # Ctrl-C should interrupt the current command, not shut ROS down.
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    node = Node('swarm_shell')
+    swarm = Swarm(PX4Drone(node, c, rate_hz=config.rate_hz) for c in config.drones)
+    manager = SwarmManager(swarm, config.position_tolerance)
+    pilot = Pilot(manager, config)
+
+    namespace = {
+        'swarm': swarm, 'manager': manager, 'config': config, 'pilot': pilot,
+        'formation': Formation(len(swarm)),
+        'status': pilot.status, 'takeoff': pilot.takeoff, 'goto': pilot.goto,
+        'move': pilot.move, 'form': pilot.form, 'land': pilot.land,
+    }
+    namespace.update({f'd{d.id}': d for d in swarm})
+
+    try:
+        import readline
+        import rlcompleter
+        readline.set_completer(rlcompleter.Completer(namespace).complete)
+        readline.parse_and_bind('tab: complete')
+    except ImportError:
+        pass
+
+    with spinning(node):
+        # Let the connection log lines print before the prompt, so it is not buried under them.
+        print('Waiting for drones to connect...')
+        try:
+            wait_until(manager.connected, CONNECT_WAIT_S, 'drones')
+        except TimeoutError:
+            print(f'No data yet from drones {manager.not_connected()}; '
+                  'start them with ./mount-backend.sh spawn (they can join later)')
+        except KeyboardInterrupt:
+            pass
+        try:
+            code.interact(banner=BANNER, local=namespace, exitmsg='')
+        finally:
+            if manager.any_armed():
+                print('Landing armed drones before exit (Ctrl-C to skip)...')
+                pilot.land()
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

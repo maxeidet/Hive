@@ -1,0 +1,28 @@
+# Swarm configuration. Each entry under `drones` is one PX4 SITL instance.
+#
+# Coordinate conventions used by the backend:
+#   - spawn_pose is the Gazebo world position [x, y, z] (ENU: x east, y north, z up),
+#     the same numbers passed to PX4 as PX4_GZ_MODEL_POSE.
+#   - Everything else (targets, formations, positions in code) is the swarm "world" frame:
+#     NED (x north, y east, z down) with its origin at the Gazebo world origin.
+#     So z = -5.0 means 5 m above the ground.
+
+swarm:
+  rate_hz: 10.0             # offboard setpoint stream rate; PX4 needs at least 2 Hz
+  takeoff_altitude: 5.0     # metres above ground
+  position_tolerance: 0.3   # metres; how close to a target counts as "reached"
+  formation_spacing: 4.0    # metres between neighbouring drones in a formation
+
+drones:
+  # id is the PX4 instance number (`px4-gazebo -i <id>`).
+  # Optional per-drone overrides:
+  #   namespace: defaults to "" for instance 0 and "px4_<id>" otherwise (what PX4's rcS sets)
+  #   system_id: defaults to id + 1 (PX4 sets MAV_SYS_ID = instance + 1)
+  - id: 0
+    spawn_pose: [0.0, 0.0, 0.0]
+
+  - id: 1
+    spawn_pose: [5.0, 0.0, 0.0]
+
+  - id: 2
+    spawn_pose: [0.0, 5.0, 0.0]
