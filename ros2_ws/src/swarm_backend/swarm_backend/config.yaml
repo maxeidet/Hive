@@ -1,0 +1,12 @@
+drones:
+ -id: 0
+ namespace: px4_0
+ position: [0, 0, 0]
+
+ -id: 1
+ namespace: px4_1
+ position: [5, 0, 0]
+
+ -id: 2
+ namespace: px4_2
+ position: [0, 5, 0]
