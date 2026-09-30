@@ -3,13 +3,13 @@ import math
 import time
 
 from px4_msgs.msg import VehicleCommand, VehicleCommandAck, VehicleOdometry, VehicleStatus
-from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint
+from px4_msgs.msg import GimbalDeviceAttitudeStatus, OffboardControlMode, TrajectorySetpoint
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from swarm_backend.config import DroneConfig
 from swarm_backend.px4 import messages
-from swarm_backend.px4.drone import Drone
+from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 from swarm_backend.px4.topics import PX4Topics
 
 # PX4's output topics (/fmu/out/...) publish BEST_EFFORT/TRANSIENT_LOCAL, not the
@@ -33,6 +33,8 @@ COMMAND_NAMES = {
     VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM: 'arm/disarm',
     VehicleCommand.VEHICLE_CMD_DO_SET_MODE: 'offboard mode',
     VehicleCommand.VEHICLE_CMD_NAV_LAND: 'land',
+    VehicleCommand.VEHICLE_CMD_DO_GIMBAL_MANAGER_CONFIGURE: 'gimbal control',
+    VehicleCommand.VEHICLE_CMD_DO_GIMBAL_MANAGER_PITCHYAW: 'gimbal pitch/yaw',
 }
 ACK_RESULTS = {
     VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED: 'accepted',
@@ -44,6 +46,7 @@ ACK_RESULTS = {
 }
 
 RETRY_PERIOD_S = 1.0  # between repeated arm/offboard/land attempts
+GIMBAL_TRIES = 5  # gimbal commands are re-sent until PX4 acks them, at most this often
 STREAM_BEFORE_OFFBOARD_S = 1.0  # PX4 rejects offboard without a live setpoint stream
 
 # After our land command, a drone this low and this still for this long counts as down.
@@ -85,6 +88,8 @@ class PX4Drone(Drone):
             VehicleStatus, topics.vehicle_status, self._on_status, PX4_OUT_QOS)
         node.create_subscription(
             VehicleCommandAck, topics.vehicle_command_ack, self._on_ack, PX4_OUT_QOS)
+        node.create_subscription(
+            GimbalDeviceAttitudeStatus, topics.gimbal_attitude, self._on_gimbal, PX4_OUT_QOS)
 
         # What we are streaming: ('position', local NED) or ('velocity', NED), None until
         # the first odometry arrives. Until someone commands a setpoint (and again after
@@ -99,6 +104,8 @@ class PX4Drone(Drone):
         self._want_offboard = False
         self._want_land = False
         self._disarm_on_touchdown = False  # set by land(), until the drone disarms
+        self._want_gimbal: tuple[float, float] | None = None  # (pitch, yaw) degrees
+        self._gimbal_tries = 0
         self._still_on_ground_since: float | None = None
 
         self._ticks_per_retry = max(1, round(RETRY_PERIOD_S * rate_hz))
@@ -143,6 +150,10 @@ class PX4Drone(Drone):
         self.target = None
         self._tracking = False
         self._setpoint = ('velocity', (float(vx), float(vy), float(vz)))
+
+    def point_gimbal(self, pitch: float, yaw: float) -> None:
+        self._want_gimbal = (float(pitch), float(yaw))
+        self._gimbal_tries = 0
 
     # --- what PX4 tells us -------------------------------------------------
 
@@ -191,10 +202,26 @@ class PX4Drone(Drone):
         if not armed:
             self._disarm_on_touchdown = False
 
+    def _on_gimbal(self, msg: GimbalDeviceAttitudeStatus) -> None:
+        q = [float(v) for v in msg.q]
+        if any(math.isnan(v) for v in q):
+            return
+        pitch, yaw = pitch_yaw_deg(q)
+        # PX4's sim gimbal reports yaw in the earth frame (NED, from north); make it
+        # relative to the nose like the command.
+        if msg.device_flags & GimbalDeviceAttitudeStatus.DEVICE_FLAGS_YAW_IN_EARTH_FRAME:
+            if self.attitude is None:
+                return
+            yaw -= pitch_yaw_deg(self.attitude)[1]
+        self.gimbal = (pitch, wrap_deg(yaw))
+
     def _on_ack(self, msg: VehicleCommandAck) -> None:
         name = COMMAND_NAMES.get(msg.command)
         if name is None:
             return
+        if (msg.command == VehicleCommand.VEHICLE_CMD_DO_GIMBAL_MANAGER_PITCHYAW
+                and msg.result == VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED):
+            self._want_gimbal = None
         result = ACK_RESULTS.get(msg.result, f'result {msg.result}')
         if msg.result == VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED:
             self._log.info(f'PX4 {result} the {name} command')
@@ -210,6 +237,7 @@ class PX4Drone(Drone):
         self._tick += 1
         if self._tick % self._ticks_per_retry == 0:
             self._send_pending_commands()
+            self._send_gimbal_command()
             self._disarm_if_touched_down()
 
     def _stream_setpoint(self) -> None:
@@ -255,6 +283,21 @@ class PX4Drone(Drone):
 
         if self._want_offboard and self._streamed_ticks >= self._ticks_before_offboard:
             self._command_pub.publish(messages.offboard_mode_command(now, system))
+
+    def _send_gimbal_command(self) -> None:
+        if self._want_gimbal is None or not self.connected:
+            return
+        if self._gimbal_tries >= GIMBAL_TRIES:
+            self._want_gimbal = None
+            if self.gimbal is None:
+                self._log.warning('No gimbal answered. Only gimbal drones (spawn gimbal, '
+                                  'model gz_x500_gimbal) have one.')
+            return
+        self._gimbal_tries += 1
+        system = self.config.system_id
+        now = self._now_us()
+        self._command_pub.publish(messages.gimbal_take_control_command(now, system))
+        self._command_pub.publish(messages.gimbal_pitch_yaw_command(now, system, *self._want_gimbal))
 
     def _disarm_if_touched_down(self) -> None:
         on_ground = (

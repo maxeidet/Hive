@@ -1,5 +1,8 @@
-# RViz layout for `mount-backend.sh lidar`: one drone's point cloud, seen from the lidar.
-# __TOPIC__ is replaced with the bridged ROS topic when the command starts.
+# RViz layout template for `mount-backend.sh view`. swarm_backend/sensor_view.py repeats the
+# PointCloud2 display once per lidar/depth point cloud and adds an Image display per camera
+# (__TOPIC__ is filled in there). It also publishes TF from Gazebo: world (Gazebo's ENU world)
+# -> the drone's model (e.g. x500_gimbal_2) -> base_link and each sensor link, so the view
+# follows base_link and point clouds are drawn where they are in the world.
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
@@ -13,11 +16,18 @@ Visualization Manager:
       Plane Cell Count: 100
       Reference Frame: <Fixed Frame>
     - Class: rviz_default_plugins/Axes
-      Name: Lidar
+      Name: Drone (base_link)
       Enabled: true
       Length: 1
       Radius: 0.05
-      Reference Frame: <Fixed Frame>
+      Reference Frame: base_link
+    - Class: rviz_default_plugins/TF
+      Name: Frames
+      Enabled: true
+      Show Names: true
+      Show Axes: true
+      Show Arrows: false
+      Marker Scale: 0.5
     - Class: rviz_default_plugins/PointCloud2
       Name: Lidar points
       Enabled: true
@@ -35,7 +45,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 30; 30; 30
-    Fixed Frame: lidar_link
+    Fixed Frame: world
     Frame Rate: 15
   Tools:
     - Class: rviz_default_plugins/Interact
@@ -43,11 +53,11 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 40
+      Distance: 15
       Focal Point: {X: 0, Y: 0, Z: 0}
       Pitch: 0.6
       Yaw: 0.8
-      Target Frame: <Fixed Frame>
+      Target Frame: base_link
 Window Geometry:
   Height: 800
   Width: 1200

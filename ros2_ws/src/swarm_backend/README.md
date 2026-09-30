@@ -60,12 +60,19 @@ With the container and drone 0 running (`docker/start-dev.sh`), from this folder
 ./mount-backend.sh multi        # Milestone 2 test on every drone
 ./mount-backend.sh demo         # formation demo (swarm_node)
 ./mount-backend.sh legacy       # the old backend_node + keyboard teleop
-./mount-backend.sh lidar 1      # drone 1's 3D lidar point cloud in RViz (VNC desktop)
+./mount-backend.sh spawn camera # ONE more drone with a camera, at the next free id
+./mount-backend.sh view 1       # drone 1 in RViz with its cameras and lidars (`lidar 1` / `camera 1` too)
 ```
 
 Each command rebuilds the package first and reads `config/swarm.yaml` from this folder.
 
-Drone models come from the `model:` field in `swarm.yaml` (drone 1 is `gz_x500_lidar_3d`: 16 beams, 360°, 100 m, 10 Hz, defined in `worlds/models/`). Its point cloud is bridged to ROS 2 as `/px4_1/lidar/points` (`sensor_msgs/PointCloud2`, frame `lidar_link`) while `lidar` runs.
+Drone models come from the `model:` field in `swarm.yaml` (drone 1 is `gz_x500_lidar_3d`: 16 beams, 360°, 100 m, 10 Hz, defined in `worlds/models/`).
+
+`spawn TYPE` starts one extra drone instead: `plain`, `lidar` (the 3D lidar above), `lidar2d`, `lidar_front` / `lidar_down` (1-beam rangefinders), `camera`, `camera_down`, `depth` (RGB + depth camera), `flow`, `gimbal`, or any `PX4_SIM_MODEL` such as `gz_x500_depth`. It takes the lowest instance id that is not running and that id's `spawn_pose` from `swarm.yaml`, so the shell can fly it; ids beyond `swarm.yaml` get `(4*id, -5, 0)` and are not flown by the shell.
+
+`view ID` (`swarm_backend/sensor_view.py`) works for every drone type. It finds the drone's sensors in Gazebo, bridges them to ROS 2 as `/px4_ID/<sensor>/image` (`sensor_msgs/Image`) and `/px4_ID/<sensor>/points` (`sensor_msgs/PointCloud2`, frame = the sensor's link), e.g. `/px4_1/lidar_3d/points`, and opens RViz from `config/sensors.rviz` with one display per sensor. It also publishes TF from Gazebo's poses, `world` (Gazebo ENU) -> drone model (e.g. `x500_gimbal_2`) -> `base_link` and the sensor links, so the view follows the drone, point clouds sit where they are in the world, and a drone without sensors still shows where it is. TF and the sim clock go on `/sensor_view_ID/tf` and `/sensor_view_ID/clock`, which only that RViz is remapped to, so several views can run at once even though every drone has a `base_link`. The bridge only runs while RViz is open. RViz needs a GUI: the screen with `start-stellar.sh` (default), the VNC desktop with `start-dev.sh` or `--vnc`, none with `--headless`. All `depth` drones share one depth topic in Gazebo (`/depth_camera`), so view only one of them at a time.
+In the shell, `gimbal(id, pitch, yaw)` points a gimbal drone's camera (`spawn gimbal`, or `model: gz_x500_gimbal` in `swarm.yaml`): degrees, pitch 0 level and -90 straight down, yaw relative to the nose; `gimbal(id)` prints where it points. It sends PX4 `DO_GIMBAL_MANAGER_CONFIGURE` (take control) and `DO_GIMBAL_MANAGER_PITCHYAW`, and reads `gimbal_device_attitude_status` back. The read-back yaw is compared with PX4's heading estimate, which can be a few degrees off the simulated truth. Other camera drones have fixed cameras that turn with the drone.
+
 Ctrl-C or a timeout in any of these lands the drones.
 
 Unit tests for the parts that do not need ROS (config, topics, formations, swarm logic): `python3 -m pytest tests/test_*.py`.

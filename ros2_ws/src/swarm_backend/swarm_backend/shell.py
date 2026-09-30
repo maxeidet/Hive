@@ -16,6 +16,7 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.utilities import remove_ros_args
 
 from swarm_backend.config import default_config_path, load_config
+from swarm_backend.px4.drone import wrap_deg
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm import formation as formation_module
@@ -25,6 +26,9 @@ from swarm_backend.swarm.swarm import Swarm
 
 CONNECT_WAIT_S = 10.0
 MOVE_TIMEOUT_S = 180.0  # long climbs are slow, more so when Gazebo runs below real time
+GIMBAL_TIMEOUT_S = 10.0
+GIMBAL_PITCH_TOL = 1.0  # degrees
+GIMBAL_YAW_TOL = 10.0
 
 BANNER = """
 Swarm shell. Positions: x = north, y = east (metres from the Gazebo origin); alt = metres up.
@@ -35,6 +39,10 @@ Swarm shell. Positions: x = north, y = east (metres from the Gazebo origin); alt
   move(dx, dy, dalt=0, ids=None)  shift drones relative to their current target
   form('grid'|'line'|'circle', spacing=None, alt=None)
   land(ids=None)                  land and wait for disarm
+  gimbal(id, pitch=None, yaw=None)  point a gimbal camera (degrees; pitch -90 = straight
+                                  down, yaw from the nose); gimbal(id) prints where it points.
+                                  Only gimbal drones (./mount-backend.sh spawn gimbal); fixed
+                                  cameras turn with the drone. Watch it: ./mount-backend.sh view id
 
 Waiting helpers block until done; Ctrl-C stops waiting (drones keep their last command).
 Pass wait=False to return immediately.
@@ -53,6 +61,7 @@ class Pilot:
         self.manager = manager
         self.swarm = manager.swarm
         self.config = config
+        self._gimbal_targets: dict[int, tuple[float, float]] = {}  # last requested per drone
 
     def active(self, ids=None) -> list[int]:
         """ids of connected drones (restricted to `ids` if given)."""
@@ -150,6 +159,30 @@ class Pilot:
         return not wait or self._wait(
             lambda: not any(self.swarm[i].armed for i in ids), LAND_TIMEOUT_S, 'landing')
 
+    def gimbal(self, drone_id, pitch=None, yaw=None, wait=True) -> bool:
+        drone = self.swarm[drone_id]
+        if pitch is None and yaw is None:
+            if drone.gimbal is None:
+                print(f'Drone {drone_id} has not reported a gimbal (only gimbal drones have one)')
+                return False
+            print(f'Drone {drone_id} gimbal: pitch {drone.gimbal[0]:.1f}, yaw {drone.gimbal[1]:.1f}')
+            return True
+        if not drone.connected:
+            return self._nothing_connected()
+        last = self._gimbal_targets.get(drone_id) or drone.gimbal or (0.0, 0.0)
+        pitch = last[0] if pitch is None else pitch
+        yaw = last[1] if yaw is None else yaw
+        self._gimbal_targets[drone_id] = (pitch, yaw)
+        drone.point_gimbal(pitch, yaw)
+        print(f'Pointing drone {drone_id} gimbal to pitch {pitch:.1f}, yaw {yaw:.1f}')
+        if not wait:
+            return True
+        # Yaw is read back against the drone's own heading estimate, which can be a few
+        # degrees off the simulated truth the gimbal uses, so it gets a looser tolerance.
+        return self._wait(
+            lambda: drone.gimbal is not None and abs(drone.gimbal[0] - pitch) < GIMBAL_PITCH_TOL
+            and abs(wrap_deg(drone.gimbal[1] - yaw)) < GIMBAL_YAW_TOL, GIMBAL_TIMEOUT_S, 'gimbal')
+
     def _wait(self, predicate, timeout, what) -> bool:
         try:
             wait_until(predicate, timeout, what)
@@ -189,7 +222,7 @@ def main(args=None):
         'swarm': swarm, 'manager': manager, 'config': config, 'pilot': pilot,
         'formation': Formation(len(swarm)),
         'status': pilot.status, 'takeoff': pilot.takeoff, 'goto': pilot.goto,
-        'move': pilot.move, 'form': pilot.form, 'land': pilot.land,
+        'move': pilot.move, 'form': pilot.form, 'land': pilot.land, 'gimbal': pilot.gimbal,
     }
     namespace.update({f'd{d.id}': d for d in swarm})
 

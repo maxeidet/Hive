@@ -31,6 +31,9 @@ class Drone(ABC):
         self.landing = False  # executing a land command
 
         self.target: Vector3 | None = None  # last position requested with set_position
+        # Camera gimbal (pitch, yaw) in degrees: pitch 0 level, -90 down; yaw relative to
+        # the nose. None when the drone has no gimbal (or has not reported it yet).
+        self.gimbal: tuple[float, float] | None = None
 
     # --- commands ----------------------------------------------------------
 
@@ -57,6 +60,10 @@ class Drone(ABC):
     @abstractmethod
     def set_velocity(self, vx: float, vy: float, vz: float) -> None:
         """Fly at a NED velocity until told otherwise."""
+
+    def point_gimbal(self, pitch: float, yaw: float) -> None:
+        """Point the camera gimbal, degrees (see `gimbal`). Only drones with a gimbal."""
+        raise NotImplementedError(f'{type(self).__name__} has no gimbal')
 
     def takeoff(self, altitude: float) -> None:
         """Climb to `altitude` metres above the start point, straight up."""
@@ -91,3 +98,16 @@ class Drone(ABC):
 
     def __repr__(self) -> str:
         return f'{type(self).__name__}(id={self.id})'
+
+
+def pitch_yaw_deg(q: tuple[float, float, float, float]) -> tuple[float, float]:
+    """Pitch and yaw (degrees, ZYX Euler) of a quaternion w, x, y, z."""
+    w, x, y, z = q
+    pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - z * x))))
+    yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return math.degrees(pitch), math.degrees(yaw)
+
+
+def wrap_deg(angle: float) -> float:
+    """Angle in (-180, 180]."""
+    return -((-angle + 180.0) % 360.0 - 180.0)
