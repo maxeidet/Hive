@@ -18,11 +18,15 @@ drones:
   # Optional per-drone overrides:
   #   namespace: defaults to "" for instance 0 and "px4_<id>" otherwise (what PX4's rcS sets)
   #   system_id: defaults to id + 1 (PX4 sets MAV_SYS_ID = instance + 1)
+  #   model:     PX4_SIM_MODEL used by `mount-backend.sh spawn` (default gz_x500).
+  #              Drone 0 is started by docker/start-dev.sh, so its model is set there (-m).
+  #              Custom models live in worlds/models/, e.g. gz_x500_lidar_3d (3D lidar).
   - id: 0
     spawn_pose: [0.0, 0.0, 0.0]
 
   - id: 1
     spawn_pose: [5.0, 0.0, 0.0]
+    model: gz_x500_lidar_3d
 
   - id: 2
     spawn_pose: [0.0, 5.0, 0.0]

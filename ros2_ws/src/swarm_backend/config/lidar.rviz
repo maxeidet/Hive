@@ -1,0 +1,53 @@
+# RViz layout for `mount-backend.sh lidar`: one drone's point cloud, seen from the lidar.
+# __TOPIC__ is replaced with the bridged ROS topic when the command starts.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid (1 m)
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 100
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/Axes
+      Name: Lidar
+      Enabled: true
+      Length: 1
+      Radius: 0.05
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Lidar points
+      Enabled: true
+      Topic:
+        Value: __TOPIC__
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Color Transformer: AxisColor
+      Axis: Z
+      Decay Time: 0
+  Enabled: true
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: lidar_link
+    Frame Rate: 15
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 40
+      Focal Point: {X: 0, Y: 0, Z: 0}
+      Pitch: 0.6
+      Yaw: 0.8
+      Target Frame: <Fixed Frame>
+Window Geometry:
+  Height: 800
+  Width: 1200

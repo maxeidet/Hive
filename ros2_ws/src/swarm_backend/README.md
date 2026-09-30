@@ -60,9 +60,12 @@ With the container and drone 0 running (`docker/start-dev.sh`), from this folder
 ./mount-backend.sh multi        # Milestone 2 test on every drone
 ./mount-backend.sh demo         # formation demo (swarm_node)
 ./mount-backend.sh legacy       # the old backend_node + keyboard teleop
+./mount-backend.sh lidar 1      # drone 1's 3D lidar point cloud in RViz (VNC desktop)
 ```
 
 Each command rebuilds the package first and reads `config/swarm.yaml` from this folder.
+
+Drone models come from the `model:` field in `swarm.yaml` (drone 1 is `gz_x500_lidar_3d`: 16 beams, 360°, 100 m, 10 Hz, defined in `worlds/models/`). Its point cloud is bridged to ROS 2 as `/px4_1/lidar/points` (`sensor_msgs/PointCloud2`, frame `lidar_link`) while `lidar` runs.
 Ctrl-C or a timeout in any of these lands the drones.
 
 Unit tests for the parts that do not need ROS (config, topics, formations, swarm logic): `python3 -m pytest tests/test_*.py`.
