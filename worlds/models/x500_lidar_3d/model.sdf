@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  x500 with a 3D lidar on top. PX4 has no airframe for this model, so it is started with
+  the plain x500 airframe: PX4_SYS_AUTOSTART=4001 PX4_SIM_MODEL=gz_x500_lidar_3d
+  (mount-backend.sh spawn does that for any model without its own airframe).
+
+  Point cloud (Gazebo topic), where N is the PX4 instance:
+    /world/<world>/model/x500_lidar_3d_N/link/lidar_link/sensor/lidar_3d/scan/points
+-->
+<sdf version="1.9">
+  <model name="x500_lidar_3d">
+    <include merge="true">
+      <uri>x500</uri>
+    </include>
+
+    <link name="lidar_link">
+      <pose>0 0 0.30 0 0 0</pose>
+      <inertial>
+        <mass>0.08</mass>
+        <inertia>
+          <ixx>2e-5</ixx><iyy>2e-5</iyy><izz>2e-5</izz>
+          <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <cylinder><radius>0.04</radius><length>0.06</length></cylinder>
+        </geometry>
+        <material>
+          <ambient>0.1 0.1 0.1 1</ambient>
+          <diffuse>0.1 0.1 0.1 1</diffuse>
+        </material>
+      </visual>
+
+      <sensor name="lidar_3d" type="gpu_lidar">
+        <gz_frame_id>lidar_link</gz_frame_id>
+        <always_on>1</always_on>
+        <update_rate>10</update_rate>
+        <visualize>true</visualize>
+        <ray>
+          <scan>
+            <!-- 0.4° steps around the drone; halve for VLP-16 density if the sim can afford it -->
+            <horizontal>
+              <samples>900</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+            <!-- 16 beams from -15° to +15°, 2° apart -->
+            <vertical>
+              <samples>16</samples>
+              <resolution>1</resolution>
+              <min_angle>-0.261799</min_angle>
+              <max_angle>0.261799</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <!-- min above the propeller tips, so the drone does not see itself -->
+            <min>0.6</min>
+            <max>100.0</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.02</stddev>
+          </noise>
+        </ray>
+      </sensor>
+    </link>
+
+    <joint name="lidar_joint" type="fixed">
+      <parent>base_link</parent>
+      <child>lidar_link</child>
+    </joint>
+  </model>
+</sdf>

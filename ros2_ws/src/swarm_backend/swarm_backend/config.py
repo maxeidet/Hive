@@ -2,6 +2,7 @@
 
 Plain data only: nothing here imports ROS, so it can be used (and tested) anywhere.
 """
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -29,12 +30,40 @@ class DroneConfig:
 
 
 @dataclass(frozen=True)
+class InterceptConfig:
+    """One drone chasing a hostile drone (the `intercept:` section of swarm.yaml)."""
+    interceptor_id: int = 2
+    hostile_id: int = 0
+    altitude: float = 50.0  # metres; both drones fly at this fixed altitude
+    standoff: float = 10.0  # metres behind the hostile drone while shadowing
+    standoff_sigmas: float = 3.0  # but at least this many sigmas of position uncertainty
+    capture_margin: float = 3.0  # intercept counts as done within standoff + this
+    min_separation: float = 5.0  # never command a point closer than this to the estimate
+    max_speed: float = 10.0  # m/s the interceptor is assumed to fly, for the lead point
+    track_timeout: float = 3.0  # seconds without a fix before the target counts as lost
+    use_gimbal: bool = True  # keep the gimbal camera pointed at the target
+    radar_topic: str = '/base/radar/hostile'
+    radar_rate_hz: float = 2.0
+    radar_position: Vector3 = (0.0, 0.0, 0.0)  # world NED
+    # Mock radar errors, 1 sigma.
+    radar_range_std: float = 3.5  # metres
+    radar_azimuth_std_deg: float = 1.0
+    radar_elevation_std_deg: float = 2.0
+    radar_radial_velocity_std: float = 0.5  # m/s
+    hostile_pattern: str = 'circle'  # line, circle, figure8 or random
+    hostile_speed: float = 4.0  # m/s
+    pattern_size: float = 80.0  # metres: line length, circle diameter, figure-8 width
+    seed: int = 0  # random waypoints and radar noise
+
+
+@dataclass(frozen=True)
 class SwarmConfig:
     rate_hz: float
     takeoff_altitude: float
     position_tolerance: float
     formation_spacing: float
     drones: tuple[DroneConfig, ...]
+    intercept: InterceptConfig = dataclasses.field(default_factory=InterceptConfig)
 
     def drone(self, drone_id: int) -> DroneConfig:
         for drone in self.drones:
@@ -93,7 +122,24 @@ def parse_config(data: dict, num_drones: int | None = None) -> SwarmConfig:
         position_tolerance=float(swarm['position_tolerance']),
         formation_spacing=float(swarm['formation_spacing']),
         drones=drones,
+        intercept=_parse_intercept(data.get('intercept') or {}),
     )
+
+
+def _parse_intercept(entry: dict) -> InterceptConfig:
+    types = {f.name: type(f.default) for f in dataclasses.fields(InterceptConfig)}
+    unknown = set(entry) - set(types)
+    if unknown:
+        raise ValueError(f'Unknown intercept settings: {sorted(unknown)}')
+    values = {k: types[k](v) for k, v in entry.items()}
+    if 'radar_position' in values:
+        if len(values['radar_position']) != 3:
+            raise ValueError('intercept: radar_position must be [x, y, z]')
+        values['radar_position'] = tuple(float(v) for v in values['radar_position'])
+    config = InterceptConfig(**values)
+    if config.interceptor_id == config.hostile_id:
+        raise ValueError('intercept: interceptor_id and hostile_id must differ')
+    return config
 
 
 def _parse_drone(entry: dict) -> DroneConfig:

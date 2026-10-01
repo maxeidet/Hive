@@ -16,6 +16,21 @@ RUN apt-get update && apt-get install -y \
     websockify \
     && rm -rf /var/lib/apt/lists/*
 
+# ros_gz_bridge = forwards Gazebo sensor topics (e.g. the lidar point cloud) to ROS 2.
+# rviz2 = 3D viewer for ROS 2 data, runs in the VNC desktop (mount-backend.sh lidar).
+# radar_msgs = the mock base-station radar's messages (swarm_backend/intercept/radar.py).
+RUN apt-get update && apt-get install -y \
+    ros-jazzy-ros-gz-bridge \
+    ros-jazzy-rviz2 \
+    ros-jazzy-radar-msgs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ros_gz_bridge pulls in ROS's own gz-transport/gz-msgs "vendor" packages. Sourcing ROS then
+# points GZ_CONFIG_PATH at only those, which hides the system Gazebo's `gz sim` command, so
+# PX4 (whose entrypoint sources ROS) cannot start Gazebo. ROS prepends to this value, so
+# setting it here keeps the system Gazebo commands available.
+ENV GZ_CONFIG_PATH=/usr/share/gz
+
 # Simulation only: the x500 airframe (and every x500 variant, they all source it) sets
 # NAV_DLL_ACT=2, "return home when the ground-station link is lost". With that on, PX4
 # refuses to arm ("No connection to the GCS") until QGroundControl is connected. Our

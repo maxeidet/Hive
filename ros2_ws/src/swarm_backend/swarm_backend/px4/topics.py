@@ -41,6 +41,10 @@ class PX4Topics:
     def vehicle_command_ack(self) -> str:
         return self._out('vehicle_command_ack_v1')
 
+    @property
+    def gimbal_attitude(self) -> str:
+        return self._out('gimbal_device_attitude_status')
+
     def _in(self, name: str) -> str:
         return f'{self._prefix}/fmu/in/{name}'
 
