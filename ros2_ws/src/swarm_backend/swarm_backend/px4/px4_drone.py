@@ -7,7 +7,7 @@ from px4_msgs.msg import GimbalDeviceAttitudeStatus, OffboardControlMode, Trajec
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from swarm_backend.config import DroneConfig
+from swarm_backend.config import DroneConfig, Vector3
 from swarm_backend.px4 import messages
 from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 from swarm_backend.px4.topics import PX4Topics
@@ -47,6 +47,7 @@ ACK_RESULTS = {
 
 RETRY_PERIOD_S = 1.0  # between repeated arm/offboard/land attempts
 GIMBAL_TRIES = 5  # gimbal commands are re-sent until PX4 acks them, at most this often
+GIMBAL_STREAM_HZ = 5.0  # how often aim_gimbal re-sends pitch/yaw
 STREAM_BEFORE_OFFBOARD_S = 1.0  # PX4 rejects offboard without a live setpoint stream
 
 # After our land command, a drone this low and this still for this long counts as down.
@@ -91,11 +92,11 @@ class PX4Drone(Drone):
         node.create_subscription(
             GimbalDeviceAttitudeStatus, topics.gimbal_attitude, self._on_gimbal, PX4_OUT_QOS)
 
-        # What we are streaming: ('position', local NED) or ('velocity', NED), None until
-        # the first odometry arrives. Until someone commands a setpoint (and again after
-        # landing) it follows the current position, so switching to offboard never makes
-        # the drone jump to a stale target.
-        self._setpoint: tuple[str, tuple[float, float, float]] | None = None
+        # What we are streaming: ('position', local NED, velocity feed-forward or None) or
+        # ('velocity', NED, None), None until the first odometry arrives. Until someone
+        # commands a setpoint (and again after landing) it follows the current position, so
+        # switching to offboard never makes the drone jump to a stale target.
+        self._setpoint: tuple[str, Vector3, Vector3 | None] | None = None
         self._tracking = True
         self._yaw = 0.0  # radians from north
 
@@ -106,10 +107,13 @@ class PX4Drone(Drone):
         self._disarm_on_touchdown = False  # set by land(), until the drone disarms
         self._want_gimbal: tuple[float, float] | None = None  # (pitch, yaw) degrees
         self._gimbal_tries = 0
+        self._gimbal_aim: tuple[float, float] | None = None  # streamed by aim_gimbal
+        self._gimbal_controlled = False  # PX4 acked us as the gimbal's controller
         self._still_on_ground_since: float | None = None
 
         self._ticks_per_retry = max(1, round(RETRY_PERIOD_S * rate_hz))
         self._ticks_before_offboard = max(1, round(STREAM_BEFORE_OFFBOARD_S * rate_hz))
+        self._ticks_per_gimbal_aim = max(1, round(rate_hz / GIMBAL_STREAM_HZ))
         self._tick = 0
         self._streamed_ticks = 0
         node.create_timer(1.0 / rate_hz, self._on_timer)
@@ -138,22 +142,34 @@ class PX4Drone(Drone):
         self._tracking = True
         self.target = None
 
-    def set_position(self, x: float, y: float, z: float, yaw: float | None = None) -> None:
+    def set_position(self, x: float, y: float, z: float, yaw: float | None = None,
+                     velocity: Vector3 | None = None) -> None:
         self.target = (float(x), float(y), float(z))
         self._tracking = False
         hx, hy, hz = self.home
-        self._setpoint = ('position', (x - hx, y - hy, z - hz))
+        feed_forward = None if velocity is None else tuple(float(v) for v in velocity)
+        self._setpoint = ('position', (x - hx, y - hy, z - hz), feed_forward)
         if yaw is not None:
             self._yaw = float(yaw)
 
     def set_velocity(self, vx: float, vy: float, vz: float) -> None:
         self.target = None
         self._tracking = False
-        self._setpoint = ('velocity', (float(vx), float(vy), float(vz)))
+        self._setpoint = ('velocity', (float(vx), float(vy), float(vz)), None)
 
     def point_gimbal(self, pitch: float, yaw: float) -> None:
+        self._gimbal_aim = None
         self._want_gimbal = (float(pitch), float(yaw))
         self._gimbal_tries = 0
+
+    def aim_gimbal(self, pitch: float, yaw: float) -> None:
+        if self._gimbal_aim is None:
+            self._gimbal_controlled = False
+        self._want_gimbal = None
+        self._gimbal_aim = (float(pitch), float(yaw))
+
+    def release_gimbal(self) -> None:
+        self._gimbal_aim = None
 
     # --- what PX4 tells us -------------------------------------------------
 
@@ -165,8 +181,9 @@ class PX4Drone(Drone):
         self.position = (local[0] + hx, local[1] + hy, local[2] + hz)
         self.velocity = tuple(float(v) for v in msg.velocity)
         self.attitude = tuple(float(v) for v in msg.q)
+        self.stamp = msg.timestamp * 1e-6
         if self._tracking:
-            self._setpoint = ('position', tuple(local))
+            self._setpoint = ('position', tuple(local), None)
 
     def _on_status(self, msg: VehicleStatus) -> None:
         if not self.connected:
@@ -219,9 +236,13 @@ class PX4Drone(Drone):
         name = COMMAND_NAMES.get(msg.command)
         if name is None:
             return
-        if (msg.command == VehicleCommand.VEHICLE_CMD_DO_GIMBAL_MANAGER_PITCHYAW
-                and msg.result == VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED):
+        accepted = msg.result == VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED
+        if msg.command == VehicleCommand.VEHICLE_CMD_DO_GIMBAL_MANAGER_PITCHYAW and accepted:
             self._want_gimbal = None
+            if self._gimbal_aim is not None:
+                return  # streamed several times a second; not worth a log line each
+        if msg.command == VehicleCommand.VEHICLE_CMD_DO_GIMBAL_MANAGER_CONFIGURE and accepted:
+            self._gimbal_controlled = True
         result = ACK_RESULTS.get(msg.result, f'result {msg.result}')
         if msg.result == VehicleCommandAck.VEHICLE_CMD_RESULT_ACCEPTED:
             self._log.info(f'PX4 {result} the {name} command')
@@ -235,6 +256,8 @@ class PX4Drone(Drone):
     def _on_timer(self) -> None:
         self._stream_setpoint()
         self._tick += 1
+        if self._tick % self._ticks_per_gimbal_aim == 0:
+            self._stream_gimbal_aim()
         if self._tick % self._ticks_per_retry == 0:
             self._send_pending_commands()
             self._send_gimbal_command()
@@ -244,10 +267,10 @@ class PX4Drone(Drone):
         if self._setpoint is None:
             return
         now = self._now_us()
-        kind, value = self._setpoint
+        kind, value, feed_forward = self._setpoint
         if kind == 'position':
             mode = messages.offboard_control_mode(now, position=True)
-            setpoint = messages.position_setpoint(now, value, self._yaw)
+            setpoint = messages.position_setpoint(now, value, self._yaw, feed_forward)
         else:
             mode = messages.offboard_control_mode(now, velocity=True)
             setpoint = messages.velocity_setpoint(now, value, self._yaw)
@@ -285,6 +308,10 @@ class PX4Drone(Drone):
             self._command_pub.publish(messages.offboard_mode_command(now, system))
 
     def _send_gimbal_command(self) -> None:
+        if self._gimbal_aim is not None and not self._gimbal_controlled and self.connected:
+            # aim_gimbal's pitch/yaw stream is ignored until we are the gimbal's controller.
+            self._command_pub.publish(
+                messages.gimbal_take_control_command(self._now_us(), self.config.system_id))
         if self._want_gimbal is None or not self.connected:
             return
         if self._gimbal_tries >= GIMBAL_TRIES:
@@ -298,6 +325,12 @@ class PX4Drone(Drone):
         now = self._now_us()
         self._command_pub.publish(messages.gimbal_take_control_command(now, system))
         self._command_pub.publish(messages.gimbal_pitch_yaw_command(now, system, *self._want_gimbal))
+
+    def _stream_gimbal_aim(self) -> None:
+        if self._gimbal_aim is None or not self.connected:
+            return
+        self._command_pub.publish(messages.gimbal_pitch_yaw_command(
+            self._now_us(), self.config.system_id, *self._gimbal_aim))
 
     def _disarm_if_touched_down(self) -> None:
         on_ground = (

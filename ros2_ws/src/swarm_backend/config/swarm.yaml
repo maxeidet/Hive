@@ -30,3 +30,35 @@ drones:
 
   - id: 2
     spawn_pose: [0.0, 5.0, 0.0]
+    model: gz_x500_gimbal     # the interceptor: its camera can be kept on the target
+
+# Chase / intercept (tests/intercept_test.py, chase() in the shell). The hostile drone flies
+# a pattern; a mock base-station radar measures it (range, azimuth, radial velocity, with
+# noise); the interceptor flies to the predicted meeting point, then shadows it at
+# `standoff` metres, or further while the radar alone cannot place it that well.
+intercept:
+  interceptor_id: 2
+  hostile_id: 0
+  altitude: 50.0            # metres, fixed for both drones
+  standoff: 10.0            # metres behind the hostile drone while shadowing
+  standoff_sigmas: 3.0      # but at least this many sigmas of the position uncertainty
+                            # (radar alone at 2 km: about 15 m sigma, so about 45 m)
+  capture_margin: 3.0       # intercept is done within standoff + this
+  min_separation: 5.0       # never aim closer than this to the estimated position
+  max_speed: 10.0           # m/s assumed for the interceptor (PX4 MPC_XY_VEL_MAX is 12)
+  track_timeout: 3.0        # seconds without a radar fix before the target is lost
+  use_gimbal: true
+  radar_topic: /base/radar/hostile
+  radar_rate_hz: 2.0
+  # Where the base-station radar is (world NED, metres). Its cross-range error grows with
+  # distance (1 deg = 35 m at 2 km), so placing it far away virtually gives realistic
+  # errors while the drones fly near the origin. [0, 0, 0] = at the Gazebo origin.
+  radar_position: [-2000.0, 0.0, 0.0]
+  radar_range_std: 3.5            # metres, 1 sigma
+  radar_azimuth_std_deg: 1.0
+  radar_elevation_std_deg: 2.0    # measured, but unused: the altitude is fixed for now
+  radar_radial_velocity_std: 0.5  # m/s along the line of sight
+  hostile_pattern: circle   # line, circle, figure8 or random
+  hostile_speed: 4.0        # m/s
+  pattern_size: 80.0        # metres: line length, circle diameter, figure-8 / random area width
+  seed: 0

@@ -28,6 +28,7 @@ setup(
             'keyboard = swarm_backend.keyboard:main',
             'swarm_node = swarm_backend.nodes.swarm_node:main',
             'swarm_shell = swarm_backend.shell:main',
+            'mock_radar = swarm_backend.nodes.mock_radar:main',
         ],
     },
 )

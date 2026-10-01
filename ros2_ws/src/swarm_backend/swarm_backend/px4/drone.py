@@ -23,6 +23,9 @@ class Drone(ABC):
         self.position: Vector3 | None = None  # world NED, metres
         self.velocity: Vector3 | None = None  # NED, m/s
         self.attitude: tuple[float, float, float, float] | None = None  # quaternion w, x, y, z
+        # Autopilot clock at the last state update, seconds. In SITL this is simulation
+        # time, so code timed by it keeps pace when Gazebo runs slower than real time.
+        self.stamp: float | None = None
 
         self.connected = False  # heard from the autopilot at least once
         self.preflight_ok = False  # autopilot would accept an arm command
@@ -54,8 +57,12 @@ class Drone(ABC):
         """Land where the drone is. The autopilot disarms once it touches down."""
 
     @abstractmethod
-    def set_position(self, x: float, y: float, z: float, yaw: float | None = None) -> None:
-        """Fly to a world NED position. yaw is radians from north; None keeps the last one."""
+    def set_position(self, x: float, y: float, z: float, yaw: float | None = None,
+                     velocity: Vector3 | None = None) -> None:
+        """Fly to a world NED position. yaw is radians from north; None keeps the last one.
+
+        `velocity` (NED, m/s) is a feed-forward for a moving setpoint: the drone keeps
+        this velocity at the point instead of stopping there."""
 
     @abstractmethod
     def set_velocity(self, vx: float, vy: float, vz: float) -> None:
@@ -64,6 +71,15 @@ class Drone(ABC):
     def point_gimbal(self, pitch: float, yaw: float) -> None:
         """Point the camera gimbal, degrees (see `gimbal`). Only drones with a gimbal."""
         raise NotImplementedError(f'{type(self).__name__} has no gimbal')
+
+    def aim_gimbal(self, pitch: float, yaw: float) -> None:
+        """Keep the gimbal pointed at (pitch, yaw) degrees, re-sent continuously so it can
+        follow a moving target. Pitch is from the horizon, so it does not tilt with the
+        drone. Stays on until release_gimbal()."""
+        raise NotImplementedError(f'{type(self).__name__} has no gimbal')
+
+    def release_gimbal(self) -> None:
+        """Stop the aim_gimbal stream; the gimbal stays where it was last pointed."""
 
     def takeoff(self, altitude: float) -> None:
         """Climb to `altitude` metres above the start point, straight up."""

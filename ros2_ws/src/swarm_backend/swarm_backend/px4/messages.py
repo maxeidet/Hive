@@ -22,10 +22,14 @@ def offboard_control_mode(timestamp_us: int, *, position: bool = False,
     return msg
 
 
-def position_setpoint(timestamp_us: int, position: Vector3, yaw: float) -> TrajectorySetpoint:
-    """Fly to a position in PX4's local NED frame."""
+def position_setpoint(timestamp_us: int, position: Vector3, yaw: float,
+                      velocity: Vector3 | None = None) -> TrajectorySetpoint:
+    """Fly to a position in PX4's local NED frame. `velocity` is an optional feed-forward
+    that PX4 adds to its position controller's output, for setpoints that move."""
     msg = _setpoint(timestamp_us)
     msg.position = [float(v) for v in position]
+    if velocity is not None:
+        msg.velocity = [float(v) for v in velocity]
     msg.yaw = float(yaw)
     return msg
 
