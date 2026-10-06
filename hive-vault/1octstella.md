@@ -177,4 +177,4 @@ The base station assigns the friendly drone with the earliest feasible meeting t
 - [ ] Hostile altitude: fixed for now; once unknown, the radar's 2° elevation (±70 m at 2 km) becomes the weak axis.
 - [ ] Not yet verified in Gazebo: the polar radar + Kalman tracker version (needs a container restart for `radar_msgs`), and whether the gimbal fully removes the drone's tilt during hard acceleration.
 
-Related: [[ai_components]], [[px4_ros2_drone_swarm_development_roadmap]]
+Related: [[Home]], [[Codebase map]], [[ai_components]], [[px4_ros2_drone_swarm_development_roadmap]], [[Lock-on brainstorm]]

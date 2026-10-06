@@ -2,6 +2,9 @@
 
 This guide sets up a PX4 SITL development environment with Gazebo and ROS 2 Jazzy using Docker Desktop and WSL2.
 
+> [!note] The repo now has start scripts
+> This is the manual setup with the stock `px4io/px4-sitl-gazebo-ros2` image and the default world. The project now uses its own image (`docker/Dockerfile`: VNC GUI, RViz, `radar_msgs`, arming without QGroundControl), the container name `px4-gazebo-vnc`, the `hive_base` world and the backend's `mount-backend.sh`. On Linux use `docker/start-dev-linux.sh`; on Stellar use `docker/start-stellar.sh`. Not yet checked: whether `start-dev-linux.sh` works unchanged under WSL2. See [[Codebase map]] and [[StackV2]].
+
 The setup uses **one Docker container** containing:
 
 - PX4 SITL

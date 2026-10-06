@@ -1,5 +1,8 @@
 # PX4 + Gazebo + ROS 2 Drone Swarm Development Roadmap
 
+> [!info] Status (1 Oct 2026)
+> Steps 1–9 and 11 are built in `ros2_ws/src/swarm_backend/`. Step 10 (`mission/mission.py`) has not started. Step 12 has only `launch/swarm.launch.py`; PX4 instances are started with `mount-backend.sh spawn` instead. Built beyond this roadmap: `shell.py` (interactive shell), `runner.py`, `sensor_view.py` (RViz), `px4/observer.py` and the `intercept/` package (see [[1octstella]]). Milestones 1–3 have flight tests. The current file tree is in [[Codebase map]].
+
 ## Development Order
 
 Build the system bottom-up: first make one drone reliable, then abstract its interface, then introduce the swarm layer, and finally implement formations and missions.
@@ -877,3 +880,7 @@ If you want to learn while implementing, research in this order:
 16. `PX4 Gazebo multi vehicle simulation`
 
 **Don't start with formation-control papers/code.** First understand exactly how one PX4 vehicle communicates through ROS 2 and how PX4 identifies/names multiple vehicles. That foundation will make the swarm architecture much easier to get right.
+
+---
+
+Related: [[Home]], [[Codebase map]], [[ai_components]], [[1octstella]]

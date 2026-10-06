@@ -12,3 +12,5 @@ How can navigation be done?
 GPS, LiDAR
 ## Resilience
 How can resilience be increased?
+
+Related: [[Home]], [[ai_components]]

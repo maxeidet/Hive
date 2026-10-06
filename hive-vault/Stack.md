@@ -1,3 +1,6 @@
+> [!warning] Ersatt
+> Första versionen av stackbeskrivningen. Den aktuella är [[StackV2]]. Vad som faktiskt finns i repot står i [[Codebase map]].
+
 För ett AI-projekt med en svärm av drönare är det lämpligt att dela upp systemet i flera lager där varje komponent har ett tydligt ansvar. Kombinationen av **Ubuntu/Linux, Docker, ROS 2, PX4, Gazebo och Python/C++** gör det möjligt att fokusera på AI och svärmintelligens utan att behöva implementera hela flygsystemet själva.
 
   

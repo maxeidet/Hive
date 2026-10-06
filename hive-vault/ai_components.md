@@ -132,6 +132,9 @@ Gazebo has no radar, so this pair builds a simulated one:
 - Uses the hostile drone's ground truth; adds noise, misses (detection probability drops with range) and clutter (false returns).
 - Publishes `Detection` messages with `source = RADAR`.
 
+> [!note] Status (1 Oct 2026)
+> A first mock radar exists: `swarm_backend/intercept/radar.py` (`ros2 run swarm_backend mock_radar`). It measures range, azimuth, elevation and radial velocity with noise (σ 3.5 m, 1°, 2°, 0.5 m/s) at 2 Hz, and publishes `radar_msgs/RadarScan` on `/base/radar/hostile`. It does not publish `Detection` yet, and has no misses or clutter. Details and the error model are in [[1octstella]] section 3.
+
 ## 1b. Fusion: detections → tracks
 
 | | Approach |
@@ -179,7 +182,7 @@ Track accuracy (position error vs ground truth), false-track rate, time from fir
 
 ## Sensor setup
 
-- Gazebo's lidar sensor on the drone; the PX4 image already includes `gz_x500_lidar_front`. A 3D lidar model (more beams) may be needed. Check what the image provides, or add a custom model.
+- Gazebo's lidar sensor on the drone. The PX4 image's `gz_x500_lidar_front` / `_down` are 1-beam rangefinders, so we added a custom 3D lidar model: `gz_x500_lidar_3d` (`worlds/models/x500_lidar_3d/`, 16 beams, 360°, 100 m, 10 Hz). It is drone 1 in `swarm.yaml`. View it with `./mount-backend.sh view 1`; points arrive on `/px4_1/lidar_3d/points`. [[1octstella]] section 4 explains why it struggles with a small drone at the same altitude.
 - Lidar needs GPU rendering and the sim is already slow: start with lidar on **one or two drones**.
 - Small drones return very few points beyond roughly 50–100 m. Lidar is the **short-range, precise** sensor; the radar handles long range.
 - Convert detections from the drone's body frame to the world frame using the drone's position and attitude (`PX4Drone.position`, `.attitude`).
@@ -299,3 +302,5 @@ Each pair reports **AI vs baseline** on this set; together that is the evaluatio
 | 2. AI v1 | 7–12 | Fast Python training environment; each pair trains and swaps in its AI version |
 | 3. Integration | 13–16 | Latency under drone-like limits; robustness (noise, lost link, lost drone) |
 | 4. Evaluation | 17+ | AI vs baseline on the fixed scenarios; report |
+
+Related: [[Home]], [[Codebase map]] (what is built so far), [[1octstella]] (intercept design), [[px4_ros2_drone_swarm_development_roadmap]]

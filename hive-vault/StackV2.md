@@ -142,6 +142,9 @@ Att träna svärmalgoritmer, särskilt med reinforcement learning, direkt i PX4 
 
 ### 5.1 Föreslagen repo-struktur
 
+> [!note] Faktisk struktur (1 okt 2026)
+> Repot ser i dag annorlunda ut än förslaget nedan: det finns ingen `.devcontainer/`, `compose.yaml`, `scenarios/`, `training/` eller `hpc/` ännu. Världarna ligger i `worlds/`, startskripten i `docker/` och backenden i `ros2_ws/src/swarm_backend/`. Se [[Codebase map]] för den aktuella strukturen.
+
 ```text
 projekt/
 ├── .devcontainer/
@@ -454,3 +457,5 @@ Definiera scenarier, baslinjer och mätetal tidigt, annars går det inte att vis
 - Analys, dokumentation och rapport.
 
 _Tidsplanen är ett förslag och behöver anpassas efter projektets omfattning._
+
+Relaterat: [[Home]], [[Codebase map]], [[Stack]] (första versionen), [[WSL2 Docker setup]], [[ai_components]]
