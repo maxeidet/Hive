@@ -1,4 +1,4 @@
-"""Perimeter plots: the protected base, the ring of friendly drones, the hostile
+"""Perimeter plots: the protected base, the ring of defenders, the hostile
 spawn circle and what each drone's camera covers. Static grid for the report:
 
     python report/plots/perimeter.py
@@ -80,7 +80,7 @@ def legend_handles():
     return [
         Line2D([], [], color=INK_2, lw=1.2, label='perimeter (r)'),
         Line2D([], [], color=INK_3, lw=1.2, ls=(0, (4, 3)), label='hostile spawn (r + 1 km)'),
-        Line2D([], [], marker='o', ls='', color=DRONE, markersize=8, label='friendly drone'),
+        Line2D([], [], marker='o', ls='', color=DRONE, markersize=8, label='defender'),
         Patch(color=DRONE, alpha=0.35, label='camera view (FOV)'),
         Patch(color=DRONE, alpha=0.10, label='scanned sector'),
         Line2D([], [], color=HOSTILE, lw=2, marker='>', markersize=6,

@@ -1,7 +1,7 @@
 """Animated worst-case intercept (Target System, Intercept feasibility), in a loop.
 
 The ring is drawn locally straight (the x axis), outside is up. A hostile drone flies
-straight in, midway between two friendly drones, at lateral distance y = y_max from
+straight in, midway between two defenders, at lateral distance y = y_max from
 the nearest one. It enters the detection range r_det; in the worst case the scanning
 camera has just looked past it, so it is detected one sweep later and the interceptor
 departs t_d after entry. The intercept works if the interceptor reaches the hostile
