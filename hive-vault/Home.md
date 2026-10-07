@@ -12,6 +12,7 @@ Start here, then follow the links.
 
 | Note | What it is |
 |---|---|
+| [[Final state]] | Possible end state of the project: the final demo, answers to the report's two questions, stages from small to full |
 | [[ai_components]] | The three AI components (base station fusion and decisions, lidar detection, path planning), shared interfaces, timeline and evaluation |
 | [[px4_ros2_drone_swarm_development_roadmap]] | Bottom-up build order for `swarm_backend` (one drone → swarm → formations → missions), with current status |
 | [[1octstella]] | Intercept and lock-on design notes (1 Oct 2026): chase algorithm, radar model, sensor ranges, the real scenario |
