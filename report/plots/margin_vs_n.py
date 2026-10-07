@@ -1,5 +1,6 @@
 """Worst-case intercept margin against the number of drones (Target System, Camera
-Choice example and Base Station, gaps while drones are away).
+Choice example). The second line, with two drones away on an intercept, is extra:
+the report does not cover the gaps it leaves.
 
 Blue: the full ring of N drones. Orange: the same ring while two drones are away on
 an intercept (N - 2 left). The intercept is feasible above zero. Hover to read the

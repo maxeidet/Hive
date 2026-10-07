@@ -18,7 +18,7 @@ Options for every script:
 | `perimeter_interactive.py` | sliders | Target System | The same for one scene: FOV, N, radius, with coverage and intercept margin |
 | `intercept_geometry.py` | animation | Intercept feasibility | The worst-case intercept: scan, detection, departure, race to the meeting point |
 | `drones_vs_fov.py` | sliders, hover | Camera Choice | Drones needed against FOV, per image width |
-| `margin_vs_n.py` | sliders, hover | Camera Choice, Base Station | Intercept margin against N, full ring and with two drones away |
+| `margin_vs_n.py` | sliders, hover | Camera Choice | Intercept margin against N, full ring and with two drones away (not covered in the report) |
 | `pixels_vs_range.py` | sliders, hover | Detection range | Pixels on target against range, p_min and Johnson's criterion |
 | `time_in_view.py` | animation | Keeping the target in view | How long a crossing target stays in a narrow and a wide view |
 | `sensitivity.py` | slider, buttons | Additional Assumptions | Which assumption changes the number of drones most |
