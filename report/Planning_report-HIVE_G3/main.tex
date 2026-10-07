@@ -1,0 +1,62 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}% http://ctan.org/pkg/amsmath
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{comment}
+\usepackage{float}
+\usepackage[style=ieee, backend=biber]{biblatex}
+\usepackage{lscape}
+\usepackage{csquotes}
+\usepackage{multirow}
+\addbibresource{bibliography.bib}
+\usepackage[a4paper,pdftex,bottom=20mm, width=160mm]{geometry} % A4paper margins
+\setlength{\parindent}{0pt} % Tar bort indenteringen på paragrafer
+\setlength{\parskip}{1em}
+
+\newcommand{\todo}[1]{\textbf{[TODO: #1]}}
+
+\title{
+\includegraphics[scale=1.5]{liu_logga.png} \\
+\vspace{2.0cm} \textbf{Planning report - The Hive G3 } \\
+ \endgraf\rule{\textwidth}{.4pt}
+  \large \textbf{TDDE19 Advanced Project Course - AI and Machine Learning}\\
+   }
+
+
+\author{
+  \begin{tabular}{ccc}
+    Carl Arthur     & Max Eidet       & Oscar Gustafsson \\
+    \small carar002 & \small maxei163 & \small oscgu942 \\[1em]
+    Jostein Tobias Melaaen & Olle Pettersson & Oskar Schrammel Rask \\
+    \small josme010 & \small ollpe910 & \small osksc793 \\
+  \end{tabular}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+
+\newpage
+\tableofcontents
+
+\include{sections/introduction}
+\include{sections/problem_statement}
+\include{sections/setup_overview}
+\include{sections/base_surveillance}
+\include{sections/detection}
+\include{sections/base_station}
+\include{sections/interception}
+\include{sections/baseline_system}
+\include{sections/target_system}
+\include{sections/evaluation}
+\include{sections/final_state}
+
+\printbibliography
+
+
+\end{document}

@@ -1,0 +1,47 @@
+\section{Base Station}
+\label{sec:base-station}
+
+The base station sits between detection on the drones
+(Section~\ref{sec:detection}) and interception (Section~\ref{sec:intercept}).
+It does not fly and has no camera of its own; it works on what the drones send
+it. A drone that detects an object starts flying towards it at once and, during
+its flight, sends image crops of the object and the direction to it every
+$\Delta t$ seconds (Section~\ref{sec:target}). The base station sees the
+reports of every drone at the same time, which no single drone does. This
+section describes what the base station could do with them.
+
+\textbf{Confirming the target.} The base station could run a stronger
+classifier than the one on the drones, since it is not limited by the drones'
+weight and power. Instead of one image, it could classify the sequence of
+crops a drone sends, in which motion and shape over time help to tell a drone
+from a bird, and combine the views of several drones that see the same
+object. Since missing a hostile drone is worse than a detour, it would be
+tuned so that it rarely misses a drone, and call a drone back only when it is
+confident that the object is not a drone.
+
+\textbf{Estimating the target's position.} One camera gives only the direction
+to the target, not its distance. With the directions from two drones, the
+base station could estimate the target's position by triangulation. Two
+drones at positions $\mathbf{p}_1$ and $\mathbf{p}_2$ see the target along unit
+directions $\mathbf{u}_1$ and $\mathbf{u}_2$; since the two lines rarely meet
+exactly, one option is the midpoint of their closest points, the classic
+midpoint method \cite{hartley1997triangulation, hartley2004multiple},
+\begin{equation}
+  \hat{\mathbf{x}} = \tfrac{1}{2}\left(\mathbf{p}_1 + s^\ast\mathbf{u}_1
+                   + \mathbf{p}_2 + t^\ast\mathbf{u}_2\right),
+  \quad
+  (s^\ast, t^\ast) = \arg\min_{s,t}
+  \left\|\mathbf{p}_1 + s\,\mathbf{u}_1 - \mathbf{p}_2 - t\,\mathbf{u}_2\right\|^2 .
+  \label{eq:triangulation}
+\end{equation}
+A Kalman filter could smooth the estimates over time and give the target's
+velocity as well, which the MPC in Section~\ref{sec:intercept} needs, with new
+directions matched to the track by, for example, the nearest-neighbour rule
+\cite{barshalom2001estimation}. With more drones seeing the target, the
+estimate could use all of their directions.
+
+\textbf{Choosing the drones.} The base station could decide which drones take
+part in an intercept: confirming the drone that is already on its way, and
+sending a second drone so that the target can be triangulated. It could pick
+the drones that can reach the hostile drone's path earliest, for example with
+a consensus-based auction between the drones \cite{choi2009consensus}.

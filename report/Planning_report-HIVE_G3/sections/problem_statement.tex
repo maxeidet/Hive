@@ -1,0 +1,25 @@
+\section{Problem statement}
+The project aims to answer two questions:
+\begin{enumerate}
+    \item How can a hostile drone near a protected asset be detected?
+    \item How can the hostile drone be intercepted using a planning-based
+          or a reinforcement-learning-based controller?
+\end{enumerate}
+
+These are broken down into three questions, each answered by one part of
+the system:
+\begin{itemize}
+    \item \textbf{Surveillance:} how should the defenders be placed and scan
+          so that a hostile drone is detected early enough to be intercepted?
+          (Section~\ref{sec:base_surveillance})
+    \item \textbf{Detection:} at what range, and how reliably, can the
+          defenders' cameras detect a small drone and tell it apart from a
+          bird? (Section~\ref{sec:detection})
+    \item \textbf{Interception:} how much more often, and further from the
+          base, does a predictive controller hit the target than pure
+          pursuit? (Section~\ref{sec:intercept})
+\end{itemize}
+
+Each question is answered by comparing an improved method with a simple
+baseline on the same scenarios, using the measures in
+Section~\ref{sec:evaluation}. 

@@ -1,0 +1,77 @@
+\section{Possible Final State}
+\label{sec:final-state}
+
+This section describes what the project could demonstrate at the end of the
+course. It is a target to steer by rather than a commitment. The work starts
+small and grows in stages (Section~\ref{sec:stages}) towards the target system
+in Section~\ref{sec:target}.
+
+\textbf{Answers to the problem statement.} Detection uses the drones' own
+cameras and a two-tier classifier (Section~\ref{sec:target-approach}); the
+detection ranges and the number of drones needed follow from
+Section~\ref{sec:derived}. Interception compares a planning-based controller
+with one based on reinforcement learning on the same scenarios
+(Section~\ref{sec:target-approach}).
+
+\subsection{Stages}
+\label{sec:stages}
+
+Table~\ref{tab:stages} lists the stages from the current state to the final
+one. Later stages only add to earlier ones, so the system works end to end
+throughout the project.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|p{0.22\textwidth}|p{0.70\textwidth}|}
+\hline
+\textbf{Stage} & \textbf{What works} \\
+\hline
+0. Current state &
+One interceptor follows one hostile drone at a fixed altitude of 50\,m,
+given a noisy estimate of its position, and keeps a safe distance behind it. \\
+\hline
+1. Lock-on &
+A narrower gimbal camera than the platform's (Section~\ref{sec:camera-choice}); a simple detector for a dark object against the sky;
+a tracker on the camera bearing; a locked state. One hostile drone against
+the sky, starting inside the camera's view. \\
+\hline
+2. Search and intercept &
+The narrow camera scans the outward sector; hostile drone at $v_h$ and
+interceptor at $v_i$; meeting point on the hostile drone's path and
+proportional navigation once locked; a ring of $N$ drones, with the base
+station assigning the interceptor. \\
+\hline
+3. Classification &
+Image crops sent to the base station; a classifier over image sequences;
+birds as distractors; an \emph{investigate} role; tuning so that no drone is
+missed. \\
+\hline
+4. Wide coverage &
+A second, wide camera on each drone's gimbal and slew-to-cue; a convolutional neural network
+detector that also works against trees and ground. \\
+\hline
+5. Learned controller (stretch goal) &
+An interception policy trained with reinforcement learning, compared with the
+planning-based controller; several hostile drones and decoys. \\
+\hline
+\end{tabular}
+\caption{Stages from the current state to the final state.}
+\label{tab:stages}
+\end{table}
+
+Every stage is evaluated as described in Section~\ref{sec:evaluation}. In
+addition, the derived values in Section~\ref{sec:derived} are checked against
+the simulation, for example whether the intercept margin in
+Table~\ref{tab:feasibility} matches the measured one.
+
+\subsection{Limitations}
+
+Everything runs in simulation; no real drones or sensors are used. The
+derived values rest on simplifications: a straight, radial approach at
+constant speed, detection as soon as the target is $p_{\min}$ pixels wide, a
+clear sky behind the target, and one hostile drone at a time. Real detection
+is probabilistic and weaker against clouds, trees or ground. What an intercept
+ends with, for example escorting or neutralising the hostile drone, is left
+open: the final state ends when the interceptor is locked on and within
+intercept distance.
