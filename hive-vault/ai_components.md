@@ -2,11 +2,11 @@
 
 The project has three AI components, one per pair:
 
-| # | Component | Runs on | Question it answers |
-|---|---|---|---|
-| **1** | **Base station** — sensor fusion and decisions | Base station | *Where is the hostile drone, and which of our drones should do what?* |
-| **2** | **Lidar detection** of the hostile drone | Each drone | *Is there a hostile drone in my lidar data, and where?* |
-| **3** | **Path to the hostile drone** — planning | Each drone | *How do I get to the hostile drone (or search for it) quickly and without hitting anything?* |
+| #     | Component                                      | Runs on      | Question it answers                                                                          |
+| ----- | ---------------------------------------------- | ------------ | -------------------------------------------------------------------------------------------- |
+| **1** | **Base station** — sensor fusion and decisions | Base station | _Where is the hostile drone, and which of our drones should do what?_                        |
+| **2** | **Lidar detection** of the hostile drone       | Each drone   | _Is there a hostile drone in my lidar data, and where?_                                      |
+| **3** | **Path to the hostile drone** — planning       | Each drone   | _How do I get to the hostile drone (or search for it) quickly and without hitting anything?_ |
 
 Every component has a **non-AI baseline** that is built first. The baseline keeps the whole system running end to end from early on, and it is what the AI version is measured against.
 
@@ -106,13 +106,13 @@ No pair waits for another:
 
 **Latency budget, from lidar scan to the drone moving:**
 
-| Stage | Budget |
-|---|---|
-| 2. Lidar detection | ≤ 50 ms |
-| Radio link to base | ≤ 20 ms |
-| 1. Fusion + decision | ≤ 10 ms |
-| 3. First path | ≤ 50 ms |
-| **Total** | **≈ 100–150 ms** |
+| Stage                | Budget           |
+| -------------------- | ---------------- |
+| 2. Lidar detection   | ≤ 50 ms          |
+| Radio link to base   | ≤ 20 ms          |
+| 1. Fusion + decision | ≤ 10 ms          |
+| 3. First path        | ≤ 50 ms          |
+| **Total**            | **≈ 100–150 ms** |
 
 A hostile drone at 30–50 m/s moves about 5 m in that time, which is fine when detection happens hundreds of metres out.
 
@@ -132,16 +132,16 @@ Gazebo has no radar, so this pair builds a simulated one:
 - Uses the hostile drone's ground truth; adds noise, misses (detection probability drops with range) and clutter (false returns).
 - Publishes `Detection` messages with `source = RADAR`.
 
-> [!note] Status (1 Oct 2026)
+> [!note] ✏️ Status (1 Oct 2026)
 > A first mock radar exists: `swarm_backend/intercept/radar.py` (`ros2 run swarm_backend mock_radar`). It measures range, azimuth, elevation and radial velocity with noise (σ 3.5 m, 1°, 2°, 0.5 m/s) at 2 Hz, and publishes `radar_msgs/RadarScan` on `/base/radar/hostile`. It does not publish `Detection` yet, and has no misses or clutter. Details and the error model are in [[1octstella]] section 3.
 
 ## 1b. Fusion: detections → tracks
 
-| | Approach |
-|---|---|
-| **Baseline** | One Kalman filter per track (constant velocity); nearest-neighbour matching of detections to tracks; start a track after N hits, drop it after M misses |
-| **AI v1** | Learned track confidence: a small classifier over track features (speed, acceleration, how many sensors see it, lidar class votes) that separates real drones from birds and clutter |
-| **AI v2** (optional) | Learned data association (which detection belongs to which track), or a learned motion model that predicts the hostile drone's next seconds better than constant velocity |
+|                      | Approach                                                                                                                                                                             |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Baseline**         | One Kalman filter per track (constant velocity); nearest-neighbour matching of detections to tracks; start a track after N hits, drop it after M misses                              |
+| **AI v1**            | Learned track confidence: a small classifier over track features (speed, acceleration, how many sensors see it, lidar class votes) that separates real drones from birds and clutter |
+| **AI v2** (optional) | Learned data association (which detection belongs to which track), or a learned motion model that predicts the hostile drone's next seconds better than constant velocity            |
 
 Must handle: the same drone seen by several drones and the radar (one track, not three); false alarms seen by only one sensor; detections arriving late or out of order over the radio link.
 
@@ -149,26 +149,27 @@ Must handle: the same drone seen by several drones and the radar (one track, not
 
 When a track appears, decide **how many** drones to send, **which** ones, and **how the rest re-form** to keep covering the area.
 
-| | Approach |
-|---|---|
-| **Baseline** | Nearest drone intercepts; the rest keep the current formation, recomputed for N−1 drones with `Formation` + `assign_targets()` from `swarm_backend` |
-| **AI v1** | Utility-based or auction-based assignment (e.g. CBBA): score each drone on time to intercept, battery, and the coverage gap it would leave; choose the formation that closes the gap |
-| **AI v2** | Learned policy (multi-agent RL or a graph neural network over drones and tracks) trained in the fast Python environment against varied attacks |
+|              | Approach                                                                                                                                                                             |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Baseline** | Nearest drone intercepts; the rest keep the current formation, recomputed for N−1 drones with`Formation` + `assign_targets()` from `swarm_backend`                                   |
+| **AI v1**    | Utility-based or auction-based assignment (e.g. CBBA): score each drone on time to intercept, battery, and the coverage gap it would leave; choose the formation that closes the gap |
+| **AI v2**    | Learned policy (multi-agent RL or a graph neural network over drones and tracks) trained in the fast Python environment against varied attacks                                       |
 
 **Staying instant:**
+
 - Assignment for 3–20 drones is tiny: optimal (Hungarian) or greedy auction runs in well under 1 ms.
-- During patrol, keep an up-to-date table of *"who intercepts if a threat appears in each sector"*. When a detection arrives, the decision is a lookup.
+- During patrol, keep an up-to-date table of _"who intercepts if a threat appears in each sector"_. When a detection arrives, the decision is a lookup.
 - A learned policy only runs a forward pass at runtime (< 5 ms).
 
 ## Deliverables by phase
 
-| Phase | Weeks | Deliverable |
-|---|---|---|
-| 0 | 1–2 | `hive_interfaces` drafted; radar simulator; fake-track stand-in for pair 3 |
-| 1 | 3–6 | Kalman fusion + nearest-drone assignment + N−1 re-forming, running in Gazebo |
-| 2 | 7–12 | Learned track confidence; utility/auction assignment; coverage-aware formation choice |
-| 3 | 13–16 | Handles lost drones and lost links; latency measured under drone-like limits |
-| 4 | 17+ | Evaluation against the baseline |
+| Phase | Weeks | Deliverable                                                                           |
+| ----- | ----- | ------------------------------------------------------------------------------------- |
+| 0     | 1–2   | `hive_interfaces` drafted; radar simulator; fake-track stand-in for pair 3            |
+| 1     | 3–6   | Kalman fusion + nearest-drone assignment + N−1 re-forming, running in Gazebo          |
+| 2     | 7–12  | Learned track confidence; utility/auction assignment; coverage-aware formation choice |
+| 3     | 13–16 | Handles lost drones and lost links; latency measured under drone-like limits          |
+| 4     | 17+   | Evaluation against the baseline                                                       |
 
 ## Metrics
 
@@ -194,11 +195,11 @@ point cloud → remove ground & known static obstacles → cluster (e.g. DBSCAN)
            → per-cluster features / points → classifier → drone? → Detection
 ```
 
-| | Approach |
-|---|---|
-| **Baseline** | Clustering + hand-written rules: cluster size, extent, height above ground, not matching the static tree map |
-| **AI v1** | Classifier on hand-picked cluster features (size, shape, point spread, intensity, motion between scans): gradient boosting or a small MLP |
-| **AI v2** | Point-cloud network on the raw cluster points (a small PointNet), plus using several scans for motion |
+|              | Approach                                                                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Baseline** | Clustering + hand-written rules: cluster size, extent, height above ground, not matching the static tree map                              |
+| **AI v1**    | Classifier on hand-picked cluster features (size, shape, point spread, intensity, motion between scans): gradient boosting or a small MLP |
+| **AI v2**    | Point-cloud network on the raw cluster points (a small PointNet), plus using several scans for motion                                     |
 
 Classes: `DRONE`, `BIRD`, `CLUTTER` (trees, noise). **Birds are the hard case.** Pair 1 or the scenario runner should spawn bird-like distractors so the classifier learns to reject them.
 
@@ -216,13 +217,13 @@ Classes: `DRONE`, `BIRD`, `CLUTTER` (trees, noise). **Birds are the hard case.**
 
 ## Deliverables by phase
 
-| Phase | Weeks | Deliverable |
-|---|---|---|
-| 0 | 1–2 | Lidar drone spawning in Gazebo; point clouds bridged to ROS 2; recording tools |
-| 1 | 3–6 | Rule-based baseline publishing `Detection`s; automatic labelling pipeline |
-| 2 | 7–12 | Feature classifier, then a point-cloud network; distractors in the dataset |
-| 3 | 13–16 | ONNX export, timing under drone-like limits, robustness to noise |
-| 4 | 17+ | Evaluation against the baseline |
+| Phase | Weeks | Deliverable                                                                    |
+| ----- | ----- | ------------------------------------------------------------------------------ |
+| 0     | 1–2   | Lidar drone spawning in Gazebo; point clouds bridged to ROS 2; recording tools |
+| 1     | 3–6   | Rule-based baseline publishing`Detection`s; automatic labelling pipeline       |
+| 2     | 7–12  | Feature classifier, then a point-cloud network; distractors in the dataset     |
+| 3     | 13–16 | ONNX export, timing under drone-like limits, robustness to noise               |
+| 4     | 17+   | Evaluation against the baseline                                                |
 
 ## Metrics
 
@@ -238,18 +239,18 @@ This component decides **how each drone flies**: where to search while patrollin
 
 ## 3a. Search: where to look
 
-| | Approach |
-|---|---|
-| **Baseline** | Fixed patterns per sector: back-and-forth sweeps, or a ring around the base |
-| **AI** | Belief-based search: keep a probability map of where a hostile drone could be (raised where no one has looked recently and along likely approach routes), and plan paths that maximize the probability of detection per second |
+|              | Approach                                                                                                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Baseline** | Fixed patterns per sector: back-and-forth sweeps, or a ring around the base                                                                                                                                                    |
+| **AI**       | Belief-based search: keep a probability map of where a hostile drone could be (raised where no one has looked recently and along likely approach routes), and plan paths that maximize the probability of detection per second |
 
 ## 3b. Intercept: getting to a moving target
 
-| | Approach |
-|---|---|
-| **Baseline** | Fly straight at the track's current position; **proportional navigation** as the steering rule |
-| **AI v1** | A* on a 3D grid, or RRT*, through the precomputed obstacle map, aimed at the **predicted intercept point** (where the drone and the hostile drone can meet), replanned as the track updates |
-| **AI v2** | Time-aware planning (kinodynamic RRT* or search over time), or a learned policy / learned cost-to-go that speeds up the planner |
+|              | Approach                                                                                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Baseline** | Fly straight at the track's current position;**proportional navigation** as the steering rule                                                                                              |
+| **AI v1**    | A* on a 3D grid, or RRT*, through the precomputed obstacle map, aimed at the**predicted intercept point** (where the drone and the hostile drone can meet), replanned as the track updates |
+| **AI v2**    | Time-aware planning (kinodynamic RRT\* or search over time), or a learned policy / learned cost-to-go that speeds up the planner                                                           |
 
 ## 3c. Paths for the hostile drone
 
@@ -257,20 +258,20 @@ The same planner generates the hostile drone's routes for the scenario runner: r
 
 ## Staying instant
 
-- **Time-limited planning:** give RRT* a fixed budget (e.g. 50 ms) and use the best path found so far.
+- **Time-limited planning:** give RRT\* a fixed budget (e.g. 50 ms) and use the best path found so far.
 - **Plan a short distance ahead:** plan a few seconds ahead and replan at 5–10 Hz, rather than solving the whole route once.
 - **Instant fallback:** proportional navigation costs microseconds, so the drone steers by it while a new plan is being computed and is never waiting.
 - **Precompute the world:** the occupancy map of trees and buildings is built once, offline, from the world file. Nothing processes the world at runtime.
 
 ## Deliverables by phase
 
-| Phase | Weeks | Deliverable |
-|---|---|---|
-| 0 | 1–2 | Occupancy map from the Gazebo world; path follower in `swarm_backend`; fake-assignment stand-in |
-| 1 | 3–6 | Sweep patrol + proportional-navigation intercept in Gazebo; hostile drone path generator (random start, straight to base) |
-| 2 | 7–12 | A*/RRT* intercept to the predicted point; belief-based search; detection-avoiding hostile routes |
-| 3 | 13–16 | Time-limited replanning, timing under drone-like limits, handling lost tracks |
-| 4 | 17+ | Evaluation against the baseline |
+| Phase | Weeks | Deliverable                                                                                                               |
+| ----- | ----- | ------------------------------------------------------------------------------------------------------------------------- |
+| 0     | 1–2   | Occupancy map from the Gazebo world; path follower in`swarm_backend`; fake-assignment stand-in                            |
+| 1     | 3–6   | Sweep patrol + proportional-navigation intercept in Gazebo; hostile drone path generator (random start, straight to base) |
+| 2     | 7–12  | A*/RRT* intercept to the predicted point; belief-based search; detection-avoiding hostile routes                          |
+| 3     | 13–16 | Time-limited replanning, timing under drone-like limits, handling lost tracks                                             |
+| 4     | 17+   | Evaluation against the baseline                                                                                           |
 
 ## Metrics
 
@@ -282,25 +283,25 @@ Time to intercept, success rate, minimum distance to obstacles and to other dron
 
 All three pairs use the same fixed set of **seeded scenarios** (easy → hard: slow and straight → fast, low, evasive), so AI and baseline are compared on exactly the same attacks.
 
-| Measure | Mainly tests |
-|---|---|
-| Detection range (distance of hostile drone when first confirmed) | 2, 1 |
-| Time from first detection to intercept | 1, 3 |
-| Intercept success rate / hostile drone reached base | All |
-| False alarms per hour | 2, 1 |
-| Coverage lost during intercepts | 1, 3 |
-| End-to-end latency, scan → movement | All |
+| Measure                                                          | Mainly tests |
+| ---------------------------------------------------------------- | ------------ |
+| Detection range (distance of hostile drone when first confirmed) | 2, 1         |
+| Time from first detection to intercept                           | 1, 3         |
+| Intercept success rate / hostile drone reached base              | All          |
+| False alarms per hour                                            | 2, 1         |
+| Coverage lost during intercepts                                  | 1, 3         |
+| End-to-end latency, scan → movement                              | All          |
 
-Each pair reports **AI vs baseline** on this set; together that is the evaluation for the final report.
+Each pair reports **AI vs baseline** on this set; together that is the evaluation for the final report..
 
 # Timeline overview
 
-| Phase | Weeks | Whole group |
-|---|---|---|
-| 0. Contracts | 1–2 | `hive_interfaces`, stand-in publishers, scenario runner (spawn, reset, score), faster sim |
-| 1. Baselines | 3–6 | Full chain in Gazebo with all three baselines; full-chain run every two weeks from here on |
-| 2. AI v1 | 7–12 | Fast Python training environment; each pair trains and swaps in its AI version |
-| 3. Integration | 13–16 | Latency under drone-like limits; robustness (noise, lost link, lost drone) |
-| 4. Evaluation | 17+ | AI vs baseline on the fixed scenarios; report |
+| Phase          | Weeks | Whole group                                                                                |
+| -------------- | ----- | ------------------------------------------------------------------------------------------ |
+| 0. Contracts   | 1–2   | `hive_interfaces`, stand-in publishers, scenario runner (spawn, reset, score), faster sim  |
+| 1. Baselines   | 3–6   | Full chain in Gazebo with all three baselines; full-chain run every two weeks from here on |
+| 2. AI v1       | 7–12  | Fast Python training environment; each pair trains and swaps in its AI version             |
+| 3. Integration | 13–16 | Latency under drone-like limits; robustness (noise, lost link, lost drone)                 |
+| 4. Evaluation  | 17+   | AI vs baseline on the fixed scenarios; report                                              |
 
 Related: [[Home]], [[Codebase map]] (what is built so far), [[1octstella]] (intercept design), [[px4_ros2_drone_swarm_development_roadmap]]
