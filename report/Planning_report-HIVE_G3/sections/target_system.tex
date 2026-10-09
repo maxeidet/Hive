@@ -1,0 +1,369 @@
+\section{Target System}\label{sec:target}
+%% Oscar Gustafsson
+
+In the target system, a ring of $N$ friendly drones patrols at radius $R_p$
+around a protected military camp. Each drone carries a camera on a gimbal
+that scans the sky outside the ring; which camera, and whether a second one
+is added, is chosen in Section~\ref{sec:camera-choice}. A hostile drone
+approaches from outside at speed $v_h$. The nearest friendly drone sees it as
+a small dark object against the sky. A fast model on the drone flags the
+object, and the drone starts flying towards it at once, without waiting for
+the base station. Throughout its flight, it sends an image crop of the object
+and the direction to it every $\Delta t$ seconds. The base station acts on
+these (Section~\ref{sec:base-station}): a stronger model classifies the
+object, and if it is a drone, the base station confirms the intercept and
+sends a second drone so that the target can be triangulated; if it is not,
+the base station calls the drone back. Since missing a hostile drone is worse
+than a detour, the drone is only called back when the base station is
+confident that the object is not a drone. The interceptor acquires and locks
+on to the target, keeps it centred in its gimbal camera, and guides itself to
+the intercept. All
+numbers below follow from the assumptions in Section~\ref{sec:assumptions} and
+Section~\ref{sec:target-assumptions}; when an assumption changes, the derived
+values change with it.
+
+\subsection{Additional Assumptions}
+\label{sec:target-assumptions}
+
+The target system adds components and constraints that the baseline does not
+have. Table~\ref{tab:target-assumptions} lists their assumed values, on top of
+those in Table~\ref{tab:assumptions}.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|l|p{0.25\textwidth}|r|p{0.27\textwidth}|}
+\hline
+\textbf{Symbol} & \textbf{Quantity} & \textbf{Value} & \textbf{Note} \\
+\hline
+$\Theta_s$ & Sector scanned by the gimbal camera & 180$^\circ$ & Constraint: outward half only, since threats come from outside \\
+$\Delta t$ & Interval between image crops sent to the base station & 0.2\,s & Addition: 5 crops per second \\
+$t_c$ & Image sequence needed to classify & 1.0\,s & Addition: base-station classifier, $t_c/\Delta t = 5$ crops \\
+$t_l$ & Radio link and inference latency & 0.1\,s & Addition: drone to base station and back \\
+$p_{\min}$ & Smallest detectable size & 4\,px & Analysis: dark object against the sky \\
+$t_{\mathrm{lock}}$ & Lock-on time that counts as a successful interception & 3\,s & Evaluation: alternative to a hit (Section~\ref{sec:intercept}) \\
+$d_{\mathrm{lock}}$ & Largest distance for a lock-on & 20\,m & Evaluation: close enough to engage the target \\
+\hline
+\end{tabular}
+\caption{Additional assumed values of the target system.}
+\label{tab:target-assumptions}
+\end{table}
+
+By Johnson's criteria, detecting that an object is present needs about one
+line pair, that is two pixels, across it \cite{johnson1958analysis};
+$p_{\min} = 4$\,px doubles that as a margin. For the analysis below, a camera
+is also assumed to detect the target as soon as it is at least $p_{\min}$
+pixels wide, images have a 16:9 aspect ratio, and
+the ring is treated as locally straight where the hostile drone crosses it.
+The camera's field of view $\theta$ and image width $W$ are left open; they
+are the design variables of Section~\ref{sec:camera-choice}.
+
+\subsection{Derived Quantities}
+\label{sec:derived}
+
+\textbf{Drone spacing (sparsity).} With $N$ drones evenly spaced on the ring,
+the distance between neighbours is
+\begin{equation}
+  d = \frac{2\pi R_p}{N},
+  \label{eq:spacing}
+\end{equation}
+and a hostile drone that crosses the ring midway between two neighbours passes
+at a lateral distance of at most
+\begin{equation}
+  y_{\max} = \frac{d}{2} = \frac{\pi R_p}{N}
+  \label{eq:ymax}
+\end{equation}
+from the nearest friendly drone.
+
+\textbf{Detection range.} By the pinhole camera model
+\cite{hartley2004multiple}, a camera of width $W$ pixels and horizontal field
+of view $\theta$ has a focal length, in pixels, of
+\begin{equation}
+  f = \frac{W/2}{\tan(\theta/2)}.
+  \label{eq:focal}
+\end{equation}
+A target of size $s$ at range $r$ covers $p = f s / r$ pixels, so the
+detection range is
+\begin{equation}
+  r_{\mathrm{det}} = \frac{f\,s}{p_{\min}}.
+  \label{eq:rdet}
+\end{equation}
+
+\textbf{Coverage without gaps.} Every hostile drone that crosses the ring is
+seen if $r_{\mathrm{det}} \geq y_{\max}$, which by Equation~\eqref{eq:ymax}
+requires
+\begin{equation}
+  N \geq \left\lceil \frac{\pi R_p}{r_{\mathrm{det}}} \right\rceil.
+  \label{eq:ncoverage}
+\end{equation}
+
+\textbf{Scanning.} A camera with image size $W \times H$ has the vertical field
+of view
+\begin{equation}
+  \theta_v = 2\arctan\!\left(\tan\frac{\theta}{2}\cdot\frac{H}{W}\right).
+  \label{eq:vfov}
+\end{equation}
+At range $r_{\mathrm{det}}$, hostile altitudes between $h_{h,\min}$ and
+$h_{h,\max}$ span the elevation band
+$\Delta\varepsilon = \arctan\frac{h_{h,\max}-h}{r_{\mathrm{det}}}
+ - \arctan\frac{h_{h,\min}-h}{r_{\mathrm{det}}}$.
+Covering the outward sector $\Theta_s$ then takes
+$n = \lceil \Theta_s/\theta \rceil \cdot \lceil \Delta\varepsilon/\theta_v \rceil$
+camera positions, and one sweep takes
+\begin{equation}
+  T_{\mathrm{sweep}} = n\,t_g ,
+  \label{eq:sweep}
+\end{equation}
+during which the hostile drone flies $v_h T_{\mathrm{sweep}}$.
+
+\textbf{Time to depart.} In the worst case, the hostile drone enters the
+detection range just after the camera has looked past it. The drone that
+detects it starts flying as soon as its own model flags the object, so the
+time from entering detection range to departure is
+\begin{equation}
+  t_d = T_{\mathrm{sweep}} + t_g .
+  \label{eq:delay}
+\end{equation}
+The base station's decision arrives $t_c + t_l$ later, while the drone is
+already on its way, so it does not delay the intercept; it only decides
+whether the flight continues.
+
+\textbf{Intercept feasibility.} Since $v_h > v_i$, the interceptor cannot catch
+the hostile drone from behind; it must reach the hostile drone's path before
+the hostile drone gets there. Conservatively, the meeting point is where the
+hostile drone crosses the ring. A hostile drone first detected at range
+$r_{\mathrm{det}}$ by a drone at lateral distance $y$ reaches the ring after
+\begin{equation}
+  t_h = \frac{\sqrt{r_{\mathrm{det}}^2 - y^2}}{v_h},
+  \label{eq:th}
+\end{equation}
+and the interceptor reaches the hostile drone's path after
+\begin{equation}
+  t_i = t_d + \frac{y}{v_i} + \frac{v_i}{2a},
+  \label{eq:ti}
+\end{equation}
+where the last term is the time lost while accelerating to $v_i$. The
+intercept is feasible when $t_h \geq t_i$ at the worst case $y = y_{\max}$.
+
+\textbf{Keeping the target in view.} A target that moves across the line of
+sight at speed $v_\perp$ and range $r$ turns, as seen by the camera, at the
+rate
+\begin{equation}
+  \omega = \frac{v_\perp}{r},
+  \label{eq:angrate}
+\end{equation}
+and leaves the image after $(\theta/2)/\omega$ if the gimbal stops following
+it.
+
+\subsection{Camera Choice}
+\label{sec:camera-choice}
+
+The camera is a trade-off. A narrower field of view or a wider image raises
+the focal length (Equation~\eqref{eq:focal}) and so the detection range, but a
+narrower field of view needs more camera positions to scan the sector, which
+lengthens the sweep and the time to decide. Table~\ref{tab:coverage} shows the
+effect on the number of drones for a range of cameras, including the one the
+simulated platform already has.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|r|r|r|r|r|r|r|}
+\hline
+$\theta$ & $W$ (px) & $r_{\mathrm{det}}$ & Positions $n$ & $T_{\mathrm{sweep}}$ & $N$, no gaps & $N$, feasible \\
+\hline
+115$^\circ$ & 1280 & 51\,m   & 4  & 2.0\,s & 62 & -- \\
+115$^\circ$ & 3840 & 153\,m  & 2  & 1.0\,s & 21 & 65 \\
+60$^\circ$  & 1920 & 208\,m  & 3  & 1.5\,s & 16 & 42 \\
+30$^\circ$  & 1920 & 448\,m  & 6  & 3.0\,s & 8  & 16 \\
+20$^\circ$  & 1920 & 681\,m  & 9  & 4.5\,s & 5  & 10 \\
+10$^\circ$  & 1920 & 1372\,m & 18 & 9.0\,s & 3  & 5 \\
+20$^\circ$  & 3840 & 1361\,m & 9  & 4.5\,s & 3  & 5 \\
+\hline
+\end{tabular}
+\caption{Detection range, scan time and the number of drones needed, from
+Equations~\eqref{eq:spacing}--\eqref{eq:ti}. The first row is the camera of
+the simulated platform (Table~\ref{tab:assumptions}); -- means that no number
+of drones makes the intercept feasible.}
+\label{tab:coverage}
+\end{table}
+
+Three conclusions follow.
+
+\textbf{The platform's camera is not enough.} With the camera of the simulated
+platform, a 0.5\,m drone is detectable at only about 51\,m, and no number of
+drones on a 1\,km ring makes the intercept feasible. The target system
+therefore needs a camera with a longer focal length than the simulation's
+default.
+
+\textbf{Within the model, narrower is better, with diminishing returns.} At
+1920\,px, going from 60$^\circ$ to 20$^\circ$ cuts the drones needed from 42
+to 10; going further to 10$^\circ$ saves only five more. The model
+does not limit how narrow the camera can be, so the limit must come from what
+it leaves out:
+\begin{itemize}
+  \item \emph{Keeping the target in view.} By Equation~\eqref{eq:angrate}, a
+        target crossing at 17\,m/s turns at about 19.5$^\circ$/s at 50\,m and
+        49$^\circ$/s at 20\,m. A 20$^\circ$ camera loses it after about
+        0.2\,s at 20\,m if the gimbal lags; a 115$^\circ$ camera keeps it for
+        about 1.2\,s. A narrow camera is good for finding the target far away
+        but poor for keeping it close in.
+  \item \emph{Computing cost.} The detector's work grows with the number of
+        pixels: a 1920$\times$1080 image has 2.25 times, and a
+        3840$\times$2160 image 9 times, the pixels of the platform's
+        1280$\times$720 image. This matters on board the drone and when many
+        drones render cameras in the same simulation.
+  \item \emph{Pointing and stabilisation.} The narrower the camera, the more
+        precisely the gimbal must point and hold still; a pointing error of
+        half the field of view already loses the target.
+\end{itemize}
+
+\textbf{Options to test.} These effects are not known well enough to fix the
+camera now. The target system is therefore evaluated in simulation with the
+following options, using the platform's camera as the reference:
+\begin{enumerate}
+  \item \emph{One narrower gimbal camera}, about 20--30$^\circ$ at 1920\,px:
+        the simplest option that makes the intercept feasible
+        (Table~\ref{tab:coverage}).
+  \item \emph{A narrow and a wide camera on the same gimbal}, or a zoom
+        camera, which is wide when close and narrow when far: the narrow view
+        finds the target far away, and the wide view keeps it in view at
+        close range, where Equation~\eqref{eq:angrate} shows the narrow
+        camera struggles. The wide view also shows where to turn the gimbal
+        so that the narrow camera sees an object (\emph{slew-to-cue}), as in
+        master--slave surveillance systems where a wide camera directs a
+        pan--tilt--zoom camera \cite{delbimbo2010exploiting}. In Gazebo, both
+        variants can be built as two camera sensors on the gimbal.
+  \item \emph{Several narrow cameras side by side} (a camera array): nine
+        20$^\circ$ cameras cover the 180$^\circ$ sector at once, so no
+        scanning is needed and $T_{\mathrm{sweep}}$ disappears. Once a target
+        is detected, lock-on needs only the one camera that sees it. The gain
+        is smaller than it seems, because most of the intercept time is the
+        flight, not the search: with $t_d \approx 0$, the minimum number of
+        drones falls from 10 to 9, and the margin with 12 drones grows from
+        7\,s to 12\,s. Three costs come with it:
+        \begin{itemize}
+          \item \emph{Detection runs on every camera.} Until something is
+                found, all cameras must be searched: nine 1920$\times$1080
+                images are 20 times the pixels of the platform's camera per
+                frame. Processing them in turn at 30 images per second keeps
+                the computing cost of one camera and still gives a cycle of
+                0.3\,s, which leaves the minimum at 9 drones.
+          \item \emph{The array tilts with the drone.} Fixed to the drone, the
+                cameras pitch with it (Equation~\eqref{eq:tilt}); with a
+                vertical field of view of only 11.3$^\circ$, covering a pitch
+                of $\pm15^\circ$ takes four rows, that is 36 cameras. The
+                array must therefore be stabilised, for example on a gimbal,
+                which then carries nine cameras instead of one.
+          \item \emph{Weight, power and simulation.} Every camera adds weight,
+                power and bandwidth on a real drone, and rendering time in
+                Gazebo, multiplied by the number of drones.
+        \end{itemize}
+\end{enumerate}
+The option that intercepts most often with the fewest drones is chosen. Until
+then, the analysis uses 20$^\circ$ at 1920\,px as its example.
+
+\textbf{Rejected: a wide camera fixed to the drone.} A multirotor tilts to
+accelerate: holding its altitude while accelerating horizontally at $a$, it
+pitches by
+\begin{equation}
+  \phi = \arctan\frac{a}{g},
+  \label{eq:tilt}
+\end{equation}
+where $g$ is the gravitational acceleration; $a = 2$\,m/s$^2$ already gives
+$\phi \approx 11.5^\circ$. It tilts further when it brakes, turns or flies into wind. A camera fixed to the
+drone tilts with it, so a target at elevation $\varepsilon$ above the horizon
+stays in view only if
+\begin{equation}
+  \varepsilon + \phi \leq \frac{\theta_v}{2}.
+  \label{eq:tiltview}
+\end{equation}
+Even a 115$^\circ$ camera, with $\theta_v \approx 83^\circ$, keeps only
+targets less than 11.5$^\circ$ above the horizon in view at a pitch of
+30$^\circ$, and the image shifts every time the drone changes its attitude.
+This happens exactly during the intercept, when the drone accelerates hardest
+and the target is close and high in the image. A gimbal removes the drone's
+pitch, so all cameras of the target system are mounted on the gimbal.
+
+\textbf{Example: 20$^\circ$ at 1920\,px.} The camera's vertical field of view
+is 11.3$^\circ$ (Equation~\eqref{eq:vfov}). At $r_{\mathrm{det}} = 681$\,m,
+hostile altitudes of 20--120\,m appear between $-2.5^\circ$ and $+5.9^\circ$
+in elevation, which fits within one row of images, so the outward sector takes
+$n = 9$ positions, $T_{\mathrm{sweep}} = 4.5$\,s and $t_d = 5.0$\,s.
+Table~\ref{tab:feasibility} shows the resulting margin.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|r|r|r|r|r|r|}
+\hline
+$N$ & $d$ & $y_{\max}$ & $t_h$ & $t_i$ & Margin $t_h - t_i$ \\
+\hline
+8  & 785\,m & 393\,m & 32.7\,s & 40.7\,s & $-8.0$\,s \\
+9  & 698\,m & 349\,m & 34.4\,s & 37.1\,s & $-2.7$\,s \\
+10 & 628\,m & 314\,m & 35.5\,s & 34.2\,s & 1.3\,s \\
+12 & 524\,m & 262\,m & 37.0\,s & 29.8\,s & 7.1\,s \\
+16 & 393\,m & 196\,m & 38.3\,s & 24.4\,s & 14.0\,s \\
+20 & 314\,m & 157\,m & 39.0\,s & 21.1\,s & 17.9\,s \\
+\hline
+\end{tabular}
+\caption{Worst-case intercept margin for different numbers of drones, with a
+20$^\circ$ camera at 1920\,px, from Equations~\eqref{eq:spacing}--\eqref{eq:ti}.}
+\label{tab:feasibility}
+\end{table}
+
+With this camera, coverage is gap-free from $N = 5$, but an intercept is only
+feasible in the worst case from $N = 10$; about 12 drones leave a margin of
+7\,s.
+
+\subsection{Detection and Interception}
+\label{sec:target-approach}
+
+\textbf{Detection.} Detection uses the drones' own cameras. The gimbal
+cameras scan the sky outside the ring; how far they see, and how many drones
+that requires, depends on the camera chosen in
+Section~\ref{sec:camera-choice}. If a wide camera is added on the same
+gimbal, it shows where to turn the gimbal for the narrow camera to see an
+object (\emph{slew-to-cue}) and keeps the target in
+view at close range. Small, distant drones are the hardest to detect, and
+easily confused with birds, especially from a moving camera
+\cite{coluccia2021drone}. Classification uses two tiers: a fast model on the
+drone, tuned so that it rarely misses a drone, and a stronger model at the
+base station that uses short image sequences and several drones' views.
+Missing a hostile drone is treated as the worst outcome, so both tiers favour
+recall; a false alarm only costs a detour, during which the target's image
+grows and the classification improves.
+
+\textbf{Interception.} A planning-based controller serves as the baseline: the
+interceptor flies to the predicted meeting point on the hostile drone's path,
+then steers with proportional navigation once the camera has locked on
+\cite{zarchan2019tactical}. A controller based on reinforcement learning is
+trained in a fast, simplified simulator; such controllers have been trained
+to intercept using only the direction to the target
+\cite{gaudet2019reinforcement}. It runs through the same drone interface, so
+that the two can be compared on identical scenarios.
+
+\subsection{System Overview}
+
+Figure~\ref{fig:final-system} shows the target system. The base station
+classifies detections and decides which drone does what; each drone runs its
+own detection, lock-on and controller, so it can finish an intercept even if
+the radio link is lost.
+
+\begin{figure}[H]
+\centering
+\small
+\begin{verbatim}
+ BASE STATION
+   tracks --> classifier (strong) --> assignment
+     ^                                   |
+     | image crops + bearings            | roles: patrol /
+     |                                   v investigate / intercept
+ EACH DRONE
+   gimbal camera(s), scanning (narrow, + optional wide) --> fast detector
+     --> lock-on (detect -> acquire -> locked)
+     --> controller (planning or RL) --> PX4 autopilot --> Gazebo
+\end{verbatim}
+\caption{The target system.}
+\label{fig:final-system}
+\end{figure}

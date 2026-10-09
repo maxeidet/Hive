@@ -1,0 +1,22 @@
+\section{Base surveillance}\label{sec:base_surveillance}
+While no threat is detected, the defenders watch the sky around the base. They must detect a hostile drone early enough for a defender to intercept it. This section presents different approaches for protecting the base.
+
+\subsection{Baseline: static ring.} The defenders hold fixed, evenly spaced
+positions in a ring. Each drone sweeps its outward sector in a fixed tempo by moving the camera, and the images are checked with the detection methods in Section~\ref{sec:detection}.
+
+\subsection{Improvements}
+When a defender leaves the ring to intercept, it leaves a gap in the
+coverage. The improvement is to close this gap, which can be done in two
+ways:
+\begin{itemize}
+    \item \textbf{Replacement:} a reserve drone is         sent out to take the
+          empty position.
+    \item \textbf{Redistribution:} the remaining           defenders spread out along
+          the ring until they are again evenly spaced, each adjusting its
+          position based only on its neighbors, as in
+          \cite{kingston2008perimeter}.
+\end{itemize}
+Both are compared with the static baseline by the coverage lost while a
+defender is away from the ring.
+
+

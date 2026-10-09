@@ -1,0 +1,186 @@
+\newpage
+\section{Drone Detection Using Sensors}
+\label{sec:detection}
+Detection must \emph{find} a small object in the sky, \emph{classify} it as
+a drone or not, for example a bird, and give the \emph{direction} to it. A
+target can be found when it covers a few pixels, but it can only be
+classified reliably when it covers tens of pixels. Detection is therefore
+split into a cheap first step that flags candidates and a classifier that
+runs only on them.
+
+\subsection{Sensors}
+Each defender has a camera on a gimbal that scans its outward sector
+(Section~\ref{sec:base_surveillance}). The baseline uses the simulated
+platform's camera (Table~\ref{tab:assumptions}); the target system's camera
+is chosen in Section~\ref{sec:camera-choice}.
+Classification needs more pixels than detection. Johnson's criteria give
+about eight pixels for recognising an object \cite{johnson1958analysis},
+and a detector such as YOLO needs more in practice, so classification is
+assumed to need about 20~pixels, a value that will be measured in the
+simulation. By
+Equation~\eqref{eq:rdet}, a camera then classifies a target at a fifth of
+its detection range: about 10~m with the platform's camera and about
+136~m with a 20$^\circ$ camera at 1920~px.
+
+A thermal camera on the gimbal is an optional extension that could be tried
+later: a drone's warm motors stand out against a cold sky, also at night
+and against trees, where an RGB camera struggles. LiDAR is not used, since
+a small drone at long range falls between the beams. A real system would
+also have a radar for early warning, but Gazebo has no radar sensor.
+
+\subsection{Baseline: Dark Object Against the Sky}
+The baseline groups pixels that differ clearly from the surrounding sky
+into connected regions, and reports regions of a plausible size as
+candidates. It needs no training, but it cannot tell a drone from a bird
+and fails when the background is not sky. Every candidate seen in $k$
+consecutive images is treated as a drone.
+
+\subsection{Improvement: YOLO26}
+To detect and classify hostile drones, we will use YOLO26 from Ultralytics,
+the newest version of the YOLO model family
+\cite{jocher2026ultralyticsyolo26unifiedrealtime}. YOLO26 looks at an image
+once and directly outputs where objects are (bounding boxes), what they are
+(classes), and how confident it is, which makes it fast enough to run in
+real time. Tiny drones are hard for standard YOLO models
+\cite{zhai2023yolodrone}. Of YOLO26's five sizes, from nano (n) to extra
+large (x), we use the two smallest, since computing power on board is
+limited \cite{wang2026edge}. YOLO26n runs on
+the drone, on enlarged crops of the image around the candidates, which lets
+it see small targets \cite{akyon2022sahi}. YOLO26s is a candidate for the
+stronger classifier at the base station (Section~\ref{sec:base-station}).
+
+Detections are linked between images with
+ByteTrack \cite{zhang2022bytetrack}, so a target keeps its identity when it
+is missed in some images. A drone starts flying towards a target as soon as
+YOLO26n classifies it as a drone with a confidence above $\tau$ in $k$
+consecutive images (Section~\ref{sec:intercept}).
+
+\subsection{Training Data and Fine-Tuning}
+\textbf{Data collection.} Most of the training data is generated in Gazebo,
+where every image can be labelled automatically. A script places drone and
+bird models at random positions around a defender and points its gimbal
+camera at random directions, varying the distance, altitude (20--120~m),
+background (clear sky, clouds, trees and ground) and lighting. The distances
+are chosen so that the targets span from a few pixels to about 100 pixels
+across, with most images near the 4- and 20-pixel limits that matter for
+detection and classification. Each object's bounding box is computed from
+its true position and the camera's pose, or read directly from Gazebo's
+bounding-box camera sensor, which also handles objects hidden behind trees.
+Images with no drone or bird are included as well, so that the model learns
+to ignore clouds and trees. The images are split into training, validation
+and test sets by simulation run rather than by image, since consecutive
+images from the same run are nearly identical and would otherwise make the
+test results look better than they are.
+
+\textbf{Fine-tuning.} Training starts from Ultralytics' YOLO26n and YOLO26s
+weights pretrained on COCO, whose backbones already extract general visual
+features. The classification part of the detection head, which for COCO has
+one output per each of 80 classes, is replaced with one that has only two
+outputs, \emph{drone} and \emph{bird}, and is trained from scratch, while the
+rest of the network keeps its pretrained weights. Everything else in an image,
+such as clouds, trees and buildings, is treated as background, so the model
+learns to ignore it from the training images. Training is done in two steps.
+First, the models are fine-tuned on the Seraphim drone dataset
+\cite{seraphim}, about 83\,000 real drone images, so that they learn what
+drones look like in many settings. Second, they are fine-tuned on the Gazebo
+images, with part of the Seraphim images mixed in so that the models do not
+forget them. The Drone-vs-Bird dataset \cite{coluccia2021drone}, real
+videos of small drones with birds as distractors, could be added if birds
+turn out to be hard to reject. Since YOLO26n runs on crops of the camera
+image, it is trained on crops of the same size, so that a target has the
+same size in pixels during training as during use \cite{akyon2022sahi}.
+Training runs on a GPU with the standard Ultralytics augmentations, such as
+changes in brightness and scale, and stops when the result on the validation
+set no longer improves. The confidence threshold $\tau$ is then chosen on
+the validation set so that almost no drones are missed. All results are
+reported on a test set of held-out Gazebo runs, since the system has to
+perform in the simulation.
+
+\subsection{Direction and Identification}
+The centre of a bounding box gives the direction to the target, from the
+camera's intrinsic parameters and the gimbal's orientation
+\cite{hartley2004multiple}. One camera does not measure the range, but the
+width of the box gives a rough estimate: assuming the target has the size
+$s$ in Table~\ref{tab:assumptions}, a target that covers $p$ pixels is at
+range $r \approx f s / p$, as in Equation~\eqref{eq:rdet}. This estimate is
+uncertain, since the hostile drone's true size is unknown and an error of
+one pixel is a large part of a target only a few pixels wide. The drone
+therefore sends the base station an estimated position together with its
+uncertainty, which is small across the line of sight and large along it.
+The base station's Kalman filter combines these estimates with those of
+other drones (Section~\ref{sec:base-station}). Once two or more drones see
+the target, triangulation (Equation~\eqref{eq:triangulation}) gives an
+accurate position; until then, the single-drone estimate fills the gap.
+The base station also knows every defender's position from its telemetry,
+so a detection within a few metres of a defender's reported position is
+classified as friendly. Only the remaining detections can be hostile.
+
+\subsection{Evaluation}
+The dark-object baseline and YOLO26 are compared on the same seeded
+scenarios, in which a hostile drone and birds approach the base from random
+directions. A detection counts as correct if its centre lies within a few
+pixels of the target's true position projected into the image, since box
+overlap is unstable for targets only a few pixels wide. The measures are:
+\begin{itemize}
+    \item \textbf{Missed drones:} the share of hostile drones that reach the
+          ring undetected, the most important measure.
+    \item \textbf{Detection probability versus range:} the share of hostile
+          drones detected in each range interval, which shows where detection
+          starts to fail.
+    \item \textbf{Birds flagged as drones:} the share of birds seen by a
+          camera that are classified as drones.
+    \item \textbf{Background false alarms:} detections of drones in images
+          with no drone or bird, per image.
+    \item \textbf{Recall versus target size:} the share of drones detected in
+          held-out Gazebo images, grouped by their size in pixels, which tests
+          the assumptions of 4 pixels for detection and 20 pixels for
+          classification.
+    \item \textbf{Inference time} of YOLO26n and YOLO26s per image on a CPU.
+\end{itemize}
+
+
+\subsection{Interface}
+\label{sec:detection-interface}
+The detection component produces one \emph{detection report} for each
+target it follows (Table~\ref{tab:detection-report}). The report is used
+in three places: on the drone, every image, by the gimbal controller and
+the guidance law (Section~\ref{sec:intercept}); by the scan, which stops
+when a target is found (Section~\ref{sec:base_surveillance}); and at the
+base station, every $\Delta t$ (Section~\ref{sec:target-assumptions}),
+together with an image crop of the target (Section~\ref{sec:base-station}).
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|l|p{0.62\textwidth}|}
+\hline
+\textbf{Field} & \textbf{Content} \\
+\hline
+Time & When the image was taken \\
+Drone & Which drone saw the target \\
+Track & Identity of the target over time, from ByteTrack \\
+Stage & \emph{Candidate} (first step) or \emph{classified} (YOLO26) \\
+Class and confidence & \emph{Drone} or \emph{bird}, with the model's confidence \\
+Direction & Unit vector from the drone to the target, in the world frame,
+            with its uncertainty \\
+Range & Rough range from the target's size in the image, with its
+        uncertainty \\
+Bounding box & Position and size in pixels; used only on the drone, to
+               centre the target in the image \\
+\hline
+\end{tabular}
+\caption{Contents of a detection report (draft).}
+\label{tab:detection-report}
+\end{table}
+
+The direction is given in the world frame rather than in pixels, so that
+the components that use it do not depend on which camera is chosen
+(Section~\ref{sec:camera-choice}). Direction and range are kept apart
+rather than combined into a single position, since the direction is
+accurate while the range is not, and the guidance laws need only the
+direction. Whether a detection is a friendly drone is decided at the base
+station, which knows every defender's position, and is therefore not part
+of the report.
+% TODO: decide message format (e.g. a custom ROS 2 message or
+% vision_msgs/Detection2DArray), the rate on the drone, and how the
+% uncertainties are represented.

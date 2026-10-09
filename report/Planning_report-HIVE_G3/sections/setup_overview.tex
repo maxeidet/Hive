@@ -1,0 +1,78 @@
+\section{Setup Overview} \label{setup_overview}
+The system is developed and evaluated entirely in simulation, built on three
+established open-source tools, so that the project's effort goes into
+detection and interception rather than into flight control or physics.
+
+\begin{itemize}
+    \item \textbf{PX4} \cite{meier2015px4}
+          is the autopilot of every drone in the simulation,
+          defenders and hostile drones. It runs as software-in-the-loop,
+          the same code that flies real drones, and handles stabilization,
+          position control and the motors.
+    \item \textbf{Gazebo} \cite{koenig2004gazebo} 
+          simulates the world, the
+          physics and the sensors: the military camp in a forest, the drones,
+          and their cameras.
+    \item \textbf{ROS~2} \cite{macenski2022ros2} 
+          is the middleware that
+          connects our code to PX4 and Gazebo through topics, named streams
+          of messages that any program can publish to or read from.
+\end{itemize}
+
+Throughout the report, our own drones are called \emph{defenders}, and the
+defender that intercepts a hostile drone is called the \emph{interceptor}.
+
+Each drone runs its own PX4 instance in the same Gazebo world, with its own
+set of ROS~2 topics. Our code reads a drone's position and state from these topics and steers it by continuously sending position or velocity setpoints, which PX4 then
+flies; acceleration setpoints, which the MPC in Section~\ref{sec:intercept} needs, are planned. Camera images come from Gazebo, and the camera is pointed through PX4. Since Gazebo knows the true position of every drone, each run can also be scored against ground truth, see Section~\ref{sec:evaluation}. The whole setup runs in one Docker container, so every group member has identical software.
+
+Our code is a Python ROS~2 package, built in layers so that the detection
+and interception methods do not depend on PX4 directly:
+
+\begin{itemize}
+    \item \textbf{Drone layer:} flies one drone through PX4 and points its camera.
+    \item \textbf{Swarm layer:} takes off, moves and lands several drones
+          together, and places them in formations such as the ring in
+          Section~\ref{sec:base_surveillance}.
+    \item \textbf{Mission layer:} the components described in the following
+          sections. So far it contains the interception part: a tracker that
+          estimates the hostile drone's position and velocity, and the
+          guidance that steers the defender. Detection and the base station will also be part of this layer.
+\end{itemize}
+
+
+
+\subsection{Assumptions}
+\label{sec:assumptions}
+
+Table~\ref{tab:assumptions} lists the assumed values of the scenario and the
+platform. They hold for every system in this report, from the baseline to the
+target system; additions that only the target system makes are listed in
+Section~\ref{sec:target-assumptions}. The values are starting points for the
+simulation and will be revised as the project progresses.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{|l|p{0.25\textwidth}|r|p{0.27\textwidth}|}
+\hline
+\textbf{Symbol} & \textbf{Quantity} & \textbf{Value} & \textbf{Note} \\
+\hline
+$R_p$ & Perimeter radius & 1000\,m & Ring of defenders around the camp \\
+$N$ & Number of defenders & varies & Derived in Section~\ref{sec:derived} \\
+$h$ & Patrol altitude & 50\,m & Same for all defenders \\
+$h_h$ & Hostile altitude & 20--120\,m & Range the cameras must cover \\
+$v_i$ & Interceptor top speed & 12\,m/s & PX4 default \cite{px4params} \\
+$v_h$ & Hostile speed & 17\,m/s & Hostile is faster than the interceptor \\
+$a$ & Interceptor acceleration & 2\,m/s$^2$ & Used to reach top speed \\
+$s$ & Hostile drone size & 0.5\,m & Small quadcopter \\
+$\theta_0$, $W_0$, $H_0$ & Gimbal camera FOV, image size & 115$^\circ$, 1280$\times$720\,px & Camera of PX4's \texttt{x500\_gimbal} model in Gazebo \cite{px4gazebomodels}; the target system's camera is chosen in Section~\ref{sec:camera-choice} \\
+$t_g$ & Gimbal turn and settle time & 0.5\,s & Per camera position \\
+\hline
+\end{tabular}
+\caption{Assumed values of the scenario and the platform.}
+\label{tab:assumptions}
+\end{table}
+
+In every scenario, the hostile drone flies a straight path towards the camp
+at constant speed and altitude, and there is one hostile drone at a time.

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
+WORLD_TIMEOUT="${WORLD_TIMEOUT:-180}"
 MODEL="gz_x500"
 WORLD="hive_base"
 
@@ -37,7 +38,8 @@ if [[ "${1:-}" == "--px4-terminal" ]]; then
         export GZ_SIM_RESOURCE_PATH=/opt/px4-gazebo/share/gz/models:/opt/px4-gazebo/share/gz/worlds
         export PX4_GZ_WORLD='${WORLD}'
         export PX4_SIM_MODEL='${MODEL}'
-        export PX4_GZ_MODEL_POSE=0,0,0,0,0,0
+        export PX4_GZ_WORLD_TIMEOUT='${WORLD_TIMEOUT}'
+        export PX4_GZ_MODEL_POSE=0,5,0,0,0,0
 
         echo
         echo 'PX4_GZ_WORLD='\${PX4_GZ_WORLD}

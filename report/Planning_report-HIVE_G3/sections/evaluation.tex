@@ -1,0 +1,24 @@
+\section{System Evaluation}\label{sec:evaluation}
+The baseline system and the target system are evaluated with the same
+criteria and on the same scenarios, so that their results can be compared
+directly. The same criteria are used for every intermediate version, so
+that the effect of each improvement can be measured.
+
+\begin{itemize}
+    \item \textbf{Mission succeeds} if a defender intercepts the hostile
+          drone, that is, comes within 1.5~m of it, while the hostile drone
+          is more than $x$~m from its goal.
+    \item \textbf{Mission fails} in all other cases: the hostile drone is
+          not detected, is first detected within $x$~m of its goal, or is
+          not intercepted before it comes within $x$~m of its goal.
+    \item \textbf{Mission time} is the time from the hostile drone's spawn
+          until the interception. Since all hostile drones spawn at the same
+          distance from the base, the mission times of the two systems can
+          be compared directly.
+\end{itemize}
+
+Each scenario is run 30--50 times with different random spawn locations, all
+at the same distance from the base. Fixed random seeds are used, so that
+exactly the same runs are repeated for both systems. The results are
+reported as the success rate of each system, and as the mean and spread of
+the mission times.

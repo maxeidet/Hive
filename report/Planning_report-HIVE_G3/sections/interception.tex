@@ -1,0 +1,106 @@
+\section{Interception}\label{sec:intercept}
+Interception starts when an object has been detected as a drone. In the
+baseline, this is when the detector's confidence exceeds a threshold $\tau$
+in $k$ consecutive images. In the target system, the interceptor starts
+flying at the first detection by the drone's own model, and the base station
+confirms the target or calls the interceptor back while it flies
+(Section~\ref{sec:base-station}). The centre of the bounding box is converted
+into a direction to the target, using the camera's intrinsic parameters and
+the gimbal's orientation, as in \cite{zheng2025mcm}. Two PID controllers turn
+the gimbal so that the target stays in the centre of the image, and a Kalman
+filter smooths the direction, estimates how fast it turns, and predicts it
+when the target is briefly lost. The gimbal loop must react fast enough to
+keep the target in view: by Equation~\eqref{eq:angrate}, a target crossing at
+17\,m/s leaves a 20$^\circ$ view within about 0.2\,s at 20\,m if the gimbal
+lags. This is one reason the target system considers a wide view on the
+gimbal for close range (Section~\ref{sec:camera-choice}).
+
+\subsection{Guidance Laws}
+
+Three guidance laws are compared. Pure pursuit and proportional navigation
+need only the direction to the target and its rate of change, which one
+camera provides; the MPC also needs the target's position and velocity, which
+one camera measures poorly.
+
+\textbf{Baseline: pure pursuit.} The interceptor flies at full speed towards
+the target's current direction, while the gimbal keeps the target in the
+centre of the image. Its weakness is that it always aims at where the target
+\emph{is}, not where it is going, so against a crossing or turning target it
+ends up behind the target and has to chase it. It can therefore only catch a
+target that is slower than itself: against a hostile drone faster than $v_i$
+(Table~\ref{tab:assumptions}), it falls behind and never hits.
+
+\textbf{Target system: MPC.} The interceptor uses the MPC of Zheng et al.\
+\cite{zheng2025mcm}. It predicts the target's trajectory over $K$ steps from
+its estimated position and velocity, assuming constant velocity, and chooses
+the accelerations $\mathbf{u}(k)$ that minimise
+\begin{equation}
+  J = \sum_{k=1}^{K} \|\mathbf{p}_{\mathrm{exp}}(k) - \mathbf{p}(k)\|^2_{Q}
+      + \|\mathbf{u}(k)\|^2_{R},
+\end{equation}
+where $\mathbf{p}_{\mathrm{exp}}$ is the target's predicted position and
+$\mathbf{p}$ the interceptor's. The problem has an analytical solution; the
+first acceleration is sent to PX4 and the problem is solved again at the next
+step. Unlike \cite{zheng2025mcm}, who keep an offset around the target to fire
+a net, the offset here is zero. Since the hostile drone does not always fly
+in a straight line, the constant-velocity prediction is wrong when it turns,
+but it is corrected at every step as new estimates arrive; Zheng et al.\
+used the same model against a target flying in a circle. The MPC needs the
+target's position and velocity, which one camera cannot give. It is therefore
+only possible with triangulation from two or more defenders, for which the
+base station sends a second defender (Section~\ref{sec:base-station}), and is part of
+the target system.
+
+\subsection{Evaluation}
+Metrics are computed by the scenario runner from the true positions in
+Gazebo, never from the interceptor's estimates. The target always flies
+towards the base, and a run ends with a \emph{hit} (interceptor within
+1.5\,m of the target), the \emph{target reaching the base}, the \emph{target
+being lost}, or a \emph{timeout}. Head-on, the two drones close at up to
+$v_i + v_h \approx 29$\,m/s, about 2.9\,m between two samples at 10\,Hz, which
+is more than the hit radius. The closest distance is therefore computed along
+the straight line between consecutive samples, not only at the samples.
+
+\textbf{Alternative success: lock-on.} How the hostile drone is finally
+stopped is outside the scope of this project, and flying into it is only one
+option. An interception may therefore also be counted as successful when the
+interceptor holds a \emph{lock-on} on the hostile drone for $t_{\mathrm{lock}}$
+seconds. The interceptor has a lock-on when the target is inside its gimbal
+camera's view, the detector confirms it as a drone in at least $k$ of every
+$n$ consecutive images, and the interceptor is within a distance
+$d_{\mathrm{lock}}$ of it. The lock-on must last $t_{\mathrm{lock}}$ seconds
+without a break, and be held before the target comes within $x$\,m of its
+goal (Section~\ref{sec:evaluation}). A sustained lock-on shows that the
+interceptor could follow and engage the target with whatever means is chosen
+later. The assumed values of $t_{\mathrm{lock}}$ and $d_{\mathrm{lock}}$ are
+listed in Table~\ref{tab:target-assumptions}; both success criteria are
+reported for every run.
+
+For each run the following are recorded:
+
+\begin{itemize}
+    \item \textbf{Hit or not:} Whether the interceptor successfully intercepted the target.
+    \item \textbf{Time to hit:} The time elapsed from first detection to interception.
+    \item \textbf{Lock-on:} Whether a lock-on was held for $t_{\mathrm{lock}}$ seconds, the time from first detection until it started, and the longest unbroken lock-on in the run.
+    \item \textbf{Distance to base at hit:} How far the target was from the protected asset when neutralized.
+    \item \textbf{Target's closest distance to base:} A measure of how close the threat got before being stopped.
+    \item \textbf{Closest distance between interceptor and target:} Useful for evaluating near-misses in unsuccessful runs.
+\end{itemize}
+
+All methods are run on the same seeded scenarios: a target approaching
+head-on and crossing at 30, 60 and 90$^\circ$, at increasing speeds from
+4\,m/s up to and beyond the interceptor's top speed $v_i$, including the
+hostile speed $v_h$ of Table~\ref{tab:assumptions}, each 30--50 times. Each
+method is run both with YOLO detections and with perfect detections from the
+true position, which separates errors in guidance from errors in detection.
+The measured time to hit is also compared with the margins predicted in
+Table~\ref{tab:feasibility}, which tests the analysis in
+Section~\ref{sec:derived}. When the target is lost, another drone that still
+sees it could take over; this is not evaluated here.
+
+Since the sensors have not yet been tested, realistic distances and speeds
+are not known. Zheng et al.\ \cite{zheng2025mcm} captured a target moving at
+4~m/s in 64.7\% of their outdoor attempts. The project aims for a similar
+share of hits. Pure pursuit is expected to hit only while the target is
+slower than $v_i$; proportional navigation and the MPC are expected to hit
+more often, earlier and further from the base.
