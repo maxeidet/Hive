@@ -16,6 +16,7 @@ Start here, then follow the links.
 | [[ai_components]] | The three AI components (base station fusion and decisions, lidar detection, path planning), shared interfaces, timeline and evaluation |
 | [[px4_ros2_drone_swarm_development_roadmap]] | Bottom-up build order for `swarm_backend` (one drone → swarm → formations → missions), with current status |
 | [[1octstella]] | Intercept and lock-on design notes (1 Oct 2026): chase algorithm, radar model, sensor ranges, the real scenario |
+| [[Detection implementation plan]] | How to build the report's detection section: camera math, dark-object baseline, YOLO26 + ByteTrack, Gazebo training data, evaluation, order of work |
 | [[Lock-on brainstorm]] | Mindmap: how the drone finds, confirms and keeps a lock on the hostile drone (cue → acquire → confirm → locked → lost) |
 
 ## Environment and setup
