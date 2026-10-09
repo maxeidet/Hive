@@ -192,6 +192,22 @@ def rviz_config(template: dict, sensors: list[Sensor]) -> dict:
     return config
 
 
+def gz_topics() -> list[str]:
+    return subprocess.run(
+        ['gz', 'topic', '-l'], capture_output=True, text=True, check=True).stdout.split()
+
+
+def start_bridge(config: list[dict], name: str) -> subprocess.Popen:
+    """ros_gz_bridge running `config` (bridge_config), logging to /tmp/<name>.log."""
+    config_file = Path(f'/tmp/{name}.yaml')
+    config_file.write_text(yaml.safe_dump(config, sort_keys=False))
+    with open(f'/tmp/{name}.log', 'w') as log:
+        return subprocess.Popen(
+            ['ros2', 'run', 'ros_gz_bridge', 'parameter_bridge',
+             '--ros-args', '-p', f'config_file:={config_file}'],
+            stdout=log, stderr=subprocess.STDOUT)
+
+
 class TFPublisher:
     """Republishes the drone's transforms from Gazebo's pose stream as ROS TF."""
 
@@ -252,21 +268,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--rviz', type=Path, required=True, help='RViz layout template')
     args = parser.parse_args(argv)
 
-    gz_topics = subprocess.run(
-        ['gz', 'topic', '-l'], capture_output=True, text=True, check=True).stdout.split()
-    drone = find_drone(gz_topics, args.id)
+    topics = gz_topics()
+    drone = find_drone(topics, args.id)
     if drone is None:
         print(f'Drone {args.id} is not in Gazebo. Start one with: ./mount-backend.sh spawn camera '
               '(or lidar, depth, plain, ...), or give it a model: in swarm.yaml and run spawn.')
         return 1
-    sensors = find_sensors(gz_topics, args.id)
+    sensors = find_sensors(topics, args.id)
     frames = list(dict.fromkeys([BODY_FRAME] + [s.frame for s in sensors]))
 
     ns = f'/sensor_view_{args.id}'
-    bridge_file = Path(f'/tmp/sensors_bridge_{args.id}.yaml')
     rviz_file = Path(f'/tmp/sensors_{args.id}.rviz')
-    bridge_file.write_text(yaml.safe_dump(
-        bridge_config(sensors, clock_topic=f'{ns}/clock'), sort_keys=False))
     template = yaml.safe_load(args.rviz.read_text())
     rviz_file.write_text(yaml.safe_dump(rviz_config(template, sensors), sort_keys=False))
 
@@ -282,12 +294,9 @@ def main(argv: list[str] | None = None) -> int:
     print('RViz is opening on the GUI display. Close it or press Ctrl-C here to stop.')
 
     tf = TFPublisher(drone, frames, f'{ns}/tf')
-    with open(f'/tmp/sensors_bridge_{args.id}.log', 'w') as bridge_log, \
-            open(f'/tmp/rviz_{args.id}.log', 'w') as rviz_log:
-        bridge = subprocess.Popen(
-            ['ros2', 'run', 'ros_gz_bridge', 'parameter_bridge',
-             '--ros-args', '-p', f'config_file:={bridge_file}'],
-            stdout=bridge_log, stderr=subprocess.STDOUT)
+    bridge = start_bridge(bridge_config(sensors, clock_topic=f'{ns}/clock'),
+                          f'sensors_bridge_{args.id}')
+    with open(f'/tmp/rviz_{args.id}.log', 'w') as rviz_log:
         try:
             subprocess.run(
                 ['rviz2', '-d', str(rviz_file), '--ros-args', '-p', 'use_sim_time:=true',
