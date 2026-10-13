@@ -25,7 +25,7 @@ from rclpy.signals import SignalHandlerOptions
 
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.detect.camera import CameraModel
-from swarm_backend.detect.candidates import CandidateConfig
+from swarm_backend.detect.candidates import Settings
 from swarm_backend.detect.live import LiveDetector, Result
 from swarm_backend.detect.tracking import Confirmer
 from swarm_backend.intercept import guidance
@@ -58,8 +58,7 @@ class Run:
         node.create_timer(STEP_S, self._aim)
         self.detector = LiveDetector(
             node, args.watcher,
-            CandidateConfig(kernel=args.kernel, k_sigma=args.k_sigma,
-                            min_contrast=args.min_contrast),
+            Settings(kernel=args.kernel, contrast=args.contrast),
             Confirmer(k=args.k, gate=args.gate), rate_hz=args.rate,
             horizon=self._horizon, on_result=self._on_result,
             save=args.save, save_every=args.save_every)
@@ -280,9 +279,8 @@ def main():
                         help='px between a box and the expected target position to count')
     parser.add_argument('--horizon-margin', type=float, default=10.0,
                         help='px above the computed horizon row that are not searched either')
-    parser.add_argument('--kernel', type=int, default=CandidateConfig.kernel)
-    parser.add_argument('--k-sigma', type=float, default=CandidateConfig.k_sigma)
-    parser.add_argument('--min-contrast', type=float, default=CandidateConfig.min_contrast)
+    parser.add_argument('--kernel', type=int, default=Settings.kernel)
+    parser.add_argument('--contrast', type=float, default=Settings.contrast)
     parser.add_argument('--save', type=Path, help='folder for raw + annotated images')
     parser.add_argument('--save-every', type=float, default=2.0, help='sim seconds')
     parser.add_argument('--csv', help='write one row per image here')

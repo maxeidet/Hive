@@ -8,7 +8,7 @@ with a row per detection (an image with none gets one row with empty fields). Ea
 gets an estimated distance (from its size in pixels) and direction (from where it is in the
 image). When the image has the truth file that snap saves, these are compared with the true
 distance and direction, drawn on the image and plotted in <out>/plots. Methods:
-`baseline` (dark object against the sky, sky_candidates.py) and `yolo` (not trained yet).
+`baseline` (dark object against the sky, candidates.py) and `yolo` (not trained yet).
 Needs only NumPy and OpenCV, not ROS.
 """
 import argparse
@@ -21,7 +21,7 @@ from pathlib import Path
 import cv2
 
 from swarm_backend.detect.camera import GIMBAL_HFOV, TARGET_SIZE_M, CameraModel, angle_deg
-from swarm_backend.detect.sky_candidates import Candidate, Settings, find_candidates
+from swarm_backend.detect.candidates import Candidate, Settings, find_candidates
 
 FIELDS = ['image', 'candidate', 'x', 'y', 'width', 'height', 'area', 'contrast', 'darkest',
           'size_px', 'est_distance', 'est_dir_x', 'est_dir_y', 'est_dir_z',
@@ -34,7 +34,7 @@ RED, GREEN = (255, 0, 0), (0, 160, 0)  # estimated, true (RGB)
 
 def baseline(args):
     settings = Settings(contrast=args.contrast)
-    return lambda rgb: find_candidates(rgb, settings)
+    return lambda rgb: find_candidates(rgb, settings=settings)
 
 
 def yolo(args):
@@ -66,7 +66,8 @@ def main(argv: list[str] | None = None) -> int:
         print(e)
         return 1
 
-    paths = sorted(args.images.glob('*.png'))
+    # live.py --save also writes <name>_boxes.png copies with its own boxes drawn on them.
+    paths = sorted(p for p in args.images.glob('*.png') if not p.stem.endswith('_boxes'))
     if not paths:
         print(f'No PNG images in {args.images}')
         return 1

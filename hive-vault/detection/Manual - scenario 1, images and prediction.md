@@ -100,6 +100,9 @@ Other folders: `./mount-backend.sh predict baseline --images /workspace/data/X -
 
 To start clean, delete `data/results/baseline/` first; old result images are not removed by a new run.
 
+> [!note] `predict` does more than a detector needs
+> `predict` is an evaluation tool for now. Besides detecting, it reads the truth files, matches each detection to the real drone, computes the errors, draws text and arrows on every image, writes the CSV and makes the plots. None of that is needed to detect a drone during flight, and it is slow. This will be addressed later: the detection itself (find the drone, estimate distance and direction) will be separated from the evaluation, so the same detection code runs live on the drone and the evaluation is an optional step on top.
+
 ## How to read the results
 
 - **The baseline only finds a drone against the sky.** A drone in front of trees or ground is missed; that is the detector's limit, not a bug. It also misses a drone wider than 40 px or cut off by the image edge.

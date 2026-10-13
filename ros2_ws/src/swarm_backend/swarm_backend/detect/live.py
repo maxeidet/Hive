@@ -5,10 +5,11 @@ k-in-a-row confirmation on the newest image at --rate Hz, and publishes the imag
 boxes drawn on it on /<ns>/detection/debug (watch it with rqt_image_view, or add an Image
 display in RViz). Yellow = candidate (number = images in a row), red = confirmed track.
 --save DIR also writes the raw and annotated images there every --save-every seconds, for
-tuning offline with `python -m swarm_backend.detect.annotate`.
+running through `mount-backend.sh predict --images DIR` afterwards.
 
 No camera math yet, so tracks are matched in pixels (fine while the gimbal is still) and
-the sky mask is a fixed row (--horizon), e.g. 360 for a level gimbal at 1280x720.
+the detector decides from the colours what is sky. --horizon ROW can also cut off
+everything below a fixed image row, e.g. 360 for a level gimbal at 1280x720.
 LiveDetector is also used by tests/detection_test.py.
 """
 import argparse
@@ -24,7 +25,7 @@ import numpy as np
 
 from swarm_backend.config import default_namespace
 from swarm_backend.detect.candidates import (
-    Box, CandidateConfig, above_line, draw, find_candidates)
+    Candidate, Settings, above_line, draw, find_candidates)
 from swarm_backend.detect.tracking import Confirmer, Track
 from swarm_backend.sensor_view import (
     bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
@@ -40,7 +41,7 @@ class Result:
     stamp: float  # image time, seconds (Gazebo sim time)
     width: int
     height: int
-    boxes: list[Box]
+    boxes: list[Candidate]
     tracks: list[Track]  # live tracks after this image
     horizon: float | None
     ms: float  # processing time
@@ -78,10 +79,10 @@ class LiveDetector:
     """Baseline detection on one drone's camera, inside an existing ROS node.
 
     horizon: callable giving the image row of the horizon for the next image (or None to
-    search the whole image). on_result is called with every Result.
+    search the whole image, which is fine: the detector finds the sky by its colours). on_result is called with every Result.
     """
 
-    def __init__(self, node, drone_id: int, config: CandidateConfig = CandidateConfig(),
+    def __init__(self, node, drone_id: int, config: Settings = Settings(),
                  confirmer: Confirmer | None = None, rate_hz: float = 10.0,
                  horizon: Callable[[], float | None] = lambda: None,
                  on_result: Callable[[Result], None] | None = None,
@@ -180,9 +181,10 @@ def main(argv: list[str] | None = None) -> int:
                         help='image row of the horizon; only the sky above it is searched')
     parser.add_argument('--k', type=int, default=3, help='images in a row to confirm a track')
     parser.add_argument('--gate', type=float, default=20.0, help='px between images, same track')
-    parser.add_argument('--kernel', type=int, default=CandidateConfig.kernel)
-    parser.add_argument('--k-sigma', type=float, default=CandidateConfig.k_sigma)
-    parser.add_argument('--min-contrast', type=float, default=CandidateConfig.min_contrast)
+    parser.add_argument('--kernel', type=int, default=Settings.kernel,
+                        help='px, targets wider than this are not found')
+    parser.add_argument('--contrast', type=float, default=Settings.contrast,
+                        help='grey levels darker than the sky around it')
     parser.add_argument('--save', type=Path, default=None, help='folder for raw + annotated PNGs')
     parser.add_argument('--save-every', type=float, default=1.0,
                         help='seconds (sim time) between saves')
@@ -206,8 +208,7 @@ def main(argv: list[str] | None = None) -> int:
               f'({stats["ms"] / stats["frames"]:.0f} ms/image)', flush=True)
         stats.update(last_log=now, frames=0, ms=0.0)
 
-    config = CandidateConfig(kernel=args.kernel, k_sigma=args.k_sigma,
-                             min_contrast=args.min_contrast)
+    config = Settings(kernel=args.kernel, contrast=args.contrast)
     try:
         detector = LiveDetector(node, args.id, config, Confirmer(k=args.k, gate=args.gate),
                                 args.rate, lambda: args.horizon, log, args.save, args.save_every)
