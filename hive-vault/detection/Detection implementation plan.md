@@ -6,6 +6,37 @@ Back to [[Home]]. Related: [[Codebase map]], [[Final state]], [[Lock-on brainsto
 
 ---
 
+## Status (updated 9 Oct 2026)
+
+On `feat-yolo` (commits `8863650`..`3e514f8`). The baseline detector runs end to end on drone 2's Gazebo camera, but has not been flight tested against the hostile drone yet.
+
+**Done**
+
+| What | Where | Notes |
+|---|---|---|
+| OpenCV in the container | `docker/Dockerfile`, `package.xml` | `python3-opencv` (apt); `python3-numpy` and `sensor_msgs` also added to `package.xml`. The running container got it by hand; rebuild the image to keep it. |
+| Bridge reuse | `sensor_view.py` | `gz_topics()` and `start_bridge()` moved out of `main()`, used by `view` and the detector. |
+| Candidates (step 3) | `detect/candidates.py` | As planned: `min(R,G,B)` → black-hat (15 px ellipse) → threshold `max(min_contrast, mean + 4σ)` → connected regions, size ≤ kernel, aspect ≤ 4. **Added:** regions that are part of a larger dark object are dropped (black-hat at 1/4 resolution), because the black-hat leaves small fragments along the edges of trees and near drones. Sky mask via `above_line()` (handles roll). `draw()` for debug images. |
+| Confirmation (step 3) | `detect/tracking.py` | `Confirmer`: greedy nearest neighbour inside a gate, confirmed after `k` in a row, a miss resets the streak, dropped after `max_misses`. The distance is a parameter: pixels today, `angle_between` on unit vectors once the camera math exists. |
+| Camera basics (part of step 1) | `detect/camera.py` | `CameraModel`: `f` (≈ 411 px for the gimbal camera), `cx`, `cy`, `horizon_row(pitch)`, `range_from_width`, `width_at`. No pixel ↔ world ray yet, and no tests of its own yet. |
+| Live detector (part of step 2) | `detect/live.py`, `mount-backend.sh detect [ID]` | `LiveDetector` bridges the camera, reads images without `cv_bridge`, runs candidates + confirmation at 10 Hz on the newest image, publishes `/<ns>/detection/debug` (yellow = candidate, red = confirmed) and can save raw + annotated PNGs (`--save`). Sky mask is a fixed row (`--horizon`). |
+| Offline tuning | `detect/annotate.py` | Runs the detector on saved PNGs on a laptop, no ROS. |
+| Flight test | `tests/detection_test.py`, `mount-backend.sh detecttest` | Drone 2 hovers at 30 m and keeps its gimbal on drone 0 (true positions), which flies away at 45 m from 15 to 70 m. Each image is scored against the expected pixel (small-angle model from the gimbal's reported angles). Summary per 10 m: candidate near, confirmed near, false confirmed per image, plus median box offset and ms/image. Horizon mask from the gimbal pitch. Timeouts in sim time. |
+| Unit tests | `tests/test_detect.py` | 16 tests on synthetic sky images: discs of 3–13 px found; empty sky, soft cloud, 40 px object and thin line not found; mask; noise raises the threshold; confirmation rules; angle gate. Pass on Windows (OpenCV 5, NumPy 2) and in the container (OpenCV 4.6, NumPy 1.26). |
+
+**Seen so far**
+- Live on drone 2 standing on the ground (level gimbal, no mask): the pipeline works, about 88 ms per 1280×720 image on the container CPU. With no sky mask it finds ~20 candidates in gaps between tree trunks at the horizon, which is why the mask is needed.
+- On the dev laptop Gazebo runs at a real-time factor of 0.04–0.06 (software rendering with `llvmpipe`, WSL memory and swap full, drone 1's 3D lidar, the Gazebo GUI). The full flight test is ~150 sim s, about an hour of wall time there. Use Stellar, or close the GUI, drop drone 1 and give WSL more memory.
+
+**Next**
+1. Run `detecttest` and record P(detect) against range and pixel size.
+2. Step 1 proper: `pixel_to_ray`, `direction`, `project` + `tests/test_camera.py`, then match tracks in world direction instead of pixels.
+3. Step 2 rest: pose buffer (`detect/pose_buffer.py`), attitude and gimbal in `DroneObserver`, clock check, a proper `detection_node`.
+4. Step 3 rest: `report.py` and the `hive_interfaces` messages, publish `/<ns>/detection/reports`.
+5. Speed: 88 ms/image is just under the 10 Hz budget; profile it (the large-object pass, mask building) before adding YOLO.
+
+---
+
 ## What the report asks for
 
 | Part        | What it must do                                                                                                                                                                   |
@@ -88,18 +119,18 @@ nodes/detection_node.py   one per drone: image + odometry + gimbal in, reports o
 
 ## Order of work
 
-| Step | Deliverable                                                                          | Done when                                                                                     |
-| ---- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| 1    | `detect/camera.py` + tests                                                           | Pixel → world ray → pixel round-trips; a Gazebo-projected target lands on the box within 2 px |
-| 2    | Image bridge +`detection_node` skeleton (reuse `sensor_view` discovery), pose buffer | Node logs images with the interpolated drone and gimbal pose                                  |
-| 3    | `candidates.py` + `tracking.py` (k consecutive) + `report.py`                        | Baseline reports a hostile drone against the sky from drone 2                                 |
-| 4    | `BearingFix`, tracker update, `DetectionSource`                                      | `chase()` keeps the gimbal on the hostile drone from the camera alone (Stage 1: lock-on)      |
-| 5    | Narrow camera model`worlds/models/x500_gimbal_narrow` (20°, 1920×1080)               | Same as step 3 at 5–10× the range                                                             |
-| 6    | Bird model + dataset generator                                                       | A labelled, run-split dataset with the pixel-size histogram the report asks for               |
-| 7    | Training (Seraphim → Gazebo),`τ`                                                     | YOLO26n/s weights + val/test numbers                                                          |
-| 8    | `classifier.py` + `crops.py` in the pipeline                                         | YOLO mode runs on the drone at a measured rate                                                |
-| 9    | Scenario runner + scoring script                                                     | Baseline vs YOLO table and plots for the report                                               |
-| 10   | Base-station side (YOLO26s on crops, friendly filter)                                | Hand-off to the base station work ([[ai_components]])                                         |
+| Step | Deliverable | Done when | Status (9 Oct) |
+|---|---|---|---|
+| 1 | `detect/camera.py` + tests | Pixel → world ray → pixel round-trips; a Gazebo-projected target lands on the box within 2 px | Started: intrinsics, horizon row, range from size |
+| 2 | Image bridge + `detection_node` skeleton (reuse `sensor_view` discovery), pose buffer | Node logs images with the interpolated drone and gimbal pose | Started: bridge + `live.py` with debug image; no pose buffer |
+| 3 | `candidates.py` + `tracking.py` (k consecutive) + `report.py` | Baseline reports a hostile drone against the sky from drone 2 | Mostly: candidates + confirmation done and unit tested; no `report.py`; flight test written, not run |
+| 4 | `BearingFix`, tracker update, `DetectionSource` | `chase()` keeps the gimbal on the hostile drone from the camera alone (Stage 1: lock-on) | Not started |
+| 5 | Narrow camera model `worlds/models/x500_gimbal_narrow` (20°, 1920×1080) | Same as step 3 at 5–10× the range | Not started |
+| 6 | Bird model + dataset generator | A labelled, run-split dataset with the pixel-size histogram the report asks for | Not started |
+| 7 | Training (Seraphim → Gazebo), `τ` | YOLO26n/s weights + val/test numbers | Not started |
+| 8 | `classifier.py` + `crops.py` in the pipeline | YOLO mode runs on the drone at a measured rate | Not started |
+| 9 | Scenario runner + scoring script | Baseline vs YOLO table and plots for the report | Not started (`detection_test.py` is a first piece) |
+| 10 | Base-station side (YOLO26s on crops, friendly filter) | Hand-off to the base station work ([[ai_components]]) | Not started |
 
 Steps 1–4 need nothing new in the container except OpenCV. Steps 6–7 can run in parallel with 4–5 once step 1 exists.
 
@@ -179,6 +210,6 @@ Tests use synthetic images: a gradient sky with noise, dark discs of 3, 5 and 20
 - [ ] Message format: custom `hive_interfaces` messages (recommended) or `vision_msgs` + a sidecar?
 - [ ] Which camera for the narrow model: 20° at 1920 px (the report's example) or 30°?
 - [ ] Where training runs: Stellar `--gpu`, a university cluster or someone's own GPU? Seraphim access and licence need checking.
-- [ ] Container size: add `opencv-python-headless` now; add `ultralytics` + CPU PyTorch only for step 8, or run inference through ONNX Runtime instead.
+- [ ] Container size: add `opencv-python-headless` now; add `ultralytics` + CPU PyTorch only for step 8, or run inference through ONNX Runtime instead. (OpenCV is settled: apt `python3-opencv`, added 9 Oct. The YOLO runtime is still open.)
 - [ ] The report says `k` consecutive images for detection but `k` of `n` for lock-on. Same rule, or two?
 - [ ] [[Final state]] and `swarm.yaml` still use a base radar, while the report says Gazebo has none. This plan keeps the mock radar as a cue and fallback until camera detection works. Confirm that is the intent.

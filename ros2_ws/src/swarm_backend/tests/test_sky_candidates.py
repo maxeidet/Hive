@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from swarm_backend.detect.candidates import find_candidates
+from swarm_backend.detect.sky_candidates import find_candidates
 
 
 def sky(width=320, height=240):

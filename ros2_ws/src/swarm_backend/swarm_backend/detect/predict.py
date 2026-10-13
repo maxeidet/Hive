@@ -8,7 +8,7 @@ with a row per detection (an image with none gets one row with empty fields). Ea
 gets an estimated distance (from its size in pixels) and direction (from where it is in the
 image). When the image has the truth file that snap saves, these are compared with the true
 distance and direction, drawn on the image and plotted in <out>/plots. Methods:
-`baseline` (dark object against the sky, candidates.py) and `yolo` (not trained yet).
+`baseline` (dark object against the sky, sky_candidates.py) and `yolo` (not trained yet).
 Needs only NumPy and OpenCV, not ROS.
 """
 import argparse
@@ -20,15 +20,14 @@ from pathlib import Path
 
 import cv2
 
-from swarm_backend.detect.camera import TARGET_SIZE_M, CameraModel, angle_deg
-from swarm_backend.detect.candidates import Candidate, Settings, find_candidates
+from swarm_backend.detect.camera import GIMBAL_HFOV, TARGET_SIZE_M, CameraModel, angle_deg
+from swarm_backend.detect.sky_candidates import Candidate, Settings, find_candidates
 
 FIELDS = ['image', 'candidate', 'x', 'y', 'width', 'height', 'area', 'contrast', 'darkest',
           'size_px', 'est_distance', 'est_dir_x', 'est_dir_y', 'est_dir_z',
           'target', 'true_distance', 'true_dir_x', 'true_dir_y', 'true_dir_z',
           'distance_error', 'direction_error_deg', 'pixel_error']
 DATA = Path('/workspace/data')  # /workspace is the repo on the host
-DEFAULT_HFOV = 2.0  # radians, the gimbal camera; used when an image has no truth file
 MATCH_PX = 40.0  # a detection this close to where a drone really shows is that drone
 RED, GREEN = (255, 0, 0), (0, 160, 0)  # estimated, true (RGB)
 
@@ -115,9 +114,9 @@ def describe(image: str, number: int, c: Candidate, truth: dict | None,
            'height': c.height, 'area': c.area, 'contrast': round(c.contrast, 1),
            'darkest': c.darkest, 'size_px': size_px}
     # Without truth there is no camera orientation either, so only the distance.
-    hfov = truth['camera']['hfov_rad'] if truth else DEFAULT_HFOV
+    hfov = truth['camera']['hfov_rad'] if truth else GIMBAL_HFOV
     camera = CameraModel(hfov, width, height)
-    row['est_distance'] = round(camera.distance(size_px), 2)
+    row['est_distance'] = round(camera.range_from_width(size_px), 2)
     if truth is None:
         return row
     # The camera's orientation is taken from the truth: on the drone it will come from the

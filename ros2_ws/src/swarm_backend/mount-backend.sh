@@ -27,6 +27,11 @@
 #                                      results.csv in data/results/METHOD/. METHOD: baseline
 #                                      (default) or yolo (not trained yet). Other folders:
 #                                      --images /workspace/data/X --out /workspace/data/Y
+#   ./mount-backend.sh detect [ID] [args] baseline camera detector on drone ID (default 2), debug
+#                                      image on /px4_ID/detection/debug (swarm_backend/detect/live.py
+#                                      --help, e.g. --horizon 360 --save /workspace/detect_frames)
+#   ./mount-backend.sh detecttest [args] baseline detection flight test: drone 2 watches drone 0
+#                                      fly away from it (tests/detection_test.py --help)
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, or any PX4_SIM_MODEL
@@ -158,6 +163,12 @@ view() {
   run "python3 -m swarm_backend.sensor_view --id ${1:-1} --rviz $PKG/config/sensors.rviz"
 }
 
+detect() {
+  local id=2
+  if [[ "$1" =~ ^[0-9]+$ ]]; then id="$1"; shift; fi
+  run "python3 -m swarm_backend.detect.live --id $id $*"
+}
+
 cmd="${1:-shell}"
 shift || true
 case "$cmd" in
@@ -167,6 +178,7 @@ case "$cmd" in
   single) run "python3 $PKG/tests/single_drone_test.py --config $CONFIG $*" ;;
   multi)  run "python3 $PKG/tests/multi_drone_swarm_test.py --config $CONFIG $*" ;;
   intercept) run "python3 $PKG/tests/intercept_test.py --config $CONFIG $*" ;;
+  detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;
@@ -175,5 +187,6 @@ case "$cmd" in
     id=2
     if [[ "${1:-}" =~ ^[0-9]+$ ]]; then id="$1"; shift; fi
     run "python3 -m swarm_backend.save_images --id $id $*" ;;
+  detect) detect "$@" ;;
   *) echo "Unknown command: $cmd (see --help)"; exit 1 ;;
 esac
