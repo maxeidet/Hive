@@ -8,6 +8,8 @@ works even if only some PX4 instances are running.
 """
 import argparse
 import code
+import fcntl
+import os
 import sys
 
 import rclpy
@@ -23,6 +25,7 @@ from swarm_backend.intercept.paths import make_path
 from swarm_backend.intercept.radar import MockRadar, RadarTarget
 from swarm_backend.px4.drone import wrap_deg
 from swarm_backend.px4.px4_drone import PX4Drone
+from swarm_backend import save_images
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm import formation as formation_module
 from swarm_backend.swarm.formation import Formation, centroid
@@ -34,6 +37,7 @@ MOVE_TIMEOUT_S = 180.0  # long climbs are slow, more so when Gazebo runs below r
 GIMBAL_TIMEOUT_S = 10.0
 GIMBAL_PITCH_TOL = 1.0  # degrees
 GIMBAL_YAW_TOL = 10.0
+LOCK_FILE = '/tmp/swarm_shell.lock'  # held while a shell runs; the OS frees it if it dies
 
 BANNER = """
 Swarm shell. Positions: x = north, y = east (metres from the Gazebo origin); alt = metres up.
@@ -48,6 +52,11 @@ Swarm shell. Positions: x = north, y = east (metres from the Gazebo origin); alt
                                   down, yaw from the nose); gimbal(id) prints where it points.
                                   Only gimbal drones (./mount-backend.sh spawn gimbal); fixed
                                   cameras turn with the drone. Watch it: ./mount-backend.sh view id
+  snap(id=None, count=1, every=1.0, label='')  save `count` camera images of a drone as PNGs
+                                  in data/Manualimages/ of the repo, `every` simulation seconds
+                                  apart (default drone: the interceptor). Each gets a .json
+                                  with the true positions, distance and direction to the
+                                  other drones, from Gazebo
 
 Intercept (defaults from the `intercept:` section of swarm.yaml):
   takeoff(50)                     both drones up to the chase altitude first
@@ -218,6 +227,11 @@ class Pilot:
             lambda: drone.gimbal is not None and abs(drone.gimbal[0] - pitch) < GIMBAL_PITCH_TOL
             and abs(wrap_deg(drone.gimbal[1] - yaw)) < GIMBAL_YAW_TOL, GIMBAL_TIMEOUT_S, 'gimbal')
 
+    def snap(self, drone_id=None, count=1, every=1.0, label='') -> int:
+        if drone_id is None:
+            drone_id = self.config.intercept.interceptor_id
+        return save_images.snap(drone_id, count, every, label)
+
     def hostile(self, drone_id=None, pattern=None, speed=None) -> bool:
         settings = self.config.intercept
         drone = self.swarm[settings.hostile_id if drone_id is None else drone_id]
@@ -304,11 +318,38 @@ def yes(flag: bool) -> str:
     return 'yes' if flag else 'no'
 
 
+def lock_shell(path: str = LOCK_FILE):
+    """The open lock file if this is the only shell, else None. Keep it open while running.
+
+    Two shells would both stream setpoints to the same drones and fight over them.
+    """
+    lock = open(path, 'a+')
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        lock.seek(0)
+        print(f'Another swarm shell is already running (pid {lock.read().strip() or "unknown"}). '
+              'Two shells would fight over the drones.\n'
+              'Close the other one with Ctrl-D, or pass --force to start anyway.')
+        lock.close()
+        return None
+    lock.truncate(0)
+    lock.write(str(os.getpid()))
+    lock.flush()
+    return lock
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(description='Interactive swarm shell')
     parser.add_argument('--config', help='swarm.yaml (default: the installed one)')
     parser.add_argument('--num-drones', type=int, help='use only the first N drones in the config')
+    parser.add_argument('--force', action='store_true',
+                        help='start even if another shell is running')
     cli = parser.parse_args(remove_ros_args(sys.argv)[1:])
+
+    lock = None if cli.force else lock_shell()  # held until the process exits
+    if lock is None and not cli.force:
+        return 1
 
     config = load_config(cli.config or default_config_path(), cli.num_drones)
 
@@ -324,6 +365,7 @@ def main(args=None):
         'formation': Formation(len(swarm)),
         'status': pilot.status, 'takeoff': pilot.takeoff, 'goto': pilot.goto,
         'move': pilot.move, 'form': pilot.form, 'land': pilot.land, 'gimbal': pilot.gimbal,
+        'snap': pilot.snap,
         'hostile': pilot.hostile, 'chase': pilot.chase, 'stop_chase': pilot.stop_chase,
     }
     namespace.update({f'd{d.id}': d for d in swarm})

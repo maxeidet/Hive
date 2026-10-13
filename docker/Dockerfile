@@ -19,10 +19,12 @@ RUN apt-get update && apt-get install -y \
 # ros_gz_bridge = forwards Gazebo sensor topics (e.g. the lidar point cloud) to ROS 2.
 # rviz2 = 3D viewer for ROS 2 data, runs in the VNC desktop (mount-backend.sh lidar).
 # radar_msgs = the mock base-station radar's messages (swarm_backend/intercept/radar.py).
+# python3-opencv = image processing for the detector (swarm_backend/detect).
 RUN apt-get update && apt-get install -y \
     ros-jazzy-ros-gz-bridge \
     ros-jazzy-rviz2 \
     ros-jazzy-radar-msgs \
+    python3-opencv \
     && rm -rf /var/lib/apt/lists/*
 
 # ros_gz_bridge pulls in ROS's own gz-transport/gz-msgs "vendor" packages. Sourcing ROS then

@@ -17,6 +17,16 @@
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
 #                                      Any drone type; one without sensors shows where it is.
 #                                      (`lidar [ID]` and `camera [ID]` do the same)
+#   ./mount-backend.sh snap [ID] [args] save drone ID's camera images as PNGs in data/Manualimages/ of
+#                                      the repo, default drone 2, one per second until Ctrl-C
+#                                      (e.g. snap 2 --count 10 --label sky_30m; --help for more).
+#                                      Each image gets a .json with the true positions of the
+#                                      drones and the distance and direction to them (Gazebo)
+#   ./mount-backend.sh predict [METHOD] [args]  run a detector on the saved images in
+#                                      data/Manualimages/ and put the images with boxes and a
+#                                      results.csv in data/results/METHOD/. METHOD: baseline
+#                                      (default) or yolo (not trained yet). Other folders:
+#                                      --images /workspace/data/X --out /workspace/data/Y
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, or any PX4_SIM_MODEL
@@ -30,11 +40,13 @@
 # RViz opens on the GUI display: the screen with start-stellar.sh --native-gui, the VNC
 # desktop with start-dev.sh or --vnc. It cannot open with --headless.
 # Every command reads the swarm.yaml in this folder, so edits apply without rebuilding.
+# SWARM_CONFIG=/workspace/... (a path inside the container) uses another config, as the
+# scripts in scenarios/ do.
 set -e
 
 CONTAINER=px4-gazebo-vnc
 PKG=/workspace/ros2_ws/src/swarm_backend
-CONFIG=$PKG/config/swarm.yaml
+CONFIG="${SWARM_CONFIG:-$PKG/config/swarm.yaml}"
 MODEL="${MODEL:-gz_x500}"
 
 SETUP="
@@ -158,5 +170,10 @@ case "$cmd" in
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;
+  predict) run "python3 -m swarm_backend.detect.predict $*" ;;
+  snap)
+    id=2
+    if [[ "${1:-}" =~ ^[0-9]+$ ]]; then id="$1"; shift; fi
+    run "python3 -m swarm_backend.save_images --id $id $*" ;;
   *) echo "Unknown command: $cmd (see --help)"; exit 1 ;;
 esac

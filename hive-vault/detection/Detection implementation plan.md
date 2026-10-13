@@ -8,16 +8,16 @@ Back to [[Home]]. Related: [[Codebase map]], [[Final state]], [[Lock-on brainsto
 
 ## What the report asks for
 
-| Part | What it must do |
-|---|---|
-| Find | Flag small objects in the gimbal camera image, from about 4 px across |
-| Classify | Drone or bird, from about 20 px across |
-| Direction | Unit vector from the drone to the target in the world frame, with uncertainty, plus a rough range `r ≈ f·s/p` |
-| Baseline | Dark object against the sky: pixels that differ from the sky → connected regions → plausible size → drone if seen in `k` consecutive images |
-| Improvement | YOLO26n on enlarged crops around candidates (on the drone), ByteTrack for identities, drone if confidence > `τ` in `k` consecutive images. YOLO26s later at the base station |
-| Training | Gazebo images with automatic labels (drones, birds, empty sky; 20–120 m altitude; split by run), fine-tune COCO weights to 2 classes: Seraphim first, then Gazebo + some Seraphim |
-| Output | One *detection report* per followed target (time, drone, track, stage, class + confidence, direction ± σ, range ± σ, bounding box) |
-| Evaluation | Baseline vs YOLO on the same seeded scenarios: missed drones, P(detect) vs range, birds flagged, background false alarms, recall vs pixel size, inference time on CPU |
+| Part        | What it must do                                                                                                                                                                   |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Find        | Flag small objects in the gimbal camera image, from about 4 px across                                                                                                             |
+| Classify    | Drone or bird, from about 20 px across                                                                                                                                            |
+| Direction   | Unit vector from the drone to the target in the world frame, with uncertainty, plus a rough range`r ≈ f·s/p`                                                                      |
+| Baseline    | Dark object against the sky: pixels that differ from the sky → connected regions → plausible size → drone if seen in`k` consecutive images                                        |
+| Improvement | YOLO26n on enlarged crops around candidates (on the drone), ByteTrack for identities, drone if confidence >`τ` in `k` consecutive images. YOLO26s later at the base station       |
+| Training    | Gazebo images with automatic labels (drones, birds, empty sky; 20–120 m altitude; split by run), fine-tune COCO weights to 2 classes: Seraphim first, then Gazebo + some Seraphim |
+| Output      | One*detection report* per followed target (time, drone, track, stage, class + confidence, direction ± σ, range ± σ, bounding box)                                                 |
+| Evaluation  | Baseline vs YOLO on the same seeded scenarios: missed drones, P(detect) vs range, birds flagged, background false alarms, recall vs pixel size, inference time on CPU             |
 
 ## What exists to build on
 
@@ -51,7 +51,7 @@ swarm_backend/detect/
 nodes/detection_node.py   one per drone: image + odometry + gimbal in, reports out
 ```
 
-**Pipeline per image.** `candidates` always runs. In baseline mode every candidate box goes straight to tracking with stage *candidate*. In YOLO mode the crops around candidates go through YOLO26n, and its boxes replace the candidates with stage *classified*. Tracking and confirmation are the same in both modes, which makes the comparison fair.
+**Pipeline per image.** `candidates` always runs. In baseline mode every candidate box goes straight to tracking with stage _candidate_. In YOLO mode the crops around candidates go through YOLO26n, and its boxes replace the candidates with stage _classified_. Tracking and confirmation are the same in both modes, which makes the comparison fair.
 
 **Pose at image time.** Image stamps are Gazebo sim time; PX4 odometry and `GimbalDeviceAttitudeStatus` are on PX4's clock (also sim time in SITL). Keep a short buffer of drone attitude and gimbal angles and interpolate to the image stamp. A gimbal moving at 0.2 s per position gives large direction errors if this is skipped. The gimbal's mount offset from the body is read once from the model SDF.
 
@@ -64,6 +64,7 @@ nodes/detection_node.py   one per drone: image + odometry + gimbal in, reports o
 ## Training data and models
 
 **Gazebo dataset generator** (`tools/gen_detection_data.py`, runs in the container, not part of the ROS package):
+
 - A world with sky, clouds, trees and ground (`hive_base` already has the forest), one camera on a static or teleported gimbal, and drone and bird models moved with `gz service .../set_pose` per image.
 - Distances drawn so the target spans 2–100 px, weighted towards 4 and 20 px; altitude 20–120 m; random lighting (sun direction) and background; 10–20 % empty images.
 - Labels: prefer Gazebo's bounding-box camera (`boundingbox_camera` sensor with the `Label` system on each model), which also handles trees in the way. Fallback: project the model's 3D box with `camera.py` (the same code the detector uses, so it is tested twice).
@@ -71,6 +72,7 @@ nodes/detection_node.py   one per drone: image + odometry + gimbal in, reports o
 - Needs a bird model (none in `worlds/` yet). A CC0 mesh like the trees in `worlds/trees/`, two or three species and sizes (0.3–1.5 m wingspan).
 
 **Fine-tuning** (Ultralytics, on a GPU outside the dev container):
+
 1. `yolo26n.pt` and `yolo26s.pt`, `nc=2` (`drone`, `bird`). Ultralytics rebuilds the class head when `nc` differs and keeps the rest of the weights, which is what the report describes.
 2. Stage 1 on Seraphim, Stage 2 on Gazebo + about 20 % Seraphim.
 3. YOLO26n trained on crops of the same size used at run time (e.g. 320 or 640 px), YOLO26s on full images.
@@ -86,18 +88,18 @@ nodes/detection_node.py   one per drone: image + odometry + gimbal in, reports o
 
 ## Order of work
 
-| Step | Deliverable | Done when |
-|---|---|---|
-| 1 | `detect/camera.py` + tests | Pixel → world ray → pixel round-trips; a Gazebo-projected target lands on the box within 2 px |
-| 2 | Image bridge + `detection_node` skeleton (reuse `sensor_view` discovery), pose buffer | Node logs images with the interpolated drone and gimbal pose |
-| 3 | `candidates.py` + `tracking.py` (k consecutive) + `report.py` | Baseline reports a hostile drone against the sky from drone 2 |
-| 4 | `BearingFix`, tracker update, `DetectionSource` | `chase()` keeps the gimbal on the hostile drone from the camera alone (Stage 1: lock-on) |
-| 5 | Narrow camera model `worlds/models/x500_gimbal_narrow` (20°, 1920×1080) | Same as step 3 at 5–10× the range |
-| 6 | Bird model + dataset generator | A labelled, run-split dataset with the pixel-size histogram the report asks for |
-| 7 | Training (Seraphim → Gazebo), `τ` | YOLO26n/s weights + val/test numbers |
-| 8 | `classifier.py` + `crops.py` in the pipeline | YOLO mode runs on the drone at a measured rate |
-| 9 | Scenario runner + scoring script | Baseline vs YOLO table and plots for the report |
-| 10 | Base-station side (YOLO26s on crops, friendly filter) | Hand-off to the base station work ([[ai_components]]) |
+| Step | Deliverable                                                                          | Done when                                                                                     |
+| ---- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| 1    | `detect/camera.py` + tests                                                           | Pixel → world ray → pixel round-trips; a Gazebo-projected target lands on the box within 2 px |
+| 2    | Image bridge +`detection_node` skeleton (reuse `sensor_view` discovery), pose buffer | Node logs images with the interpolated drone and gimbal pose                                  |
+| 3    | `candidates.py` + `tracking.py` (k consecutive) + `report.py`                        | Baseline reports a hostile drone against the sky from drone 2                                 |
+| 4    | `BearingFix`, tracker update, `DetectionSource`                                      | `chase()` keeps the gimbal on the hostile drone from the camera alone (Stage 1: lock-on)      |
+| 5    | Narrow camera model`worlds/models/x500_gimbal_narrow` (20°, 1920×1080)               | Same as step 3 at 5–10× the range                                                             |
+| 6    | Bird model + dataset generator                                                       | A labelled, run-split dataset with the pixel-size histogram the report asks for               |
+| 7    | Training (Seraphim → Gazebo),`τ`                                                     | YOLO26n/s weights + val/test numbers                                                          |
+| 8    | `classifier.py` + `crops.py` in the pipeline                                         | YOLO mode runs on the drone at a measured rate                                                |
+| 9    | Scenario runner + scoring script                                                     | Baseline vs YOLO table and plots for the report                                               |
+| 10   | Base-station side (YOLO26s on crops, friendly filter)                                | Hand-off to the base station work ([[ai_components]])                                         |
 
 Steps 1–4 need nothing new in the container except OpenCV. Steps 6–7 can run in parallel with 4–5 once step 1 exists.
 
@@ -114,6 +116,7 @@ Steps 1 and 3 are pure Python and can be written and tested on a laptop in paral
 **Frames.** The camera frame is front-right-down: x along the optical axis, y right, z down. Image u goes right and v goes down, so a pixel is the ray `(1, (u−cx)/f, (v−cy)/f)`, normalised. The camera's orientation in world NED comes from PX4's `GimbalDeviceAttitudeStatus` quaternion. With `YAW_IN_EARTH_FRAME` set (as `PX4Drone._on_gimbal` already handles), that quaternion is the full camera attitude in NED, roll included. The gimbal sits about 0.3 m from the drone's centre, which is ignored: it is under 1 % of any range we care about.
 
 **Functions.** All take and return plain tuples or NumPy arrays:
+
 - `pixel_to_ray(u, v)` → unit vector in the camera frame
 - `direction(u, v, q_cam)` → unit vector in world NED
 - `project(point, cam_position, q_cam)` → `(u, v)`, or `None` if the point is behind the camera or outside the image. This is used for labels and evaluation.
@@ -121,6 +124,7 @@ Steps 1 and 3 are pure Python and can be written and tested on a laptop in paral
 - `direction_sigma(pixel_sigma, pointing_sigma)` → radians
 
 **Tests** (`tests/test_camera.py`, no ROS):
+
 - `project` then `direction` round-trips.
 - A target 100 m north with level gimbal, yaw 0 and heading 0 lands on `(cx, cy)`. 10° east of that lands on `u = cx + f·tan 10°`.
 - Pointing the gimbal with the existing `guidance.gimbal_angles(me, heading, target)` puts the target at the image centre. This keeps the camera math and the chase on the same conventions.
@@ -134,11 +138,13 @@ Steps 1 and 3 are pure Python and can be written and tested on a laptop in paral
 **No `cv_bridge`.** Read the image directly: `np.frombuffer(msg.data, np.uint8).reshape(msg.height, msg.width, 3)` for `rgb8`. Subscribe best-effort with depth 1 and process at 10 Hz first (drop frames). 1280×720 RGB at 30 Hz is about 80 MB/s through the bridge.
 
 **Pose.**
+
 - Extend the read-only `px4/observer.py` `DroneObserver` with attitude and gimbal. Move the gimbal handling in `PX4Drone._on_gimbal` into a shared function so the two cannot drift apart.
 - Add a `detect/pose_buffer.py` that keeps the last ~1 s of `(t, position, q_cam)`. `at(t)` interpolates position and slerps orientation, and returns `None` when `t` is more than 50 ms outside the buffer.
 - Check the two clocks first thing. The image stamp is Gazebo sim time and the PX4 timestamp is PX4's own clock. Log both side by side, and if they differ by a constant, add a `clock_offset` setting.
 
 **Node.** `nodes/detection_node.py`, run as `ros2 run swarm_backend detection_node --id 2 --mode baseline` or `./mount-backend.sh detect 2`.
+
 - Inputs: images, odometry and gimbal status.
 - Outputs: reports, plus `/<ns>/detection/debug`, an image with the boxes and track ids drawn on it. The debug image gets its own display in the RViz layout `view` uses, which makes tuning step 3 visual.
 
@@ -149,6 +155,7 @@ Steps 1 and 3 are pure Python and can be written and tested on a laptop in paral
 ### Step 3: baseline detector, confirmation, reports
 
 **Candidates** (`detect/candidates.py`, `find_candidates(rgb, horizon_v=None) -> list[Box]`):
+
 1. Use the blue channel or `min(R, G, B)`. The sky is bright in blue and the drone is dark in every channel.
 2. Black-hat morphology, with a kernel about twice the largest target expected (15×15 px for the platform camera). This keeps small dark things and drops slow brightness changes across the sky.
 3. Adaptive threshold: black-hat > mean + k·σ of the image, with k ≈ 4 to start.
@@ -160,7 +167,8 @@ Tests use synthetic images: a gradient sky with noise, dark discs of 3, 5 and 20
 **Association and confirmation** (`detect/tracking.py`). Behind the same interface ByteTrack will use in step 8, start with a nearest-neighbour associator that matches in **world direction**, not pixels. When the gimbal turns, the target jumps across the image but stays put in world direction. Gate at a few times the direction σ plus target motion. A track is confirmed after `k` consecutive images (start with `k = 3` at 10 Hz), and a miss resets the count.
 
 **Reports.**
-- `detect/report.py` holds the report dataclass. Stage is *candidate*, class is *drone* with no confidence for the baseline, and direction and range come from `camera.py`.
+
+- `detect/report.py` holds the report dataclass. Stage is _candidate_, class is _drone_ with no confidence for the baseline, and direction and range come from `camera.py`.
 - Make the small `hive_interfaces` package here, since the field list is already fixed by the report's table.
 - Publish on `/<ns>/detection/reports`.
 
