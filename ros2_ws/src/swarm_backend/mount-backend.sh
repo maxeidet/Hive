@@ -27,11 +27,19 @@
 #                                      results.csv in data/results/METHOD/. METHOD: baseline
 #                                      (default) or yolo (not trained yet). Other folders:
 #                                      --images /workspace/data/X --out /workspace/data/Y
-#   ./mount-backend.sh detect [ID] [args] baseline camera detector on drone ID (default 2), debug
+#   ./mount-backend.sh detect [ID] [args] camera detector on drone ID (default 2): publishes
+#                                      /px4_ID/detection/target_offset, and a debug
 #                                      image on /px4_ID/detection/debug (swarm_backend/detect/live.py
-#                                      --help, e.g. --horizon 360 --save /workspace/detect_frames)
+#                                      --help, e.g. --detector baseline --save /workspace/detect_frames)
 #   ./mount-backend.sh detecttest [args] baseline detection flight test: drone 2 watches drone 0
 #                                      fly away from it (tests/detection_test.py --help)
+#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL]  restart Gazebo and the drones without
+#                                      restarting the container: stops every test, shell, RViz,
+#                                      PX4 and Gazebo, starts Gazebo with drone 0 again (log:
+#                                      /tmp/px4_0.log), then drones 1..N-1 of swarm.yaml if N is
+#                                      given. Keeps the world, drone 0 model and headless setting
+#                                      it was running with, else baylands and gz_x500.
+#                                      Example: ./mount-backend.sh restart && scenarios/scenario1.sh
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, or any PX4_SIM_MODEL
@@ -163,6 +171,82 @@ view() {
   run "python3 -m swarm_backend.sensor_view --id ${1:-1} --rviz $PKG/config/sensors.rviz"
 }
 
+restart() {
+  local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -w|--world) world="$2"; shift 2 ;;
+      -m|--model) model="$2"; shift 2 ;;
+      [0-9]*)     n="$1"; shift ;;
+      *) echo "Unknown restart argument: $1 (see --help)"; exit 1 ;;
+    esac
+  done
+  # The world, model and HEADLESS that drone 0 runs with now, else those of the last restart
+  # (kept in /tmp/hive_sim.env in the container). The [x] in each pattern stops pgrep/pkill
+  # from matching the bash -c running them.
+  settings=$(docker exec "$CONTAINER" bash -c "
+    gz=\$(pgrep -af '[g]z sim.* -s ' | grep -oE '[^/ ]+\.sdf' | head -1)
+    p0=\$(pgrep -f '[b]in/px4 -i 0\$' | head -1)
+    if [ -n \"\$p0\" ]; then
+      tr '\0' '\n' < /proc/\$p0/environ | grep -E '^(PX4_SIM_MODEL|HEADLESS)='
+      [ -n \"\$gz\" ] && echo PX4_GZ_WORLD=\${gz%.sdf}
+    elif [ -f /tmp/hive_sim.env ]; then
+      cat /tmp/hive_sim.env
+    fi; true")
+  world="${world:-$(sed -n 's/^PX4_GZ_WORLD=//p' <<< "$settings")}"
+  model="${model:-$(sed -n 's/^PX4_SIM_MODEL=//p' <<< "$settings")}"
+  world="${world:-baylands}" model="${model:-gz_x500}"
+  local headless
+  headless=$(grep -E '^HEADLESS=' <<< "$settings" || true)
+
+  echo "Stopping tests, shells, RViz, PX4 and Gazebo (the container and MicroXRCE agent keep running)..."
+  # Killed ROS/PX4 processes leave Fast DDS shared memory behind, and new drones then never
+  # reach ROS. `fastdds shm clean` removes it.
+  docker exec "$CONTAINER" bash -c "
+    pkill -f '[t]ests/[a-z_]*\.py|[s]warm_shell|-m [s]warm_backend\.'
+    pkill -f '[r]viz2'; pkill -f '[p]arameter_bridge'
+    pkill -f '[p]x4(-gazebo)? -i [0-9]'; pkill -f '[g]z sim'
+    for _ in \$(seq 10); do pgrep -f '[g]z sim|[b]in/px4 -i' >/dev/null || break; sleep 1; done
+    pkill -9 -f '[g]z sim'; pkill -9 -f '[b]in/px4 -i'
+    source /opt/ros/jazzy/setup.bash; ros2 daemon stop >/dev/null 2>&1; fastdds shm clean >/dev/null 2>&1
+    printf '%s\n' PX4_GZ_WORLD=$world PX4_SIM_MODEL=$model $headless > /tmp/hive_sim.env
+    true"
+
+  echo "Starting Gazebo ($world) and drone 0 ($model), log: /tmp/px4_0.log in the container"
+  docker exec "$CONTAINER" bash -c "cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true"
+  copy_models
+  # Same as the start scripts, but detached: the PX4 shell is not on a terminal.
+  docker exec -dit "$CONTAINER" bash -c "
+    export $headless PX4_GZ_WORLD_TIMEOUT=$timeout PX4_GZ_WORLD=$world PX4_SIM_MODEL=$model PX4_GZ_MODEL_POSE=0,0,0,0,0,0
+    /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0 > /tmp/px4_0.log 2>&1"
+
+  echo "Waiting for the Gazebo world..."
+  for _ in $(seq "$timeout"); do
+    if docker exec "$CONTAINER" gz topic -l 2>/dev/null | grep -q "^/world/$world/clock\$"; then break; fi
+    sleep 1
+  done
+  if ! docker exec "$CONTAINER" gz topic -l 2>/dev/null | grep -q "^/world/$world/clock\$"; then
+    echo "Gazebo did not come up. See /tmp/px4_0.log in the container."
+    exit 1
+  fi
+  if [ -n "$n" ]; then spawn "$n"; fi
+
+  # ros2 topic list still shows the old drones' topics, so ask each PX4 if it is connected.
+  echo "Waiting for the drones to connect to ROS (can take a minute or two)..."
+  local ids status
+  ids=$(docker exec "$CONTAINER" ps -eo args | grep -oE 'px4(-gazebo)? -i [0-9]+' | awk '{print $NF}' | sort -un)
+  for _ in $(seq "$timeout"); do
+    status=$(docker exec "$CONTAINER" bash -c "for i in $(echo $ids); do /opt/px4-gazebo/bin/px4-uxrce_dds_client --instance \$i status 2>/dev/null | head -1 | grep -q ', connected' || echo \$i; done")
+    [ -z "$status" ] && break
+    sleep 1
+  done
+  if [ -n "$status" ]; then
+    echo "Not connected to ROS yet: drone(s) $(echo $status). Logs: /tmp/px4_<id>.log in the container."
+    exit 1
+  fi
+  echo "Gazebo and drones $(echo $ids) are up and talking to ROS."
+}
+
 detect() {
   local id=2
   if [[ "$1" =~ ^[0-9]+$ ]]; then id="$1"; shift; fi
@@ -188,5 +272,6 @@ case "$cmd" in
     if [[ "${1:-}" =~ ^[0-9]+$ ]]; then id="$1"; shift; fi
     run "python3 -m swarm_backend.save_images --id $id $*" ;;
   detect) detect "$@" ;;
+  restart) restart "$@" ;;
   *) echo "Unknown command: $cmd (see --help)"; exit 1 ;;
 esac
