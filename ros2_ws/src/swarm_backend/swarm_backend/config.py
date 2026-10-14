@@ -85,7 +85,7 @@ class DetectConfig:
     num_defenders: int = 12  # N on the ring (the report's feasibility table: 10-12)
     perimeter_radius: float = 1000.0  # metres: R_p
     altitude: float = 50.0  # metres: h, the defenders' patrol altitude
-    camera_fov_deg: float = 115.0  # theta_0 of the x500_gimbal camera
+    camera_hfov: float = 2.0  # radians: theta_0 of the gz_x500_gimbal camera (its SDF)
     image_width: int = 1280  # px: W_0
     image_height: int = 720  # px: H_0
     target_size: float = 0.5  # metres: s, the hostile drone

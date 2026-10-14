@@ -63,8 +63,8 @@ def test_every_run_is_scored(results):
 
 def test_no_detection_beyond_the_detection_range(results):
     # The report's assumption: found from p_min pixels, so no further than this.
-    camera = CameraModel(CONFIG.camera_fov_deg, CONFIG.image_width, CONFIG.image_height)
-    max_range = camera.focal_px * CONFIG.target_size / CONFIG.detect_px
+    camera = CameraModel(CONFIG.camera_hfov, CONFIG.image_width, CONFIG.image_height)
+    max_range = camera.range_from_width(CONFIG.detect_px, CONFIG.target_size)
     for r in results:
         assert all(distance <= max_range * 1.1 for distance, hit in r.hostile_views if hit)
 

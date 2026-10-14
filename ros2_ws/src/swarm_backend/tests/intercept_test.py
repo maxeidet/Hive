@@ -86,7 +86,7 @@ class Run:
 
         self.log.info(f'Taking off to {s.altitude} m')
         self.manager.takeoff(s.altitude)
-        wait_until(self.manager.all_reached, CLIMB_TIMEOUT_S,
+        wait_until(self.manager.all_reached, args.climb_timeout,
                    f'both drones to reach {s.altitude} m')
 
         # Fly away from the interceptor, so the chase starts with a gap to close.
@@ -227,6 +227,9 @@ def main():
                         help='seconds the hostile drone flies before the chase starts')
     parser.add_argument('--duration', type=float, default=120.0,
                         help='seconds of chase (simulation time)')
+    parser.add_argument('--climb-timeout', type=float, default=CLIMB_TIMEOUT_S,
+                        help='wall-clock seconds to wait for the takeoff climb; raise it '
+                             'when Gazebo runs far below real time')
     parser.add_argument('--csv', help='write the samples here')
     args = parser.parse_args()
 

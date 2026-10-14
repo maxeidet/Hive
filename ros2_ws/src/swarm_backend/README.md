@@ -134,7 +134,7 @@ The same pattern for the report's detection section, in `swarm_backend/detect/`.
 
 | Module (`swarm_backend/detect/`) | Role |
 |---|---|
-| `camera.py`, `frame.py` | The pinhole truth: `CameraModel.project`, `size_px`; `Frame`, `TrueObject`, `make_frame`. |
+| `frame.py` | The truth per image: `Frame` (image, camera pose as forward/right/down like `ground_truth.camera_pose`, true objects), `TrueObject`, `aimed_camera`, `make_frame` (projects with `ground_truth.project` and `camera.CameraModel`). |
 | `detector.py` | `ImageDetector` (`reset()`, `detect(frame) -> [Detection]`, the report's detection report). `DarkObjectDetector`, `Yolo26Detector` and the fast-sim stand-in `PixelModelDetector` are **placeholders**. |
 | `scan.py` | `GimbalScan.aim(t, drone, position)`. `SectorScan` (the static ring's outward sweep) is a **placeholder**. |
 | `scenario.py` | `make_scenario`, `scenario_grid`, `run_scenario(scenario, sim, make_detector, make_scan, config)`. `sim` has `now()`, `advance(dt)`, `bodies()`, `frame(drone, pitch, yaw)`. |

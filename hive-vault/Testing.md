@@ -152,12 +152,16 @@ Until there is a shared helper, copy this order from `tests/intercept_test.py` /
 |---|---|---|---|
 | Interception > Evaluation | hit, time to hit, lock-on (held, time to, longest), distance to base at hit, target's closest distance to base, closest interceptor–target distance; outcome hit / reached base / lost / timeout | `intercept/scenario.py`, `intercept/metrics.py`; `tests/test_intercept_metrics.py`, `tests/test_intercept_baseline.py`, `mount-backend.sh baseline-intercept` | Harness built; pure pursuit and the stand-in detector are placeholders |
 | System Evaluation | mission success / failure, mission time (spawn to interception) | — | Not started (needs detection + intercept together) |
-| Detection > Evaluation (scenarios) | missed drones (reach the ring undetected), detection probability vs range, birds flagged as drones, background false alarms per image; also warning distance/time at first detection | `detect/scenario.py`, `detect/metrics.py`, `detect/camera.py` (truth projection); `tests/test_detect_metrics.py`, `tests/test_detect_baseline.py` | Harness built; `DarkObjectDetector`, `Yolo26Detector`, `PixelModelDetector` (fast-sim stand-in) and `SectorScan` are placeholders. No Gazebo runner yet (needs images bridged into `Frame.image`) |
+| Detection > Evaluation (scenarios) | missed drones (reach the ring undetected), detection probability vs range, birds flagged as drones, background false alarms per image; also warning distance/time at first detection | `detect/scenario.py`, `detect/metrics.py`, `detect/frame.py` (truth per image, on `detect/camera.py` and `ground_truth.py`); `tests/test_detect_metrics.py`, `tests/test_detect_baseline.py` | Harness built; `DarkObjectDetector`, `Yolo26Detector`, `PixelModelDetector` (fast-sim stand-in) and `SectorScan` are placeholders. No Gazebo runner yet (needs images bridged into `Frame.image`) |
 | Detection > Evaluation (labelled images) | recall vs target size (px), found and classified; background false alarms per image; inference time per image | `detect/dataset.py` (`split_by_run`, `evaluate_dataset`); `tests/test_detect_baseline.py` with `HIVE_DETECT_DATASET` (+ `HIVE_YOLO_WEIGHTS`) | Harness built; `GazeboImageDataset` (the data-collection format) is a placeholder |
+
+The detection team's plan and tools are in [[Detection implementation plan]] (its
+Evaluation section lists the same measures) and [[Manual - scenario 1, images and prediction]]
+(`snap` saves images with their truth, `predict` runs the dark-object detector on them).
 
 A detection is correct when its centre is within `match_radius_px` of the object's
 true centre projected into the image (`detect/metrics.match`).
 
 ## Related
 
-[[Codebase map]], [[ai_components]], [[1octstella]], [[Lock-on brainstorm]]
+[[Codebase map]], [[ai_components]], [[1octstella]], [[Lock-on brainstorm]], [[Detection implementation plan]]

@@ -1,0 +1,46 @@
+# Scenario 1: two gimbal-camera drones; drone 2 chases drone 1, which flies in circles.
+# Run with scenarios/scenario1.sh. Same format as config/swarm.yaml (see the comments there).
+
+swarm:
+  rate_hz: 10.0
+  takeoff_altitude: 5.0
+  position_tolerance: 0.3
+  formation_spacing: 4.0
+
+drones:
+  # Drone 0 is the one the start script already runs. It stays on the ground here.
+  - id: 0
+    spawn_pose: [0.0, 0.0, 0.0]
+
+  - id: 1                     # the hostile drone
+    spawn_pose: [5.0, 0.0, 0.0]
+    model: gz_x500_gimbal
+
+  - id: 2                     # the interceptor
+    spawn_pose: [0.0, 5.0, 0.0]
+    model: gz_x500_gimbal
+
+intercept:
+  interceptor_id: 2
+  hostile_id: 1
+  altitude: 20.0              # low, so the climb is quick; swarm.yaml uses 50
+  standoff: 10.0              # at 10 m the hostile drone is about 20 px wide in the camera
+  standoff_sigmas: 3.0
+  capture_margin: 3.0
+  min_separation: 5.0
+  max_speed: 10.0
+  track_timeout: 3.0
+  use_gimbal: true
+  radar_topic: /base/radar/hostile
+  radar_rate_hz: 2.0
+  # A radar this close places the target within about 2 m, so the interceptor can close
+  # to the standoff and the camera sees the target. (swarm.yaml has it 2 km away.)
+  radar_position: [-100.0, 0.0, 0.0]
+  radar_range_std: 3.5
+  radar_azimuth_std_deg: 1.0
+  radar_elevation_std_deg: 2.0
+  radar_radial_velocity_std: 0.5
+  hostile_pattern: circle
+  hostile_speed: 4.0
+  pattern_size: 80.0          # circle diameter, metres
+  seed: 0

@@ -250,5 +250,8 @@ Thumbs.db
 .env
 .env.*
 
+# Images saved from Gazebo (mount-backend.sh snap)
+/data/
+
 # Test run output (hive-vault/Testing.md)
 runs/

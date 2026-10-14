@@ -10,7 +10,7 @@ from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect.dataset import (LabelledImage, evaluate_dataset, split_by_run,
                                           summarize_dataset)
 from swarm_backend.detect.detector import Detection, ImageDetector, Stage
-from swarm_backend.detect.frame import Frame, Kind, TrueObject
+from swarm_backend.detect.frame import Body, Frame, Kind, TrueObject, aimed_camera, make_frame
 from swarm_backend.detect.metrics import detection_by_range, match, score_run, summarize
 from swarm_backend.detect.scan import GimbalScan
 from swarm_backend.detect.scenario import (HOSTILE_ID, FrameRecord, make_scenario,
@@ -19,31 +19,45 @@ from swarm_backend.detect.scenario import (HOSTILE_ID, FrameRecord, make_scenari
 from sim import DetectFastSim
 
 CONFIG = DetectConfig()
-CAMERA = CameraModel(CONFIG.camera_fov_deg, CONFIG.image_width, CONFIG.image_height)
+CAMERA = CameraModel(CONFIG.camera_hfov, CONFIG.image_width, CONFIG.image_height)
 ORIGIN = (0.0, 0.0, 0.0)
+AXES = dict(forward=(1.0, 0.0, 0.0), right=(0.0, 1.0, 0.0), down=(0.0, 0.0, 1.0))
 
 
-# --- camera -----------------------------------------------------------------------
+# --- camera truth ---------------------------------------------------------------
 
-def test_projection_centre_and_axes():
-    assert CAMERA.project(ORIGIN, 0, 0, (10, 0, 0)) == pytest.approx((640, 360))
-    u, v = CAMERA.project(ORIGIN, 0, 0, (10, 1, -1))  # east and up
+def pixel(pitch, yaw, point):
+    """Where `point` shows for a camera at the origin aimed at (pitch, yaw), or None."""
+    frame = make_frame(CAMERA, 0.0, 0, aimed_camera(ORIGIN, pitch, yaw),
+                       [Body('x', Kind.DRONE, point, CONFIG.target_size)])
+    return frame.objects[0].pixel if frame.objects else None
+
+
+def test_aimed_camera_centre_and_axes():
+    assert pixel(0, 0, (10, 0, 0)) == pytest.approx((640, 360))
+    u, v = pixel(0, 0, (10, 1, -1))  # east and up
     assert u > 640 and v < 360
-    assert CAMERA.project(ORIGIN, 0, 90, (0, 10, 0)) == pytest.approx((640, 360))  # facing east
+    assert pixel(0, 90, (0, 10, 0)) == pytest.approx((640, 360))  # facing east
     down = math.radians(30)  # pitch -30: looking 30 deg below the horizon
-    assert CAMERA.project(ORIGIN, -30, 0, (10 * math.cos(down), 0, 10 * math.sin(down))) == (
+    assert pixel(-30, 0, (10 * math.cos(down), 0, 10 * math.sin(down))) == (
         pytest.approx((640, 360)))
+    pose = aimed_camera(ORIGIN, -30, 45)
+    assert pose['right'] == pytest.approx((-math.sin(math.radians(45)),
+                                           math.cos(math.radians(45)), 0))
 
 
-def test_projection_outside_the_image():
-    assert CAMERA.project(ORIGIN, 0, 0, (-10, 0, 0)) is None  # behind
-    assert CAMERA.project(ORIGIN, 0, 0, (10, 100, 0)) is None  # beyond the side
-    assert CAMERA.project(ORIGIN, 0, 0, (10, 0, -10)) is None  # above (720 px is 70 deg)
+def test_outside_the_image_is_not_in_the_frame():
+    assert pixel(0, 0, (-10, 0, 0)) is None  # behind
+    assert pixel(0, 0, (10, 100, 0)) is None  # beyond the side
+    assert pixel(0, 0, (10, 0, -10)) is None  # above (720 px is about 70 deg)
 
 
 def test_size_at_the_detection_range():
     # The report: a 0.5 m drone is p_min = 4 px wide at about 51 m with this camera.
-    assert CAMERA.size_px(51.0, CONFIG.target_size) == pytest.approx(CONFIG.detect_px, abs=0.05)
+    frame = make_frame(CAMERA, 0.0, 0, aimed_camera(ORIGIN, 0, 0),
+                       [Body('x', Kind.DRONE, (51.0, 0, 0), CONFIG.target_size)])
+    assert frame.objects[0].size_px == pytest.approx(CONFIG.detect_px, abs=0.05)
+    assert frame.objects[0].distance == 51.0
 
 
 # --- matching -----------------------------------------------------------------------
@@ -101,7 +115,8 @@ def test_grid_and_settings_from_yaml():
 # --- scoring ------------------------------------------------------------------------
 
 def record(t, objects=(), detections=(), hostile_distance=500.0, outside=300.0):
-    frame = Frame(time=t, drone=0, camera=ORIGIN, pitch_deg=0, yaw_deg=0, objects=tuple(objects))
+    frame = Frame(time=t, drone=0, camera=ORIGIN, objects=tuple(objects),
+                  **AXES)
     return FrameRecord(t=t, frame=frame, detections=tuple(detections),
                        hostile_distance=hostile_distance, hostile_outside=outside)
 
@@ -165,7 +180,8 @@ def test_detection_probability_by_range_counts_drones_not_images():
 # --- labelled images ------------------------------------------------------------------
 
 def image(run, objects=()):
-    frame = Frame(time=0, drone=0, camera=ORIGIN, pitch_deg=0, yaw_deg=0, objects=tuple(objects))
+    frame = Frame(time=0, drone=0, camera=ORIGIN, objects=tuple(objects),
+                  **AXES)
     return LabelledImage(run=run, frame=frame)
 
 

@@ -38,11 +38,13 @@ class ImageDataset(ABC):
 
 
 class GazeboImageDataset(ImageDataset):
-    """The images and labels written by the Gazebo data-collection script (drones and
-    birds at random distances, altitudes, backgrounds and lighting; boxes from the true
-    positions or the bounding-box camera).
+    """The images saved from Gazebo with their truth: for now `mount-backend.sh snap`
+    (save_images.py), a PNG plus a .json per image with the camera pose and, for every
+    other drone, its position, distance and pixel (ground_truth.truth). Later the
+    data-collection script (drones and birds at random distances, altitudes, backgrounds
+    and lighting). The run is the image name's prefix.
 
-    Placeholder: the format is decided with the data-collection script."""
+    Placeholder: to be written with the detection team."""
 
     def __init__(self, root: str):
         raise NotImplementedError

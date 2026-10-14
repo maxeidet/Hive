@@ -90,7 +90,7 @@ detect:
   num_defenders: 12         # N on the ring
   perimeter_radius: 1000.0  # metres: R_p
   altitude: 50.0            # metres: h, the defenders' altitude
-  camera_fov_deg: 115.0     # x500_gimbal camera: theta_0, W_0 x H_0
+  camera_hfov: 2.0          # radians: gz_x500_gimbal camera (theta_0), W_0 x H_0
   image_width: 1280
   image_height: 720
   target_size: 0.5          # metres: s

@@ -3,7 +3,7 @@ import math
 
 from swarm_backend.config import DetectConfig
 from swarm_backend.detect.camera import CameraModel
-from swarm_backend.detect.frame import make_frame
+from swarm_backend.detect.frame import aimed_camera, make_frame
 from swarm_backend.detect.scenario import DetectScenario
 from swarm_backend.intercept.scenario import Scenario
 from swarm_backend.px4.drone import Drone
@@ -100,7 +100,7 @@ class DetectFastSim:
 
     def __init__(self, scenario: DetectScenario, config: DetectConfig):
         self.scenario = scenario
-        self.camera = CameraModel(config.camera_fov_deg, config.image_width, config.image_height)
+        self.camera = CameraModel(config.camera_hfov, config.image_width, config.image_height)
         self.time = 0.0
 
     def now(self):
@@ -113,5 +113,5 @@ class DetectFastSim:
         return self.scenario.bodies(self.time)
 
     def frame(self, drone, pitch_deg, yaw_deg):
-        return make_frame(self.camera, self.time, drone, self.scenario.defenders[drone],
-                          pitch_deg, yaw_deg, self.bodies())
+        pose = aimed_camera(self.scenario.defenders[drone], pitch_deg, yaw_deg)
+        return make_frame(self.camera, self.time, drone, pose, self.bodies())

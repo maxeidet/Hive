@@ -59,7 +59,9 @@ class DarkObjectDetector(ImageDetector):
     a plausible size as candidates, and reports a candidate seen in `confirm_k`
     consecutive images as a drone. Reads only `frame.image`.
 
-    Placeholder: to be written by the detection team."""
+    Placeholder: wraps the existing baseline, detect.candidates (sky_mask,
+    find_candidates; horizon from detect.camera.CameraModel.horizon_row) and
+    detect.tracking.Confirmer, as detect.live and detect.predict use them."""
 
     def __init__(self, config: DetectConfig):
         raise NotImplementedError
