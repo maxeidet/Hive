@@ -65,8 +65,9 @@ class Drone(ABC):
         this velocity at the point instead of stopping there."""
 
     @abstractmethod
-    def set_velocity(self, vx: float, vy: float, vz: float) -> None:
-        """Fly at a NED velocity until told otherwise."""
+    def set_velocity(self, vx: float, vy: float, vz: float, yaw: float | None = None) -> None:
+        """Fly at a NED velocity until told otherwise. yaw is radians from north; None
+        keeps the last one."""
 
     def point_gimbal(self, pitch: float, yaw: float) -> None:
         """Point the camera gimbal, degrees (see `gimbal`). Only drones with a gimbal."""

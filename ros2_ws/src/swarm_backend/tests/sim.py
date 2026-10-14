@@ -33,7 +33,7 @@ class SimDrone(Drone):
         self._feed_forward = velocity or (0.0, 0.0, 0.0)
         self._velocity_setpoint = None
 
-    def set_velocity(self, vx, vy, vz):
+    def set_velocity(self, vx, vy, vz, yaw=None):
         self.target = None
         self._velocity_setpoint = (vx, vy, vz)
 

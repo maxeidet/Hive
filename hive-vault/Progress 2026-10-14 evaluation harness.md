@@ -24,7 +24,7 @@ sweep test stops skipping and prints the table for the report. It is on the
 |---|---|---|
 | 1 | Intercept scenarios: head-on and crossing at 30/60/90°, target speeds 4–17 m/s, 30 seeds each | `intercept/scenario.py` |
 | 2 | Intercept metrics: hit, time to hit, lock-on, distance to base at hit, target's closest distance to base, closest miss | `intercept/metrics.py` |
-| 3 | Intercept interfaces + placeholders: `InterceptAction` (`PurePursuitAction`), `Detector` (`NoisyTruthDetector`), `guidance.pure_pursuit_velocity` | `intercept/interceptor.py`, `intercept/detection.py` |
+| 3 | Intercept interfaces + placeholders: `InterceptAction` (`PurePursuitAction`), `Detector` (`NoisyTruthDetector`) | `intercept/interceptor.py`, `intercept/target_detector.py` |
 | 4 | Detection scenarios: static ring of 12 defenders, a hostile drone and 3 birds from random directions, until the hostile reaches the ring | `detect/scenario.py` |
 | 5 | Detection metrics: missed drones, detection probability vs range, birds flagged, background false alarms; on labelled images recall vs size, inference time | `detect/metrics.py`, `detect/dataset.py` |
 | 6 | Detection interfaces + placeholders: `ImageDetector` (`DarkObjectDetector`, `Yolo26Detector`, `PixelModelDetector`), `GimbalScan` (`SectorScan`), `ImageDataset` (`GazeboImageDataset`) | `detect/detector.py`, `detect/scan.py`, `detect/dataset.py` |
@@ -73,6 +73,21 @@ Every method runs on the same seeded scenarios, so results compare directly.
 - None of dev's files were changed. Dev's tests (`test_camera`, `test_candidates`,
   `test_ground_truth`, `test_tracking`) pass, and `scenarios/scenario1.yaml` still loads.
 
+## Merged with the attack branch
+
+`origin/feat-intercept-baseline` (the intercept team's baseline attack, see
+[[Baseline attack - how to run]]) was merged in afterwards, again with their work first:
+
+- Their `intercept/detection.py` (the two detection topics and the fake detector) took
+  that path. The harness's `Detector` interface moved to `intercept/target_detector.py`.
+- Their `intercept/attack.py` is the real pure pursuit, so the harness's duplicate
+  `guidance.pure_pursuit_velocity` stub was removed. `PurePursuitAction` is meant to wrap
+  their `AttackAction`, and `NoisyTruthDetector` their fake detector (`measure`).
+- `swarm.yaml` and `config.py` keep all three sections (`intercept`, `attack`,
+  `detect`). `mount-backend.sh` keeps `fakedetect`, `attack`, `attacktest` and
+  `baseline-intercept`.
+- `Drone.set_velocity` now takes a `yaw`; the fast sim's `SimDrone` follows it.
+
 ## Results so far
 
 No real results yet, since the methods are placeholders. To check the harness, both
@@ -111,8 +126,8 @@ sweeps were run with throwaway stand-ins (not committed):
 
 ## Next
 
-1. Fill in the placeholders: pure pursuit (intercept team), `DarkObjectDetector`
-   wrapping dev's baseline, `PixelModelDetector` and `SectorScan`. The sweeps then
+1. Fill in the placeholders: `PurePursuitAction` wrapping the attack team's
+   `AttackAction`, `DarkObjectDetector` wrapping dev's baseline, `PixelModelDetector` and `SectorScan`. The sweeps then
    give the report's tables.
 2. `GazeboImageDataset` on the images from `snap`, for recall vs size on real images.
 3. A shared recorder that writes the standard run folder, used by all flight tests.

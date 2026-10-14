@@ -17,11 +17,11 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from swarm_backend.config import InterceptConfig, Vector3
-from swarm_backend.intercept.detection import Detector
 from swarm_backend.intercept.interceptor import InterceptAction, Status
 from swarm_backend.intercept.metrics import Sample, segment_closest_distance
 from swarm_backend.intercept.mock import HostileFlight
 from swarm_backend.intercept.paths import Path
+from swarm_backend.intercept.target_detector import Detector
 from swarm_backend.px4.drone import Drone
 
 STEP_S = 0.1  # 10 Hz, as in the report

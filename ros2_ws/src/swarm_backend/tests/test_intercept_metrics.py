@@ -6,13 +6,13 @@ import math
 import pytest
 
 from swarm_backend.config import InterceptConfig, parse_config
-from swarm_backend.intercept.detection import Detector
 from swarm_backend.intercept.interceptor import InterceptAction, Status
 from swarm_backend.intercept.metrics import (LockOnTracker, Outcome, Sample, closest_approach,
                                              first_within, score_run,
                                              segment_closest_distance, summarize)
 from swarm_backend.intercept.scenario import Scenario, make_scenario, run_scenario, scenario_grid
 from swarm_backend.intercept.target import PositionFix
+from swarm_backend.intercept.target_detector import Detector
 
 from sim import FastSim
 

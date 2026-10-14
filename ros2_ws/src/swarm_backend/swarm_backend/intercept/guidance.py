@@ -81,15 +81,6 @@ def approach_point(aim: Vector3, me: Vector3, max_speed: float) -> Vector3:
     return (me[0] + f * (aim[0] - me[0]), me[1] + f * (aim[1] - me[1]), aim[2])
 
 
-def pure_pursuit_velocity(me: Vector3, target: Vector3, speed: float) -> Vector3:
-    """Baseline guidance (planning report, Interception > Guidance Laws): the velocity
-    that flies straight at the target's current position at `speed`, in 3-D, since the
-    target may fly at another altitude (20-120 m) than we do.
-
-    Placeholder: the intercept guidance is being written elsewhere."""
-    raise NotImplementedError
-
-
 def keep_clear(point: Vector3, target: Vector3, min_separation: float) -> Vector3:
     """Move `point` out to `min_separation` from the target (horizontally) if it is closer."""
     dx, dy = point[0] - target[0], point[1] - target[1]

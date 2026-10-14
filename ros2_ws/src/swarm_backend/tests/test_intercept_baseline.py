@@ -11,10 +11,10 @@ import random
 import pytest
 
 from swarm_backend.config import InterceptConfig
-from swarm_backend.intercept.detection import NoisyTruthDetector
 from swarm_backend.intercept.interceptor import PurePursuitAction
 from swarm_backend.intercept.metrics import Outcome, score_run, summarize
 from swarm_backend.intercept.scenario import run_scenario, scenario_grid
+from swarm_backend.intercept.target_detector import NoisyTruthDetector
 
 from sim import FastSim
 

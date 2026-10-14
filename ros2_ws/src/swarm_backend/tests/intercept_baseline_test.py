@@ -22,10 +22,10 @@ from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 
 from swarm_backend.config import default_config_path, load_config
-from swarm_backend.intercept.detection import NoisyTruthDetector
 from swarm_backend.intercept.interceptor import PurePursuitAction
 from swarm_backend.intercept.metrics import score_run, summarize
 from swarm_backend.intercept.scenario import make_scenario, run_scenario
+from swarm_backend.intercept.target_detector import NoisyTruthDetector
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm.manager import SwarmManager

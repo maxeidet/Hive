@@ -10,7 +10,7 @@ from collections.abc import Callable
 from enum import Enum
 
 from swarm_backend.config import InterceptConfig
-from swarm_backend.intercept.detection import Detector
+from swarm_backend.intercept.target_detector import Detector
 from swarm_backend.px4.drone import Drone
 
 
@@ -51,11 +51,12 @@ class InterceptAction(ABC):
 
 class PurePursuitAction(InterceptAction):
     """Baseline (planning report, Interception > Guidance Laws): fly at full speed
-    (`interceptor_max_speed`) toward the target's current position with
-    guidance.pure_pursuit_velocity, gimbal on the target; LOST when the detector has
-    had no fix for `track_timeout` seconds.
+    (`interceptor_max_speed`) toward the target's current position, gimbal on the
+    target; LOST when the detector has had no fix for `track_timeout` seconds.
 
-    Placeholder: the intercept guidance is being written elsewhere."""
+    Placeholder: wraps the attack team's pure pursuit, intercept.attack.AttackAction,
+    feeding its DetectionInbox from the detector (target position relative to the
+    drone) and mapping its states (ATTACK/COAST -> TRACKING, LOST -> LOST)."""
 
     def __init__(self, drone: Drone, detector: Detector, config: InterceptConfig,
                  clock: Callable[[], float | None]):

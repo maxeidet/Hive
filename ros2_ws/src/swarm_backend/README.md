@@ -115,8 +115,8 @@ The harness never sees how a method works. A method plugs in as two classes:
 
 | Module (`swarm_backend/intercept/`) | Role |
 |---|---|
-| `interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. `PurePursuitAction` is the baseline, **a placeholder for now**. |
-| `detection.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `NoisyTruthDetector` (true position + noise, inside the camera's view and range) stands in for YOLO, **a placeholder for now**. |
+| `interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. `PurePursuitAction` is the baseline, **a placeholder for now**, meant to wrap the attack's `attack.AttackAction`. |
+| `target_detector.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `NoisyTruthDetector` (true position + noise, inside the camera's view and range) stands in for YOLO, **a placeholder for now**, meant to wrap the attack's fake detector (`detection.measure`). |
 | `scenario.py` | `make_scenario`, `scenario_grid`, and `run_scenario(scenario, sim, make_action, make_detector, config)`. `sim` is anything with `hostile`, `interceptor`, `now()`, `advance(dt)`. |
 | `metrics.py` | `score_run(samples, scenario, config) -> RunMetrics`, `summarize(results)` (the table), `LockOnTracker`, `closest_approach` / `first_within`. |
 
