@@ -62,3 +62,34 @@ intercept:
   hostile_speed: 4.0        # m/s
   pattern_size: 80.0        # metres: line length, circle diameter, figure-8 / random area width
   seed: 0
+
+# Baseline attack (nodes/attack_node.py, `mount-backend.sh attack`): the defender flies into the
+# hostile drone with pure pursuit, on the two detection topics only
+# (/<ns>/detection/target_position and target_offset, see intercept/detection.py). The fake
+# detector (`mount-backend.sh fakedetect`) makes those topics from Gazebo's true positions
+# until the camera detector publishes them.
+attack:
+  attacker_id: 2            # gimbal drone (gz_x500_gimbal)
+  target_id: 0              # the hostile drone
+  guard_altitude: 20.0      # metres; where the defender hovers while searching
+  search_heading_deg: 0.0   # where the hostile comes from (degrees from north)
+  search_pitch_deg: 10.0    # gimbal tilted up a little, so the target has sky behind it
+  max_speed: 12.0           # m/s, pure pursuit flies at this speed (PX4's default limit)
+  gimbal_gain: 0.5          # gimbal turns by this share of target_offset on each message
+  coast_after: 0.5          # s without a message: ATTACK -> COAST
+  lost_after: 1.5           # s more in COAST: -> LOST
+  lost_hold: 3.0            # s LOST hovers before going back to SEARCH
+  min_altitude: 5.0         # m; never commanded lower (limits on every command)
+  max_climb_speed: 3.0      # m/s, PX4 MPC_Z_VEL_MAX_UP
+  max_descent_speed: 1.5    # m/s, PX4 MPC_Z_VEL_MAX_DN
+  # Fake detector. Errors off = a perfect detector; `fakedetect --realistic` turns on
+  # 0.25 s delay, 1 deg and 20 % noise and a 5 m blind zone, like the real one.
+  fake_rate_hz: 4.0
+  fake_delay: 0.0
+  fake_angle_noise_deg: 0.0
+  fake_range_noise: 0.0
+  fake_blind_range: 0.0
+  fake_max_range: 0.0       # 0 = where the target is fake_min_pixels wide (about 51 m)
+  fake_min_pixels: 4.0
+  fake_confirm_frames: 3
+  seed: 0
