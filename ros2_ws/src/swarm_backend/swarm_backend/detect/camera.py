@@ -70,13 +70,16 @@ class CameraModel:
 
     def offset_angles(self, u: float, v: float, roll: float = 0.0) -> tuple[float, float]:
         """(x, y) radians from the image centre to pixel (u, v), as target_offset carries them:
-        x = horizontal, right positive; y = vertical, up positive; turned back by the camera's
-        `roll` (radians, right side down positive) so they are angles about the world's
-        vertical and horizontal, the way the gimbal turns (yaw by x, pitch by y)."""
-        a = math.atan((u - self.cx) / self.f)
-        b = math.atan((self.cy - v) / self.f)
+        x = horizontal, right positive; y = vertical, up positive; as the same point would
+        be in a level image when the camera is rolled by `roll` (radians, right side down
+        positive), which is what the gimbal's yaw and pitch need. Rolling the camera only
+        turns the image plane about its centre, so the point is turned there (in
+        tangents, not angles): exact over the whole image, the same formula as the fake
+        detector (intercept/detection.level_offset)."""
+        x = (u - self.cx) / self.f
+        y = (self.cy - v) / self.f
         cos, sin = math.cos(roll), math.sin(roll)
-        return a * cos + b * sin, -a * sin + b * cos
+        return math.atan(x * cos + y * sin), math.atan(-x * sin + y * cos)
 
 
 def angle_deg(a: Vector3, b: Vector3) -> float:

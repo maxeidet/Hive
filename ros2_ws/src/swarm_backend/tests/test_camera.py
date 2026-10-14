@@ -84,3 +84,17 @@ def test_position_is_direction_times_distance():
     assert math.hypot(n, e, d) == pytest.approx(distance)
     assert e > 0 and d == pytest.approx(0)
 
+
+def test_roll_correction_is_exact_far_from_the_centre():
+    # 45 degrees right and 30 up in a camera rolled 30 degrees: rotate the point on the
+    # image plane (tangents), not the angles.
+    roll = math.radians(30)
+    u = CAMERA.cx + CAMERA.f * math.tan(math.radians(45))
+    v = CAMERA.cy - CAMERA.f * math.tan(math.radians(30))
+    x, y = CAMERA.offset_angles(u, v, roll)
+    tx, ty = math.tan(math.radians(45)), math.tan(math.radians(30))
+    assert math.tan(x) == pytest.approx(tx * math.cos(roll) + ty * math.sin(roll))
+    assert math.tan(y) == pytest.approx(-tx * math.sin(roll) + ty * math.cos(roll))
+    assert math.degrees(x) == pytest.approx(49.11, abs=0.01)
+    assert math.degrees(y) == pytest.approx(0.0, abs=0.01)
+
