@@ -7,6 +7,7 @@ Start here, then follow the links.
 ## Where things are
 
 - [[Codebase map]]: what each folder and file in the repo is, how to run things, and what is built so far.
+- [[Testing]]: kinds of tests, the rules every evaluation follows, the standard run output, and a checklist for adding a test.
 
 ## Plans and design
 

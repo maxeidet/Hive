@@ -249,3 +249,6 @@ Thumbs.db
 
 .env
 .env.*
+
+# Test run output (hive-vault/Testing.md)
+runs/

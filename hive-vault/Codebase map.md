@@ -138,6 +138,8 @@ Default drones in `swarm.yaml`: 0 = `gz_x500` (hostile in the intercept test), 1
 | [[ai_components]] 1b fusion, 1c decisions | Single-target Kalman tracker only (`intercept/tracker.py`). No multi-track fusion or assignment yet |
 | [[ai_components]] 2: lidar detection | 3D lidar drone model and RViz view exist. No detector yet |
 | [[ai_components]] 3: path planning | Chase guidance (lead pursuit + shadow) exists. No obstacle-aware planner or search yet |
+| Report: intercept baseline evaluation | Harness built (`intercept/scenario.py`, `intercept/metrics.py`, `tests/test_intercept_*.py`, `mount-backend.sh baseline-intercept`). Pure pursuit (`intercept/interceptor.py`) and the stand-in detector (`intercept/detection.py`) are interfaces only |
+| Report: detection evaluation | Harness built (`detect/scenario.py`, `detect/metrics.py`, `detect/dataset.py`, `detect/camera.py`, `tests/test_detect_*.py`). The detectors (`detect/detector.py`), the sector scan (`detect/scan.py`) and the image dataset loader are interfaces only. See [[Testing]] |
 | Safety layer (minimum distance, geofence) | Only the 3 m abort in `intercept_test.py` |
 
 Related: [[px4_ros2_drone_swarm_development_roadmap]], [[ai_components]], [[1octstella]], [[StackV2]]
