@@ -46,6 +46,10 @@ Why two topics: `target_position` steers the drone (which way to fly). `target_o
 
 **Status (14 Oct, task 3):** `target_position` is published with `target_offset` (same stamp and `frame_id`), only when the camera orientation from PX4 is known. Live test, drone 1 hovering 15 m north of and 8 m above drone 2: published N +14.8, E −0.1, D −8.6 m (17.1 m away); truth 17.0 m. Against the truth on 12 saved images: direction 0.3–0.6° off (2.5° once, in a fast turn), position 0.2–3.2 m off, almost all of it in the distance (±25 %). The distance jumps by 1–2 m from image to image at 17 m because the box size changes by a pixel; Max's pure pursuit only uses the direction, so this matters little for the baseline. It is relative to the camera, which sits 0.26 m below the drone's centre.
 
+**Status (14 Oct, task 4):** only confirmed tracks are published, the highest score if there are several. Detections are now matched from image to image by world direction once PX4's camera orientation is known (gate `--gate-deg`, default 10°), so the gimbal turns by Max's node no longer reset the "k in a row" count; until then they are matched in pixels. Unit tested (a 6° gimbal turn that moves the target 30 px keeps one track); the live check is in the manual tests.
+
+**Status (14 Oct, task 5):** the black-hat window is now square instead of round. On all 27 saved images it gives exactly the same detections (8 real drones, 0 false alarms, same box sizes), and in the container the detector takes 29 ms per image instead of 218 ms (on the Mac 8 ms instead of 42). The old window stays available with `--round-kernel`. The live speed is in the manual tests.
+
 If task 2 is not finished, publish `target_position` with the truth orientation for now and say so in the log, so nobody mistakes it for a real result.
 
 ## Max: attack tasks

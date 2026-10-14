@@ -16,6 +16,8 @@ import numpy as np
 @dataclass(frozen=True)
 class Settings:
     kernel: int = 41  # px, black-hat window: targets wider than this are not found
+    round_kernel: bool = False  # round window: what the first version used; a square one
+    # gives nearly the same result and is much faster (OpenCV does it as two 1-D passes)
     contrast: float = 60.0  # grey levels (0-255) darker than the surrounding sky
     max_darkest: int = 100  # its darkest pixel is at most this grey level: blue gaps
     # between white clouds are also darker than their surroundings, but still bright
@@ -86,8 +88,8 @@ def find_candidates(rgb: np.ndarray, mask: np.ndarray | None = None,
     if rgb.ndim == 2:
         rgb = cv2.cvtColor(rgb, cv2.COLOR_GRAY2RGB)
     grey = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (settings.kernel, settings.kernel))
+    shape = cv2.MORPH_ELLIPSE if settings.round_kernel else cv2.MORPH_RECT
+    kernel = cv2.getStructuringElement(shape, (settings.kernel, settings.kernel))
     # Black-hat: how much darker each pixel is than its surroundings, for dark things
     # narrower than the kernel. Slow brightness changes across the sky give zero.
     darker = cv2.morphologyEx(grey, cv2.MORPH_BLACKHAT, kernel)

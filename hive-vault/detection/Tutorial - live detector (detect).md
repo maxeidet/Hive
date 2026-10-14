@@ -25,7 +25,7 @@ It only reads the camera and never commands the drone, so it can run next to the
 | `target_position` (where the target is, in metres) | Works. Direction 0.3–0.5° off; distance from the box size, so it jumps by ±1–2 m from image to image at 17 m (the box changes by a pixel) |
 | Camera orientation from PX4 | Works: 0.2–0.4° typical, 1.6° worst against Gazebo's truth |
 | Detector choice | `baseline` works, `yolo` not trained yet |
-| Speed | About 4 images per second with Gazebo running on the Mac |
+| Speed | About 30 ms per image in the container (was 210 ms): the detector is no longer the limit; `--rate` (default 10 per second) and the camera are |
 
 ## Run it
 
@@ -55,7 +55,7 @@ When it starts it prints the camera topic, the topics it publishes and whether t
 | `offset x +4.6 y +0.6 deg` | The published target_offset, in degrees: right and up positive, roll-corrected |
 | `position N +14.8 E -0.1 D -8.6 m (17.1 m away)` | The published target_position: metres north, east and down (negative = above) from the drone, and the distance |
 | `camera roll +0 deg` | The camera's roll from PX4 (right side down positive). `camera roll unknown` = PX4 has not reported yet, and the offset is sent uncorrected |
-| `231 ms/image` | Time per image. Under 200 ms = more than 5 images per second |
+| `241 ms/image` | Time per image (this example is from before task 5; now about 30 ms). Under 200 ms = more than 5 images per second |
 
 Ctrl-C stops it.
 
@@ -66,11 +66,13 @@ Ctrl-C stops it.
 | `--detector baseline\|yolo` | `baseline` | Which detector runs. Everything else stays the same |
 | `--no-px4` | off | Don't read the camera orientation from PX4 (the offset is then not roll-corrected) |
 | `--k N` | `3` | Images in a row before a target counts as confirmed. Higher = fewer false alarms, slower to react; `1` = every detection |
-| `--gate PX` | `20` | How far (pixels) a target may move between images and still be the same target. Raise it (e.g. `60`) if the count keeps resetting while the target or the gimbal moves |
+| `--gate-deg DEG` | `10` | How far (degrees, in the world) a target may move between images and still be the same target. Matching is by world direction once PX4's camera orientation is known, so turning the gimbal does not break the lock. Raise it for a fast target close by |
+| `--gate PX` | `20` | The same in pixels, used only until PX4's camera orientation is known |
 | `--rate HZ` | `10` | Most images processed per second |
 | `--save DIR` | off | Save the raw image and a `_boxes.png` copy with the drawings, e.g. `--save /workspace/data/detect_frames` (= `data/detect_frames/` in the repo) |
 | `--save-every S` | `1.0` | Simulation seconds between saves |
 | `--horizon ROW` | off | Also ignore everything below this image row (360 = the middle, for a level camera). Not needed: the detector finds the sky by its colours |
+| `--round-kernel` | off | The round black-hat window of the first version: the same detections, about 7 times slower |
 | `--kernel PX` | `41` | Baseline detector: targets wider than this are not found |
 | `--contrast N` | `60` | Baseline detector: how much darker than the sky around it a target must be (grey levels 0–255) |
 
@@ -135,8 +137,6 @@ point: {x: 14.82, y: -0.13, z: -8.58}   # 14.8 m north, 0.1 m west, 8.6 m above
 
 - **Sky only.** The baseline finds the target against the sky, not in front of trees or ground. In scenario 1 the chaser flies level with the target, so it is mostly against trees and there are long gaps.
 - **Not closer than about 5 m.** The target is then wider than 40 px and dropped.
-- **Tracking in pixels.** A fast gimbal turn moves the target in the picture and can reset the count (see `--gate`).
-- **Slow:** about 4 images per second. A faster filter is planned (task 5).
 
 ## Troubleshooting
 
@@ -146,4 +146,4 @@ point: {x: 14.82, y: -0.13, z: -8.58}   # 14.8 m north, 0.1 m west, 8.6 m above
 | The camera picture is upside down, or a drone crashed | Restart Gazebo and the drones without restarting the container: `./mount-backend.sh restart`, then the scenario again |
 | `The YOLO detector is not here yet` | Use `--detector baseline` (the default) |
 | Nothing is ever confirmed | The target is not against the sky, or too far (under 3 px) or too close (over 40 px). Look at the debug picture |
-| The count keeps resetting | Raise `--gate` |
+| The count keeps resetting | Raise `--gate-deg` |

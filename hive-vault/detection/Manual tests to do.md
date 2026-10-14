@@ -8,6 +8,15 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 ## To do
 
+- [ ] **Speed after task 5** (added 14 Oct)
+  Scenario 1 and `./mount-backend.sh detect 2` running; read `ms/image`. **Pass:** well under 200 ms (about 30 ms on saved images in the container, against 218 ms before). Then try `--rate 20`: with the detector this fast, the default limit of 10 images per second may be what holds it back.
+
+- [ ] **The lock holds while the gimbal turns** (added 14 Oct, task 4)
+  1. Scenario 1 running (the chaser turns its gimbal all the time), and `./mount-backend.sh detect 2`.
+  2. Watch the `confirmed: T<number>` part of the lines while the target is in view.
+
+  **Pass:** the same track number stays while the gimbal turns, and target_offset keeps coming. **Fail:** the number keeps changing (T1, T2, T3 …) or `confirmed: none` every time the gimbal moves. Then try `--gate-deg 15`; and compare with `--no-px4` (old pixel matching), which should lose the lock more often.
+
 - [ ] **target_position during a chase** (added 14 Oct, task 3)
   1. Scenario 1 running, and `./mount-backend.sh detect 2`.
   2. Third terminal: `docker exec -it px4-gazebo-vnc bash -c "source /opt/ros/jazzy/setup.bash && ros2 topic echo /px4_2/detection/target_position"`

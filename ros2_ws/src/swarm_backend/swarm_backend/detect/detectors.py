@@ -56,7 +56,8 @@ Detector = Callable[[np.ndarray, np.ndarray | None], list[Detection]]
 
 def baseline(args: argparse.Namespace) -> Detector:
     """Dark object against the sky (candidates.py). Score = contrast in grey levels."""
-    settings = candidates.Settings(kernel=args.kernel, contrast=args.contrast)
+    settings = candidates.Settings(kernel=args.kernel, contrast=args.contrast,
+                                   round_kernel=args.round_kernel)
 
     def detect(rgb: np.ndarray, mask: np.ndarray | None = None) -> list[Detection]:
         return [Detection(c.x, c.y, c.width, c.height, c.contrast)
@@ -83,6 +84,8 @@ def add_options(parser: argparse.ArgumentParser) -> None:
     group = parser.add_argument_group('baseline detector')
     group.add_argument('--kernel', type=int, default=candidates.Settings.kernel,
                        help='px, targets wider than this are not found (default %(default)s)')
+    group.add_argument('--round-kernel', action='store_true',
+                       help='use the slower round black-hat window of the first version')
     group.add_argument('--contrast', type=float, default=candidates.Settings.contrast,
                        help='grey levels darker than the sky around it (default %(default)s)')
 

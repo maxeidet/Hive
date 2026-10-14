@@ -23,7 +23,10 @@ in a row), red = confirmed track, white cross = image centre, with the offset ne
 target. --save DIR also writes the raw and annotated images there every --save-every
 seconds, for running through `mount-backend.sh predict --images DIR` afterwards.
 
-Tracks are matched in pixels (fine while the gimbal is still). --horizon ROW can cut off
+Detections are matched from image to image by their direction in the world, so the lock
+holds while the gimbal or the drone turns (the target jumps in the picture, not in the
+world); gate --gate-deg. Until PX4's camera orientation is known they are matched in pixels
+(gate --gate), and switching between the two starts the tracks over. --horizon ROW can cut off
 everything below a fixed image row, e.g. 360 for a level gimbal at 1280x720. LiveDetector
 is also used by tests/detection_test.py.
 """
@@ -45,7 +48,7 @@ from swarm_backend.detect.camera import GIMBAL_HFOV, CameraModel, camera_roll
 from swarm_backend.detect.orientation import Axes
 from swarm_backend.detect.candidates import above_line
 from swarm_backend.detect.detectors import Detection, Detector, draw
-from swarm_backend.detect.tracking import Confirmer, Track
+from swarm_backend.detect.tracking import Confirmer, Track, angle_between
 from swarm_backend.sensor_view import (
     bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
 
@@ -69,6 +72,7 @@ class Result:
     offset: tuple[float, float] | None = None  # its target_offset (x, y), radians
     axes: Axes | None = None  # camera forward, right, down (world NED) from PX4, if known
     roll: float | None = None  # camera roll used for the offset, radians (None = uncorrected)
+    matching: str = 'pixels'  # how detections were matched to tracks: 'world' or 'pixels'
     position: tuple[float, float, float] | None = None  # target_position, world NED, metres
 
 
@@ -76,6 +80,16 @@ def best_target(tracks: list[Track]) -> Track | None:
     """The track to publish: confirmed, detected in this image, highest score."""
     seen = [t for t in tracks if t.confirmed and t.detection is not None]
     return max(seen, key=lambda t: t.detection.score, default=None)
+
+
+def directions(boxes: list[Detection], camera: CameraModel, axes: Axes) -> list:
+    """The world direction (unit vector, NED) to each box's centre."""
+    return [camera.direction(b.u, b.v, *axes) for b in boxes]
+
+
+def world_confirmer(k: int = 3, gate_deg: float = 10.0) -> Confirmer:
+    """Confirmation by world direction: the gate is an angle."""
+    return Confirmer(k=k, gate=math.radians(gate_deg), distance=angle_between)
 
 
 def camera_already_bridged(node, topic: str, wait_s: float = 2.0) -> bool:
@@ -150,7 +164,8 @@ class LiveDetector:
                  horizon: Callable[[], float | None] = lambda: None,
                  on_result: Callable[[Result], None] | None = None,
                  save: Path | None = None, save_every: float = 1.0,
-                 use_px4: bool = True, hfov: float = GIMBAL_HFOV):
+                 use_px4: bool = True, hfov: float = GIMBAL_HFOV,
+                 direction_confirmer: Confirmer | None = None):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -173,7 +188,9 @@ class LiveDetector:
             from swarm_backend.detect.px4_camera import PX4Camera
             self.px4 = PX4Camera(node, drone_id)
         self.hfov = hfov
-        self.confirmer = confirmer or Confirmer()
+        self.confirmer = confirmer or Confirmer()  # in pixels, while the orientation is unknown
+        self.world_confirmer = direction_confirmer or world_confirmer(self.confirmer.k)
+        self._matching = None
         self.horizon = horizon
         self.on_result = on_result
         self.save = save
@@ -229,14 +246,22 @@ class LiveDetector:
         start = time.perf_counter()
         horizon = self.horizon()
         boxes = self.detector(img, self._sky_mask(img.shape, horizon))
-        tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
-        target = best_target(tracks)
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         axes = None if self.px4 is None else self.px4.axes(stamp)
         roll = None if axes is None else camera_roll(axes[0], axes[1])
+        camera = CameraModel(self.hfov, msg.width, msg.height)
+        matching = 'pixels' if axes is None else 'world'
+        if matching != self._matching:  # positions of the two kinds can't be compared
+            self.confirmer.tracks.clear()
+            self.world_confirmer.tracks.clear()
+            self._matching = matching
+        if axes is None:
+            tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
+        else:
+            tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
+        target = best_target(tracks)
         offset = position = None
         if target is not None:
-            camera = CameraModel(self.hfov, msg.width, msg.height)
             offset = camera.offset_angles(target.detection.u, target.detection.v, roll or 0.0)
             out_msg = self._Vector3Stamped()
             out_msg.header.stamp = msg.header.stamp  # when the image was taken
@@ -252,7 +277,7 @@ class LiveDetector:
                 self._position_pub.publish(pos_msg)
         ms = (time.perf_counter() - start) * 1000
         result = Result(stamp, msg.width, msg.height, boxes, tracks, horizon, ms, target, offset,
-                        axes, roll, position)
+                        axes, roll, matching, position)
 
         out = annotate(img, result)
         debug = self._Image()
@@ -283,7 +308,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--horizon', type=float, default=None,
                         help='image row of the horizon; only the sky above it is searched')
     parser.add_argument('--k', type=int, default=3, help='images in a row to confirm a track')
-    parser.add_argument('--gate', type=float, default=20.0, help='px between images, same track')
+    parser.add_argument('--gate-deg', type=float, default=10.0,
+                        help='degrees (world direction) a target may move between images and '
+                             'still be the same track (default %(default)s)')
+    parser.add_argument('--gate', type=float, default=20.0,
+                        help='the same in pixels, used until the camera orientation is known')
     parser.add_argument('--detector', choices=detectors.DETECTORS, default='baseline',
                         help='which detector to run (default %(default)s)')
     parser.add_argument('--no-px4', action='store_true',
@@ -320,7 +349,7 @@ def main(argv: list[str] | None = None) -> int:
             n, e, down = result.position
             offset += (f', position N {n:+.1f} E {e:+.1f} D {down:+.1f} m '
                        f'({math.hypot(n, e, down):.1f} m away)')
-        camera = ('camera roll unknown (offset not roll-corrected, no position)'
+        camera = ('camera roll unknown (offset not roll-corrected, no position, matching in pixels)'
                   if result.roll is None else f'camera roll {math.degrees(result.roll):+.0f} deg')
         print(f'[{result.stamp:.2f}] {len(result.boxes)} candidates, confirmed: {confirmed}'
               f'{offset}; {camera}  ({stats["ms"] / stats["frames"]:.0f} ms/image)', flush=True)
@@ -329,7 +358,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         live = LiveDetector(node, args.id, detector, Confirmer(k=args.k, gate=args.gate),
                             args.rate, lambda: args.horizon, log, args.save, args.save_every,
-                            use_px4=not args.no_px4)
+                            use_px4=not args.no_px4,
+                            direction_confirmer=world_confirmer(args.k, args.gate_deg))
     except RuntimeError as e:
         print(e)
         return 1
