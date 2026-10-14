@@ -8,9 +8,72 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 ## To do
 
-- [ ] **Speed after task 5** (added 14 Oct)
-  Scenario 1 and `./mount-backend.sh detect 2` running; read `ms/image`. **Pass:** well under 200 ms (about 30 ms on saved images in the container, against 218 ms before). Then try `--rate 20`: with the detector this fast, the default limit of 10 images per second may be what holds it back.
+- [ ] **The join: Max's attack flying on our detector** (first runs on 14 Oct: head-on hit, crossing missed; see [[Join test results 2026-10-14]]) (added 14 Oct, after merging both into `dev`)
 
+  This is the most important test now: the "when we meet again" step of [[Baseline attack work plan]]. Run it on `dev`. Use **two terminals**, both in `ros2_ws/src/swarm_backend/`.
+
+  **Step 1. Start a light simulation** (in terminal A). Only drones 0 (the hostile) and 2 (the defender, with the gimbal camera) are started, which keeps Gazebo faster.
+
+  ```bash
+  export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/attack.yaml
+  ./mount-backend.sh restart 3
+  ```
+
+  Run the same `export` line in terminal B too, before `attacktest`. The `export` tells `mount-backend.sh` to read `scenarios/attack.yaml` instead of `config/swarm.yaml`, and it only lasts in the terminal where it was typed. `restart` and `attacktest` need it; `detect` does not read the config, so it doesn't matter there.
+
+  **Step 2. Fly the attack with Max's fake detector** (terminal B). This checks the attack on its own; it has only been shown on a simulated drone so far, not in Gazebo.
+
+  ```bash
+  export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/attack.yaml
+  ./mount-backend.sh attacktest --pattern offset
+  ```
+
+  `offset` is the easiest path: the hostile flies straight toward the defender, 8 m to its side, at the same height.
+  **Pass:** the run ends with `hit`.
+
+  **Step 3. Fly the same attack on our detector.**
+  Terminal A:
+
+  ```bash
+  ./mount-backend.sh detect 2 --rate 20
+  ```
+
+  Terminal B:
+
+  ```bash
+  export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/attack.yaml
+  ./mount-backend.sh attacktest --pattern headon --external-detector
+  ```
+
+  `--external-detector` turns the fake off, so the attack only sees what `detect 2` publishes. Use `headon` or `crossing` here, not `offset`: in `offset` the hostile flies at the defender's own height, against the horizon and ground, where the baseline can't see it (Max's code says `offset` is for the fake detector only). The 14 Oct `offset` run showed it: found only at 11–14 m and 35–43° to the side, then lost in the first turn.
+  **Watch:** terminal A shows `confirmed: T…` with a position while the hostile is in view; terminal B goes SEARCH → ATTACK.
+  **Pass:** the run ends with `hit`, or at least gets about as close as with the fake.
+
+  **Step 4. If step 3 works, try the harder path** (crossing in front of the defender), with the fake and with ours:
+
+  ```bash
+  export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/attack.yaml
+  ./mount-backend.sh attacktest --pattern crossing
+  ./mount-backend.sh attacktest --pattern crossing --external-detector     # with detect 2 running
+  ./mount-backend.sh attacktest --pattern crossing --external-detector --gain 1.0
+  ```
+
+  `--gain 1.0` is Max's open question: in his simulation the plan's gimbal gain of 0.5 missed crossing targets and 1.0 hit.
+
+  **Results:** every run adds one row to `data/attack_runs.csv` in the repo. The `detector` column says which detector it was (fake or external = ours), so fake and real runs can be compared row by row.
+
+  **If it fails, look at terminal A first:**
+
+  | What you see                                     | Where the problem is                                                                                      |
+  | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
+  | Never`confirmed`                                 | Detection: the hostile is not against the sky, or too small (far away) or too big (closer than about 5 m) |
+  | `confirmed`, but terminal B never goes to ATTACK | The topics don't reach the attack node (topic name or drone number)                                       |
+  | ATTACK, but no hit                               | The attack itself, or the gimbal gain                                                                     |
+
+  Send Claude the output of both terminals, or the CSV.
+
+- [ ] **Speed after task 5** (added 14 Oct)
+      Scenario 1 and `./mount-backend.sh detect 2` running; read `ms/image`. **Pass:** well under 200 ms (about 30 ms on saved images in the container, against 218 ms before). Then try `--rate 20`: with the detector this fast, the default limit of 10 images per second may be what holds it back.
 - [ ] **The lock holds while the gimbal turns** (added 14 Oct, task 4)
   1. Scenario 1 running (the chaser turns its gimbal all the time), and `./mount-backend.sh detect 2`.
   2. Watch the `confirmed: T<number>` part of the lines while the target is in view.
@@ -42,13 +105,13 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 Run by Oskar on 14 Oct; checked by Claude the same day.
 
-| Test                                     | Result                                                                                    | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Camera roll follows the drone in a chase | Roll went −2 → +14 → +4° through a turn, and to −19° in another                           | **Pass**                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Orientation error under motion           | Where it looks: median 0.42°, worst 2.68°. Roll: median 0.26°, worst 5.48°, over 8 images | **Mostly pass.** 6 of 8 images under 0.7°; the two outliers (…087.748: 2.7°, …088.804: 1.9° and 5.5° roll) were during fast turns. Likely cause: PX4 reports the gimbal only 5 times a second and the gimbal jumps between reports, so the value in between is guessed. Effect: target_offset barely changes (5° roll error at a 5° offset ≈ 0.4°); target_position's direction can be ~1 m off at 20 m. Not a blocker; improve later if PX4 can report faster |
-| target_offset signs on the debug picture | RViz showed "No image"; detect warned "incompatible QoS … RELIABILITY"                    | **Fail, fixed:** the debug picture was sent best-effort, and RViz asks for reliable. It is now sent reliable (a reliable subscriber received it in a test, no warning). Re-test above                                                                                                                                                                                                                                                                          |
-| target_offset signs, from saved frames (`detect 2 --save`) | One detection (…155.96): target above and a little right of the centre cross; published x −2.5°, y +17.5° | **Pass.** In the picture it is +1.3° right and +17.6° up. The camera was rolled about 12° left side down (the horizon slopes down to the right), so in the world "up in the picture" leans left: x −2.5° is the roll correction working. RViz part still to do |
-| Speed with the scenario running          | About 210 ms per image (164–274)                                                          | **Below goal** (200 ms): about 4.7 images per second. Task 5 (faster filter) addresses it                                                                                                                                                                                                                                                                                                                                                                      |
+| Test                                                       | Result                                                                                                    | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera roll follows the drone in a chase                   | Roll went −2 → +14 → +4° through a turn, and to −19° in another                                           | **Pass**                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Orientation error under motion                             | Where it looks: median 0.42°, worst 2.68°. Roll: median 0.26°, worst 5.48°, over 8 images                 | **Mostly pass.** 6 of 8 images under 0.7°; the two outliers (…087.748: 2.7°, …088.804: 1.9° and 5.5° roll) were during fast turns. Likely cause: PX4 reports the gimbal only 5 times a second and the gimbal jumps between reports, so the value in between is guessed. Effect: target_offset barely changes (5° roll error at a 5° offset ≈ 0.4°); target_position's direction can be ~1 m off at 20 m. Not a blocker; improve later if PX4 can report faster |
+| target_offset signs on the debug picture                   | RViz showed "No image"; detect warned "incompatible QoS … RELIABILITY"                                    | **Fail, fixed:** the debug picture was sent best-effort, and RViz asks for reliable. It is now sent reliable (a reliable subscriber received it in a test, no warning). Re-test above                                                                                                                                                                                                                                                                          |
+| target_offset signs, from saved frames (`detect 2 --save`) | One detection (…155.96): target above and a little right of the centre cross; published x −2.5°, y +17.5° | **Pass.** In the picture it is +1.3° right and +17.6° up. The camera was rolled about 12° left side down (the horizon slopes down to the right), so in the world "up in the picture" leans left: x −2.5° is the roll correction working. RViz part still to do                                                                                                                                                                                                 |
+| Speed with the scenario running                            | About 210 ms per image (164–274)                                                                          | **Below goal** (200 ms): about 4.7 images per second. Task 5 (faster filter) addresses it                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Raw notes from the run
 

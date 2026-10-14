@@ -23,6 +23,7 @@ Start here, then follow the links.
 | [[Manual tests to do]]                         | Checklist of tests that need a person and the running simulation, kept up to date as things are built                                               |
 | [[Following the target with detection]]        | Design: how the detection steers the gimbal and the drone so it follows the target on the camera, with the radar as cue and fallback                |
 | [[Baseline attack work plan]]                  | Oskar/Max agreement (13 Oct): the two shared ROS topics (target_position, target_offset), who builds what, the attack states, open points           |
+| [[Join test results 2026-10-14]] | First runs of Max's attack on the real detector: head-on hits, crossing misses by ~4 m, what went wrong and what's next |
 | [[Lock-on brainstorm]]                         | Mindmap: how the drone finds, confirms and keeps a lock on the hostile drone (cue → acquire → confirm → locked → lost)                              |
 
 ## Environment and setup

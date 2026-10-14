@@ -48,8 +48,6 @@ Why two topics: `target_position` steers the drone (which way to fly). `target_o
 
 **Status (14 Oct, task 4):** only confirmed tracks are published, the highest score if there are several. Detections are now matched from image to image by world direction once PX4's camera orientation is known (gate `--gate-deg`, default 10°), so the gimbal turns by Max's node no longer reset the "k in a row" count; until then they are matched in pixels. Unit tested (a 6° gimbal turn that moves the target 30 px keeps one track); the live check is in the manual tests.
 
-**Status (14 Oct, task 5):** the black-hat window is now square instead of round. On all 27 saved images it gives exactly the same detections (8 real drones, 0 false alarms, same box sizes), and in the container the detector takes 29 ms per image instead of 218 ms (on the Mac 8 ms instead of 42). The old window stays available with `--round-kernel`. The live speed is in the manual tests.
-
 If task 2 is not finished, publish `target_position` with the truth orientation for now and say so in the log, so nobody mistakes it for a real result.
 
 ## Max: attack tasks
@@ -85,6 +83,9 @@ ATTACK / COAST ──within 1.5 m──▶ HIT (the test ends the run)
 Coasting is needed because the detector cannot see the target closer than about 5 m: it is then too big for the detector's size limit (40 px). The drone covers the last metres on its last velocity.
 
 ## When we meet again
+
+**First join done on 14 Oct:** head-on hits on the real detector, crossing misses by about 4 m. See [[Join test results 2026-10-14]].
+
 
 Joining the halves needs no code changes, because both use the same topics.
 
