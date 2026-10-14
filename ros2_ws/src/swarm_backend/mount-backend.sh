@@ -12,6 +12,9 @@
 #   ./mount-backend.sh intercept [args] chase test: drone 2 chases drone 0 at 50 m using mock
 #                                      radar fixes (tests/intercept_test.py --help, e.g.
 #                                      --pattern figure8 --speed 5 --csv /tmp/run.csv)
+#   ./mount-backend.sh baseline-intercept [args]  one intercept baseline scenario of the
+#                                      report (tests/intercept_baseline_test.py --help,
+#                                      e.g. --aspect 90 --speed 8 --seed 3)
 #   ./mount-backend.sh demo [N]        formation demo (swarm_node)
 #   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
@@ -155,6 +158,7 @@ case "$cmd" in
   single) run "python3 $PKG/tests/single_drone_test.py --config $CONFIG $*" ;;
   multi)  run "python3 $PKG/tests/multi_drone_swarm_test.py --config $CONFIG $*" ;;
   intercept) run "python3 $PKG/tests/intercept_test.py --config $CONFIG $*" ;;
+  baseline-intercept) run "python3 $PKG/tests/intercept_baseline_test.py --config $CONFIG $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;

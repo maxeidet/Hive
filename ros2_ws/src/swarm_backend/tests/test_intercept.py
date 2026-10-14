@@ -12,7 +12,8 @@ from swarm_backend.intercept.mock import HostileFlight, radar_fix
 from swarm_backend.intercept.paths import PATTERNS, make_path
 from swarm_backend.intercept.target import PositionFix, TargetSource
 from swarm_backend.intercept.tracker import KalmanTracker
-from swarm_backend.px4.drone import Drone
+
+from sim import SimDrone
 
 ALT = -50.0
 DT = 0.1
@@ -181,57 +182,6 @@ def test_intercept_config_defaults_and_overrides():
 
 
 # --- closed loop --------------------------------------------------------------
-
-class SimDrone(Drone):
-    """Flies like a speed- and acceleration-limited position controller with
-    feed-forward, which is roughly what PX4 does with our setpoints."""
-
-    MAX_SPEED = 12.0
-    MAX_ACCEL = 4.0
-    GAIN = 1.0
-
-    def __init__(self, drone_id, position):
-        super().__init__(drone_id, home=(position[0], position[1], 0.0))
-        self.position = position
-        self.velocity = (0.0, 0.0, 0.0)
-        self._feed_forward = (0.0, 0.0, 0.0)
-        self.gimbal_aim = None
-
-    def set_position(self, x, y, z, yaw=None, velocity=None):
-        self.target = (x, y, z)
-        self._feed_forward = velocity or (0.0, 0.0, 0.0)
-
-    def hold(self):
-        super().hold()
-        self._feed_forward = (0.0, 0.0, 0.0)
-
-    def aim_gimbal(self, pitch, yaw):
-        self.gimbal_aim = (pitch, yaw)
-
-    def release_gimbal(self):
-        self.gimbal_aim = None
-
-    def advance(self, dt):
-        if self.target is None:
-            return
-        wanted = [f + self.GAIN * (t - p)
-                  for f, t, p in zip(self._feed_forward, self.target, self.position)]
-        wanted = _limit(wanted, self.MAX_SPEED)
-        change = _limit([w - v for w, v in zip(wanted, self.velocity)], self.MAX_ACCEL * dt)
-        self.velocity = tuple(v + c for v, c in zip(self.velocity, change))
-        self.position = tuple(p + v * dt for p, v in zip(self.position, self.velocity))
-
-    def arm(self): ...
-    def disarm(self): ...
-    def start_offboard(self): ...
-    def land(self): ...
-    def set_velocity(self, vx, vy, vz): ...
-
-
-def _limit(vector, limit):
-    norm = math.hypot(*vector)
-    return list(vector) if norm <= limit else [v * limit / norm for v in vector]
-
 
 class LatestFix(TargetSource):
     def __init__(self):
