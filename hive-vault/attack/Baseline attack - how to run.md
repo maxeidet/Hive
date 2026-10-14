@@ -32,7 +32,7 @@ export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/attack.yaml
 
 The test runs on Gazebo's simulation clock, so a slow Gazebo only makes it take longer (the first try ran at about 8 % of real time: a 30 s line takes 6 minutes). PX4's own time stamps can jump when it syncs time with the computer; `PX4Drone` warns when they do.
 
-Patterns: `crossing` (default: 35 m ahead, from 60 m left to 60 m right), `headon` (from 80 m ahead, over the defender), `circle` (radius 20 m, centre 30 m ahead). `--speed`, `--height`, `--ahead`, `--half-width`, `--timeout` change them; `--help` lists everything.
+Patterns: `crossing` (default: 35 m ahead, from 60 m left to 60 m right), `headon` (from 80 m ahead, over the defender), `circle` (radius 20 m, centre 30 m ahead), `offset` (the simplest: from 60 m ahead straight back toward the defender, at its own height but 8 m to its right, so it only has to turn a little; `--half-width` sets the offset, negative = left). The first three fly 10 m above the defender, `offset` at the same height; with the same height the hostile drone climbs over the defender on its way to the start. `--speed`, `--height`, `--ahead`, `--half-width`, `--timeout` change them; `--help` lists everything.
 
 Each run ends with **hit** (within 1.5 m, from Gazebo's true positions, also between samples), **target_passed** (the hostile drone reached the end of its line) or **timeout**. The drones then move apart and go back to the start for the next run. Results: one row per run in `data/attack_runs.csv` (hit, time from first detection to hit, closest distance, time in each state, end reason, settings).
 
