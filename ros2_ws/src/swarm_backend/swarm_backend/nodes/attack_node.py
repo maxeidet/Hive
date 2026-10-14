@@ -37,7 +37,9 @@ def stamp_seconds(header) -> float:
 class AttackNode:
     """A PX4Drone, the detection subscriptions and the attack, on one ROS node."""
 
-    def __init__(self, node, swarm_config, config):
+    def __init__(self, node, swarm_config, config, clock=None):
+        """`clock` gives the time the attack runs on (seconds); default the drone's PX4
+        clock. The attack test passes Gazebo's simulation clock, which never jumps."""
         from geometry_msgs.msg import PointStamped, Vector3Stamped
 
         self.config = config
@@ -46,8 +48,8 @@ class AttackNode:
                               rate_hz=swarm_config.rate_hz)
         self.manager = SwarmManager(Swarm([self.drone]), ALTITUDE_TOLERANCE_M)
         self.inbox = DetectionInbox()
-        clock = lambda: self.drone.stamp  # noqa: E731
-        self.attack = AttackAction(self.drone, self.inbox, config, clock)
+        self.clock = clock or (lambda: self.drone.stamp)
+        self.attack = AttackAction(self.drone, self.inbox, config, self.clock)
         self.position_topic = topic(config.attacker_id, POSITION_TOPIC)
         self.offset_topic = topic(config.attacker_id, OFFSET_TOPIC)
         node.create_subscription(PointStamped, self.position_topic, self._on_position, 10)
@@ -56,21 +58,23 @@ class AttackNode:
 
     def new_attack(self) -> AttackAction:
         """A fresh attack (state, times) on the same drone and topics, e.g. for each test run."""
-        self.attack = AttackAction(self.drone, self.inbox, self.config, lambda: self.drone.stamp)
+        self.attack = AttackAction(self.drone, self.inbox, self.config, self.clock)
         return self.attack
 
     def _step(self) -> None:
         self.attack.step()
 
     def _on_position(self, msg) -> None:
-        if self.drone.stamp is not None:
+        now = self.clock()
+        if now is not None:
             p = msg.point
-            self.inbox.put_position((p.x, p.y, p.z), stamp_seconds(msg.header), self.drone.stamp)
+            self.inbox.put_position((p.x, p.y, p.z), stamp_seconds(msg.header), now)
 
     def _on_offset(self, msg) -> None:
-        if self.drone.stamp is not None:
+        now = self.clock()
+        if now is not None:
             v = msg.vector
-            self.inbox.put_offset((v.x, v.y), stamp_seconds(msg.header), self.drone.stamp)
+            self.inbox.put_offset((v.x, v.y), stamp_seconds(msg.header), now)
 
     def fly(self, duration: float) -> None:
         c = self.config
@@ -113,7 +117,9 @@ class AttackNode:
             self.log.warning(f'Landing where it is ({e or "Ctrl-C"})')
         self.log.info('Landing')
         self.manager.land()
-        wait_until(self.manager.all_landed, LAND_TIMEOUT_S, 'the drone to land and disarm')
+        # Wall clock: minutes from the guard height when Gazebo runs slowly.
+        wait_until(self.manager.all_landed, max(LAND_TIMEOUT_S, 900.0),
+                   'the drone to land and disarm')
         self.log.info('Landed')
 
     def summary(self) -> str:

@@ -36,6 +36,7 @@ class GazeboTruth:
         from gz.transport13 import Node as GzNode
 
         self.listeners = []
+        self.stamp: float | None = None  # simulation time of the latest poses
         self._gz = GzNode()
         topic = f'/world/{world}/dynamic_pose/info'
         if not self._gz.subscribe(Pose_V, topic, self._on_poses):
@@ -43,11 +44,17 @@ class GazeboTruth:
 
     def _on_poses(self, msg) -> None:
         stamp = msg.header.stamp.sec + msg.header.stamp.nsec * 1e-9
+        self.stamp = stamp
         poses = [(p.name, p.id, (p.position.x, p.position.y, p.position.z),
                   (p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w))
                  for p in msg.pose]
         for listener in list(self.listeners):
             listener(stamp, poses)
+
+
+    def clock(self) -> float | None:
+        """Gazebo's simulation time, seconds: steady however slowly Gazebo runs."""
+        return self.stamp
 
 
 class FakeDetectionNode:

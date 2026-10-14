@@ -78,12 +78,15 @@ class AttackTest:
             'fake-realistic' if args.realistic else 'fake')
 
         world, self.names, camera_link = find_scene(config)  # RuntimeError: say what to start
-        self.attack_node = AttackNode(node, swarm_config, config)
+        # Everything is timed on Gazebo's simulation clock: steady however slowly Gazebo
+        # runs, unlike PX4's time stamps, which can jump when its time sync adjusts.
+        self.truth = GazeboTruth(world)
+        self.clock = self.truth.clock
+        self.attack_node = AttackNode(node, swarm_config, config, clock=self.clock)
         self.attacker = self.attack_node.drone
         self.hostile = PX4Drone(node, swarm_config.drone(config.target_id),
                                 rate_hz=swarm_config.rate_hz)
         self.manager = SwarmManager(Swarm([self.hostile, self.attacker]), TOLERANCE_M)
-        self.truth = GazeboTruth(world)
         self.fake = None if args.external_detector else FakeDetectionNode(
             node, config, self.truth, self.names, camera_link)
         self.judge: ClosestApproach | None = None
@@ -99,13 +102,13 @@ class AttackTest:
             self.flight.step()
 
     def _on_truth(self, stamp: float, poses) -> None:
-        judge, now = self.judge, self.attacker.stamp
-        if judge is None or now is None:
+        judge = self.judge
+        if judge is None:
             return
         a = ground_truth.body_position(poses, self.names[self.config.attacker_id])
         h = ground_truth.body_position(poses, self.names[self.config.target_id])
         if a is not None and h is not None:
-            judge.update(a, h, now)  # on the attack's clock, like its first_detection
+            judge.update(a, h, stamp)  # simulation time, the attack's clock too
 
     # --- flying ---------------------------------------------------------------
 
@@ -118,8 +121,8 @@ class AttackTest:
         return hostile_path(self.scenario, self.guard, math.radians(self.config.search_heading_deg))
 
     def wait_sim(self, seconds: float) -> None:
-        start = self.attacker.stamp
-        wait_until(lambda: self.attacker.stamp - start >= seconds, SETUP_TIMEOUT_S,
+        start = self.clock()
+        wait_until(lambda: self.clock() - start >= seconds, SETUP_TIMEOUT_S,
                    f'{seconds} s of simulation time')
 
     def setup(self) -> None:
@@ -131,6 +134,7 @@ class AttackTest:
                 f'No data from PX4 for drones {self.manager.not_connected()}. Start them with '
                 '`./mount-backend.sh spawn`') from None
         wait_until(self.manager.ready, 60, 'pre-flight checks to pass on both drones')
+        wait_until(lambda: self.clock() is not None, 30, "Gazebo's poses")
         self.log.info(f'Taking off: defender {self.attacker.id} to {c.guard_altitude} m, '
                       f'hostile {self.hostile.id} to {c.guard_altitude + s.height} m')
         self.manager.takeoff(c.guard_altitude + s.height, [self.hostile.id])
@@ -153,18 +157,18 @@ class AttackTest:
         messages_before = self.attack_node.inbox.position_count
         judge = ClosestApproach(args.hit_radius)
 
-        self.flight = HostileFlight(self.hostile, path, lambda: self.hostile.stamp)
+        self.flight = HostileFlight(self.hostile, path, self.clock)
         self.judge = judge
         self.flight.start()
         attack.start()
-        t0 = self.attacker.stamp
+        t0 = self.clock()
         what = f'{flight_time:.0f} s line' if flight_time else 'circle'
         self.log.info(f'Run {index + 1}/{args.runs}: {s.pattern} at {s.speed} m/s ({what}), '
                       f'{s.height} m above the defender, detector: {self.detector}')
         seen, result = 0, 'timeout'
         try:
             while True:
-                t = self.attacker.stamp - t0
+                t = self.clock() - t0
                 for when, state in attack.transitions[seen:]:
                     self.log.info(f'  t={when - t0:5.1f} s {state.value.upper()}, closest so far '
                                   f'{judge.closest:.1f} m')
@@ -266,7 +270,9 @@ class AttackTest:
             self.log.warning(f'Landing where they are ({e or "Ctrl-C"})')
         self.log.info('Landing')
         self.manager.land([d.id for d in armed])
-        wait_until(self.manager.all_landed, LAND_TIMEOUT_S, 'both drones to land and disarm')
+        # Wall clock: from 30 m at PX4's landing speed, minutes when Gazebo runs slowly.
+        wait_until(self.manager.all_landed, max(LAND_TIMEOUT_S, SETUP_TIMEOUT_S),
+                   'both drones to land and disarm')
         self.log.info('Landed')
 
     def summary(self) -> str:

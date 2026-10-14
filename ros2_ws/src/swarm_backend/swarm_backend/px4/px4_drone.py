@@ -46,6 +46,7 @@ ACK_RESULTS = {
 }
 
 RETRY_PERIOD_S = 1.0  # between repeated arm/offboard/land attempts
+STAMP_JUMP_S = 2.0  # odometry comes at 10+ Hz; a bigger step in its time stamp is a jump
 GIMBAL_TRIES = 5  # gimbal commands are re-sent until PX4 acks them, at most this often
 GIMBAL_STREAM_HZ = 5.0  # how often aim_gimbal re-sends pitch/yaw
 STREAM_BEFORE_OFFBOARD_S = 1.0  # PX4 rejects offboard without a live setpoint stream
@@ -183,7 +184,11 @@ class PX4Drone(Drone):
         self.position = (local[0] + hx, local[1] + hy, local[2] + hz)
         self.velocity = tuple(float(v) for v in msg.velocity)
         self.attitude = tuple(float(v) for v in msg.q)
-        self.stamp = msg.timestamp * 1e-6
+        stamp = msg.timestamp * 1e-6
+        if self.stamp is not None and not -0.5 < stamp - self.stamp < STAMP_JUMP_S:
+            self._log.warning(f'PX4 clock jumped {stamp - self.stamp:+.1f} s between two '
+                              'odometry messages (time sync?)', throttle_duration_sec=5.0)
+        self.stamp = stamp
         if self._tracking:
             self._setpoint = ('position', tuple(local), None)
 

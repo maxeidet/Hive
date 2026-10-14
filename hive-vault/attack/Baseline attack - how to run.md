@@ -21,6 +21,17 @@ Start the container and drone 0 as usual, then from `ros2_ws/src/swarm_backend/`
 | `./mount-backend.sh fakedetect [--realistic]` | Only the fake detector, for use with `attack` or the shell |
 | `./mount-backend.sh attack` | Only the attack node: takes off and attacks whatever the topics report, lands on Ctrl-C |
 
+**Faster on a Mac:** `config/swarm.yaml` also spawns drone 1, a 3D-lidar drone the test does not need and Gazebo has to simulate. `scenarios/attack.yaml` has only drones 0 and 2. The empty `default` world is also much lighter than `baylands`. Start the container fresh, then:
+
+```bash
+docker/start-dev.sh -w default   # from the repo root; wait for pxh>
+export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/attack.yaml
+./mount-backend.sh spawn
+./mount-backend.sh attacktest
+```
+
+The test runs on Gazebo's simulation clock, so a slow Gazebo only makes it take longer (the first try ran at about 8 % of real time: a 30 s line takes 6 minutes). PX4's own time stamps can jump when it syncs time with the computer; `PX4Drone` warns when they do.
+
 Patterns: `crossing` (default: 35 m ahead, from 60 m left to 60 m right), `headon` (from 80 m ahead, over the defender), `circle` (radius 20 m, centre 30 m ahead). `--speed`, `--height`, `--ahead`, `--half-width`, `--timeout` change them; `--help` lists everything.
 
 Each run ends with **hit** (within 1.5 m, from Gazebo's true positions, also between samples), **target_passed** (the hostile drone reached the end of its line) or **timeout**. The drones then move apart and go back to the start for the next run. Results: one row per run in `data/attack_runs.csv` (hit, time from first detection to hit, closest distance, time in each state, end reason, settings).
