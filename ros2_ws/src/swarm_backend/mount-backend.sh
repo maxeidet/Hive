@@ -18,6 +18,9 @@
 #   ./mount-backend.sh attack [args]   baseline attack: drone 2 takes off, searches and flies into
 #                                      what the detection topics report (pure pursuit), lands on
 #                                      Ctrl-C (swarm_backend/nodes/attack_node.py --help)
+#   ./mount-backend.sh bird spawn|move|wander|remove [args]  birds in the running world
+#                                      (swarm_backend/birds.py --help), e.g. bird spawn dove
+#                                      --at 20 0 30, then bird wander bird_1 --around 20 0 30
 #   ./mount-backend.sh attacktest [args] attack flight test: drone 0 flies past above drone 2, which
 #                                      attacks on the fake detector; hits scored from Gazebo, one
 #                                      CSV row per run in data/attack_runs.csv (tests/attack_test.py
@@ -275,6 +278,7 @@ case "$cmd" in
   detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
+  bird)   run "python3 -m swarm_backend.birds $*" ;;
   attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
