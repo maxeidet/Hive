@@ -6,6 +6,8 @@ every --every seconds, to --out until --count images are saved or Ctrl-C. The fi
 carries the simulation time of the image. Next to each PNG it writes a .json with the truth
 from Gazebo at that time (ground_truth.py): where the camera drone, its camera and every
 other drone really are, and the distance and direction from the camera to each of them.
+It also holds `px4_camera`: the camera orientation PX4 reports for that time, and its error
+against the truth (null if PX4 had not reported yet).
 PNGs are written with the standard library only, so nothing extra is needed in the container.
 """
 import argparse
@@ -20,6 +22,7 @@ import zlib
 from pathlib import Path
 
 from swarm_backend import ground_truth
+from swarm_backend.detect.orientation import axes_error_deg
 from swarm_backend.sensor_view import MODEL_TOPIC, find_sensors
 
 RGB_INT8 = 3  # gz.msgs.PixelFormatType
@@ -154,9 +157,12 @@ STALL_S = 60.0  # give up when no image arrives for this long (wall clock; Gazeb
 
 
 def snap(drone_id: int, count: int = 1, every: float = 1.0, label: str = '',
-         out: Path = DEFAULT_OUT, sensor: str = 'camera') -> int:
+         out: Path = DEFAULT_OUT, sensor: str = 'camera', node=None) -> int:
     """Save `count` images from the drone's camera (0 = until Ctrl-C), `every` simulation
-    seconds apart (0 = every image). Blocks until done; returns how many were saved."""
+    seconds apart (0 = every image). Blocks until done; returns how many were saved.
+
+    node: a spinning ROS node to read PX4 with, so the .json also holds the camera
+    orientation PX4 reports next to the truth (`px4_camera`). None leaves it out."""
     gz_topics = subprocess.run(
         ['gz', 'topic', '-l'], capture_output=True, text=True, check=True).stdout.split()
     cameras = [s for s in find_sensors(gz_topics, drone_id) if s.kind == 'image']
@@ -173,6 +179,13 @@ def snap(drone_id: int, count: int = 1, every: float = 1.0, label: str = '',
     print(f'Saving {camera.gz_topic}\n  to {out}/{prefix}_<sim time>.png, Ctrl-C to stop')
     world, names = drone_names(gz_topics)
     history = PoseHistory(world)
+    px4 = None
+    if node is not None:
+        from swarm_backend.detect.px4_camera import PX4Camera
+        px4 = PX4Camera(node, drone_id)
+        deadline = time.monotonic() + 10.0  # let PX4 report first, so the first image has it too
+        while (px4.clock.value is None or px4.earth_frame is None) and time.monotonic() < deadline:
+            time.sleep(0.1)
 
     def truth(stamp: float, width: int, height: int) -> dict | None:
         # The image can arrive a moment before the poses of the same instant.
@@ -183,7 +196,15 @@ def snap(drone_id: int, count: int = 1, every: float = 1.0, label: str = '',
             return None
         pose_time, poses = found
         data = ground_truth.truth(poses, names, drone_id, camera.frame, GIMBAL_HFOV, width, height)
-        return None if data is None else {'pose_time': round(pose_time, 3), **data}
+        if data is None:
+            return None
+        if px4 is not None:
+            # PX4's report for this moment can arrive a little after the image.
+            deadline = time.monotonic() + 1.0
+            while (axes := px4.axes(stamp)) is None and time.monotonic() < deadline:
+                time.sleep(0.05)
+            data['px4_camera'] = px4_camera(axes, data['camera'])
+        return {'pose_time': round(pose_time, 3), **data}
 
     saver = ImageSaver(camera.gz_topic, out, prefix, every, count, truth)
     last_saved, last_change = 0, time.monotonic()
@@ -197,8 +218,21 @@ def snap(drone_id: int, count: int = 1, every: float = 1.0, label: str = '',
     except KeyboardInterrupt:
         pass
     saver.done.set()
+    if px4 is not None:
+        px4.close()
     print(f'Saved {saver.saved} images.')
     return saver.saved
+
+
+def px4_camera(axes, true_camera: dict) -> dict | None:
+    """What PX4 says about the camera's orientation, and how far that is from the truth."""
+    if axes is None:
+        return None  # PX4 had not reported yet
+    forward_error, roll_error = axes_error_deg(
+        axes, (true_camera['forward'], true_camera['right'], true_camera['down']))
+    return {'forward': [round(c, 6) for c in axes[0]], 'right': [round(c, 6) for c in axes[1]],
+            'down': [round(c, 6) for c in axes[2]],
+            'forward_error_deg': round(forward_error, 3), 'roll_error_deg': round(roll_error, 3)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -210,8 +244,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--count', type=int, default=0, help='stop after this many; 0 = until Ctrl-C')
     parser.add_argument('--label', default='', help='extra word in the file names, e.g. sky_30m')
     parser.add_argument('--sensor', default='camera', help='Gazebo sensor name')
+    parser.add_argument('--no-px4', action='store_true',
+                        help="don't save PX4's camera orientation next to the truth")
     args = parser.parse_args(argv)
-    saved = snap(args.id, args.count, args.every, args.label, args.out, args.sensor)
+    if args.no_px4:
+        return 0 if snap(args.id, args.count, args.every, args.label, args.out, args.sensor) else 1
+    import rclpy
+    from rclpy.signals import SignalHandlerOptions
+
+    from swarm_backend.runner import spinning
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)  # Ctrl-C stops the saving
+    node = rclpy.create_node(f'snap_{args.id}')
+    try:
+        with spinning(node):
+            saved = snap(args.id, args.count, args.every, args.label, args.out, args.sensor, node)
+    finally:
+        node.destroy_node()
+        rclpy.try_shutdown()
     return 0 if saved else 1
 
 

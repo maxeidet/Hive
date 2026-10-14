@@ -5,7 +5,7 @@ and regions of a plausible size that are surrounded by sky are reported as candi
 is sky is decided from the colours, so no horizon line or camera pose is needed and a rolled
 camera is fine; a mask can still narrow the search. It needs no training, but it cannot tell
 a drone from a bird and it only works against the sky. Pure image code (NumPy and OpenCV),
-no ROS. Used on saved images by predict.py and on a drone's camera by live.py.
+no ROS. Wrapped as the `baseline` detector in detectors.py.
 """
 from dataclasses import dataclass
 
@@ -127,21 +127,3 @@ def find_candidates(rgb: np.ndarray, mask: np.ndarray | None = None,
         candidates.append(Candidate(x, y, w, h, area, contrast, darkest))
     return sorted(candidates, key=lambda c: -c.contrast)
 
-
-def draw(rgb: np.ndarray, candidates: list[Candidate], color=(255, 0, 0),
-         labels: list[str] | None = None, margin: int = 6) -> np.ndarray:
-    """Copy of the image with a rectangle (and optional label) around each candidate.
-
-    The rectangle is `margin` px bigger than the box on every side, so a 4 px target stays
-    visible inside it.
-    """
-    out = np.ascontiguousarray(rgb.copy())
-    if out.ndim == 2:
-        out = cv2.cvtColor(out, cv2.COLOR_GRAY2RGB)
-    for i, c in enumerate(candidates):
-        cv2.rectangle(out, (c.x - margin, c.y - margin),
-                      (c.x + c.width + margin, c.y + c.height + margin), color, 1)
-        if labels is not None:
-            cv2.putText(out, labels[i], (c.x - margin, c.y - margin - 3),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_AA)
-    return out

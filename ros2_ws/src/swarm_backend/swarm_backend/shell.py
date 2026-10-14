@@ -230,7 +230,7 @@ class Pilot:
     def snap(self, drone_id=None, count=1, every=1.0, label='') -> int:
         if drone_id is None:
             drone_id = self.config.intercept.interceptor_id
-        return save_images.snap(drone_id, count, every, label)
+        return save_images.snap(drone_id, count, every, label, node=self._node)
 
     def hostile(self, drone_id=None, pattern=None, speed=None) -> bool:
         settings = self.config.intercept

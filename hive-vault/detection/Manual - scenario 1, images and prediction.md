@@ -103,6 +103,17 @@ To start clean, delete `data/results/baseline/` first; old result images are not
 > [!note] `predict` does more than a detector needs
 > `predict` is an evaluation tool for now. Besides detecting, it reads the truth files, matches each detection to the real drone, computes the errors, draws text and arrows on every image, writes the CSV and makes the plots. None of that is needed to detect a drone during flight, and it is slow. This will be addressed later: the detection itself (find the drone, estimate distance and direction) will be separated from the evaluation, so the same detection code runs live on the drone and the evaluation is an optional step on top.
 
+## 5. Run the detector live (publishes target_offset)
+
+While a scenario or the shell flies, in another terminal:
+
+```bash
+./mount-backend.sh detect 2                      # baseline detector on drone 2's camera
+./mount-backend.sh detect 2 --detector yolo      # once YOLO is trained
+```
+
+It publishes, for the best confirmed target, `/px4_2/detection/target_offset` (the angles from the image centre, see [[Baseline attack work plan]]) and a debug picture on `/px4_2/detection/debug` with the boxes, a white cross at the image centre and the offset in degrees next to the target. Watch the angles with `ros2 topic echo /px4_2/detection/target_offset` inside the container. The angles are not corrected for camera roll yet.
+
 ## How to read the results
 
 - **The baseline only finds a drone against the sky.** A drone in front of trees or ground is missed; that is the detector's limit, not a bug. It also misses a drone wider than 40 px or cut off by the image edge.

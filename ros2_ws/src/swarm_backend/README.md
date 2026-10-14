@@ -62,6 +62,7 @@ With the container and drone 0 running (`docker/start-dev.sh`), from this folder
 ./mount-backend.sh legacy       # the old backend_node + keyboard teleop
 ./mount-backend.sh spawn camera # ONE more drone with a camera, at the next free id
 ./mount-backend.sh view 1       # drone 1 in RViz with its cameras and lidars (`lidar 1` / `camera 1` too)
+./mount-backend.sh restart [N]  # fresh Gazebo + drone 0 (and 1..N-1) without restarting the container
 ```
 
 Each command rebuilds the package first and reads `config/swarm.yaml` from this folder.

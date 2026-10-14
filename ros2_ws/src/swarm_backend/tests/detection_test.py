@@ -25,7 +25,7 @@ from rclpy.signals import SignalHandlerOptions
 
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.detect.camera import CameraModel
-from swarm_backend.detect.candidates import Settings
+from swarm_backend.detect import detectors
 from swarm_backend.detect.live import LiveDetector, Result
 from swarm_backend.detect.tracking import Confirmer
 from swarm_backend.intercept import guidance
@@ -58,7 +58,7 @@ class Run:
         node.create_timer(STEP_S, self._aim)
         self.detector = LiveDetector(
             node, args.watcher,
-            Settings(kernel=args.kernel, contrast=args.contrast),
+            detectors.make('baseline', args),
             Confirmer(k=args.k, gate=args.gate), rate_hz=args.rate,
             horizon=self._horizon, on_result=self._on_result,
             save=args.save, save_every=args.save_every)
@@ -130,7 +130,7 @@ class Run:
             'false_confirmed': len(confirmed) - len(hits),
             'box_u': best.u if best else math.nan, 'box_v': best.v if best else math.nan,
             'box_w': best.width if best else math.nan,
-            'contrast': best.contrast if best else math.nan,
+            'score': best.score if best else math.nan,
             'ms': result.ms,
         })
 
@@ -150,7 +150,7 @@ class Run:
     def fly(self) -> None:
         args = self.args
         try:
-            wait_until(self.manager.connected, 60, 'status and position from both drones')
+            wait_until(self.manager.connected, 180, 'status and position from both drones')
         except TimeoutError:
             raise TimeoutError(f'No data from drones {self.manager.not_connected()}. '
                                'Start them with ./mount-backend.sh spawn') from None
@@ -279,11 +279,10 @@ def main():
                         help='px between a box and the expected target position to count')
     parser.add_argument('--horizon-margin', type=float, default=10.0,
                         help='px above the computed horizon row that are not searched either')
-    parser.add_argument('--kernel', type=int, default=Settings.kernel)
-    parser.add_argument('--contrast', type=float, default=Settings.contrast)
     parser.add_argument('--save', type=Path, help='folder for raw + annotated images')
     parser.add_argument('--save-every', type=float, default=2.0, help='sim seconds')
     parser.add_argument('--csv', help='write one row per image here')
+    detectors.add_options(parser)
     args = parser.parse_args()
 
     config = load_config(args.config or default_config_path())

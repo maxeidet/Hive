@@ -1,0 +1,115 @@
+# Manual tests to do
+
+Tests that need a person and a running simulation, for the detection work. Claude adds a test here whenever something is built that it could not check fully itself; tick it off (and note what you saw) when done. Newest first.
+
+Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Manual - scenario 1, images and prediction]].
+
+---
+
+## To do
+
+- [ ] **target_position during a chase** (added 14 Oct, task 3)
+  1. Scenario 1 running, and `./mount-backend.sh detect 2`.
+  2. Third terminal: `docker exec -it px4-gazebo-vnc bash -c "source /opt/ros/jazzy/setup.bash && ros2 topic echo /px4_2/detection/target_position"`
+  3. During the chase, also `./mount-backend.sh snap 2 --count 20 --every 0.5`, then `./mount-backend.sh predict` and read the `target_position (PX4 orientation) off by …` parts.
+
+  **Pass:** messages only while a target is confirmed; the direction off by under 2°; the position off mostly in distance (within about 25 %). Checked by Claude only with both drones hovering (0.2–1.6 m off at 17 m).
+
+- [ ] **Debug picture shows in RViz** (added 14 Oct, after the fix below)
+  1. `./mount-backend.sh detect 2` running (restart it, so it has the fix).
+  2. `./mount-backend.sh view 2`, then Add → By topic → `/px4_2/detection/debug` → Image.
+
+  **Pass:** the picture shows, with the white centre cross; no "incompatible QoS" warning in the detect terminal. Then redo the sign check: target right of the cross → x positive, above it → y positive, also when the picture is tilted.
+
+- [ ] **Detection flight test with the new detector** (added 13 Oct)
+  1. `./mount-backend.sh restart 3` (Gazebo with drones 0–2 from swarm.yaml: drone 2 is the gimbal drone, drone 0 the target). Close the shell and any scenario first.
+  2. `./mount-backend.sh detecttest` (it flies drones 0 and 2 itself).
+
+  It was written for Olle's old detector and has not been flown with ours. **14 Oct attempt:** aborted at the start with "No data from drones [2]", because only drone 0 was running (a plain `restart` starts only drone 0); nothing was measured.
+
+  **Pass:** it runs to the end and prints the table of detection rate per 10 m. **Note** at which distance detection stops.
+
+## Done
+
+Run by Oskar on 14 Oct; checked by Claude the same day.
+
+| Test                                     | Result                                                                                    | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera roll follows the drone in a chase | Roll went −2 → +14 → +4° through a turn, and to −19° in another                           | **Pass**                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Orientation error under motion           | Where it looks: median 0.42°, worst 2.68°. Roll: median 0.26°, worst 5.48°, over 8 images | **Mostly pass.** 6 of 8 images under 0.7°; the two outliers (…087.748: 2.7°, …088.804: 1.9° and 5.5° roll) were during fast turns. Likely cause: PX4 reports the gimbal only 5 times a second and the gimbal jumps between reports, so the value in between is guessed. Effect: target_offset barely changes (5° roll error at a 5° offset ≈ 0.4°); target_position's direction can be ~1 m off at 20 m. Not a blocker; improve later if PX4 can report faster |
+| target_offset signs on the debug picture | RViz showed "No image"; detect warned "incompatible QoS … RELIABILITY"                    | **Fail, fixed:** the debug picture was sent best-effort, and RViz asks for reliable. It is now sent reliable (a reliable subscriber received it in a test, no warning). Re-test above                                                                                                                                                                                                                                                                          |
+| target_offset signs, from saved frames (`detect 2 --save`) | One detection (…155.96): target above and a little right of the centre cross; published x −2.5°, y +17.5° | **Pass.** In the picture it is +1.3° right and +17.6° up. The camera was rolled about 12° left side down (the horizon slopes down to the right), so in the world "up in the picture" leans left: x −2.5° is the roll correction working. RViz part still to do |
+| Speed with the scenario running          | About 210 ms per image (164–274)                                                          | **Below goal** (200 ms): about 4.7 images per second. Task 5 (faster filter) addresses it                                                                                                                                                                                                                                                                                                                                                                      |
+
+### Raw notes from the run
+
+1. seems to be working normally:
+
+\*\* \*\*camera orientation from PX4: on
+
+**Running. Ctrl-C to stop.**
+
+**[70.69] 0 candidates, confirmed: none; camera roll -2 deg** **(233 ms/image)**
+
+**[70.76] 0 candidates, confirmed: none; camera roll +0 deg** **(240 ms/image)**
+
+**[70.95] 0 candidates, confirmed: none; camera roll +4 deg** **(179 ms/image)**
+
+**[71.15] 0 candidates, confirmed: none; camera roll +6 deg** **(210 ms/image)**
+
+**[71.22] 0 candidates, confirmed: none; camera roll +7 deg** **(234 ms/image)**
+
+**[71.48] 0 candidates, confirmed: none; camera roll +12 deg** **(242 ms/image)**
+
+**[71.58] 0 candidates, confirmed: none; camera roll +13 deg** **(164 ms/image)**
+
+**[71.68] 0 candidates, confirmed: none; camera roll +14 deg** **(219 ms/image)**
+
+**[71.88] 0 candidates, confirmed: none; camera roll +11 deg** **(274 ms/image)**
+
+**[71.94] 0 candidates, confirmed: none; camera roll +10 deg** **(209 ms/image)**
+
+**[72.04] 0 candidates, confirmed: none; camera roll +9 deg** **(202 ms/image)**
+
+**[72.11] 0 candidates, confirmed: none; camera roll +7 deg** **(246 ms/image)**
+
+**[72.24] 0 candidates, confirmed: none; camera roll +4 deg** **(231 ms/image)**
+
+2. results:
+
+**PX4 camera orientation, where it looks: median 0.42 deg, worst 2.68 deg over 8 images**
+
+**PX4 camera orientation, roll: median 0.26 deg, worst 5.48 deg over 8 images**
+
+3. Says NO IMAGE in Rviz, also got this in terminal: **[WARN] [1791999065.768667836] [detect_2]: New subscription discovered on topic '/px4_2/detection/debug', requesting incompatible QoS. No messages will be sent to it. Last incompatible policy: RELIABILITY**
+4. around 200ms per image:
+
+**[126.36] 1 candidates, confirmed: none; camera roll -1 deg** **(229 ms/image)**
+
+**[126.46] 0 candidates, confirmed: none; camera roll -5 deg** **(208 ms/image)**
+
+**[126.69] 0 candidates, confirmed: none; camera roll -14 deg** **(216 ms/image)**
+
+**[126.82] 0 candidates, confirmed: none; camera roll -19 deg** **(225 ms/image)**
+
+**[127.02] 0 candidates, confirmed: none; camera roll -19 deg** **(231 ms/image)**
+
+**[127.32] 0 candidates, confirmed: none; camera roll -8 deg** **(212 ms/image)**
+
+**[127.45] 0 candidates, confirmed: none; camera roll -5 deg** **(212 ms/image)**
+
+**[127.65] 0 candidates, confirmed: none; camera roll -2 deg** **(217 ms/image)**
+
+**oskarrask@oskars-air-2 swarm_backend % ./mount-backend.sh detecttest **
+
+**[INFO] [1791999322.603837886] [detection_test.drone0]: Using topics under "/", system id 1**
+
+**[INFO] [1791999322.608481761] [detection_test.drone2]: Using topics under "px4_2", system id 3**
+
+**[INFO] [1791999325.082326179] [detection_test.drone0]: Connected to PX4**
+
+**[INFO] [1791999325.084881971] [detection_test.drone0]: Pre-flight checks PASS**
+
+**[ERROR] [1791999384.899287471] [detection_test]: Aborting (No data from drones [2]. Start them with ./mount-backend.sh spawn)**
+
+**No images recorded.**

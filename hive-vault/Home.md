@@ -19,7 +19,10 @@ Start here, then follow the links.
 | [[Detection implementation plan]] | How to build the report's detection section: camera math, dark-object baseline, YOLO26 + ByteTrack, Gazebo training data, evaluation, order of work |
 | [[Progress 2026-10-13]] | Detection, day 1: what was built (image capture with truth, scenario 1, baseline detector, predict), first results and what we learned |
 | [[Manual - scenario 1, images and prediction]] | Step by step: fly scenario 1, take camera images with the truth saved, run the detector on them |
+| [[Tutorial - live detector (detect)]] | How to run `./mount-backend.sh detect`: options, the debug picture, what it publishes (target_offset), known limits. Updated as it grows |
+| [[Manual tests to do]] | Checklist of tests that need a person and the running simulation, kept up to date as things are built |
 | [[Following the target with detection]] | Design: how the detection steers the gimbal and the drone so it follows the target on the camera, with the radar as cue and fallback |
+| [[Baseline attack work plan]] | Oskar/Max agreement (13 Oct): the two shared ROS topics (target_position, target_offset), who builds what, the attack states, open points |
 | [[Lock-on brainstorm]] | Mindmap: how the drone finds, confirms and keeps a lock on the hostile drone (cue → acquire → confirm → locked → lost) |
 
 ## Environment and setup

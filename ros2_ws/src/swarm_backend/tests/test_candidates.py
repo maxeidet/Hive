@@ -2,7 +2,8 @@ import cv2
 import numpy as np
 import pytest
 
-from swarm_backend.detect.candidates import above_line, draw, find_candidates
+from swarm_backend.detect.candidates import above_line, find_candidates
+from swarm_backend.detect.detectors import draw
 
 
 def sky(width=320, height=240):

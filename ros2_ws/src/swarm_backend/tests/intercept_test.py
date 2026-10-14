@@ -39,6 +39,7 @@ from swarm_backend.swarm.swarm import Swarm
 
 CLIMB_TIMEOUT_S = 240.0  # 50 m at PX4's climb rate, slower when Gazebo is below real time
 ALTITUDE_TOLERANCE_M = 1.0
+CONNECT_TIMEOUT_S = 180.0  # wall clock
 ABORT_RANGE_M = 3.0
 RETURN_GAP_M = 10.0  # the interceptor flies home this much higher than the hostile drone
 SAMPLE_PERIOD_S = 0.1
@@ -77,7 +78,9 @@ class Run:
         s, args = self.settings, self.args
         self.log.info(f'Hostile drone {self.hostile.id}, interceptor drone {self.hunter.id}')
         try:
-            wait_until(self.manager.connected, 30, 'status and position from both drones')
+            # After a restart PX4 can take a minute or two before its first position:
+            # Gazebo's sensors start slowly, more so with RViz windows opening.
+            wait_until(self.manager.connected, CONNECT_TIMEOUT_S, 'status and position from both drones')
         except TimeoutError:
             raise TimeoutError(
                 f'No data from PX4 for drones {self.manager.not_connected()}. Start them with '

@@ -1,7 +1,8 @@
 """Pinhole camera model (Gazebo's cameras are ideal pinholes, no distortion).
 
-Focal length, image centre, the horizon row, range from size, and the world direction of
-a pixel. The camera's orientation is given as the three unit vectors it looks along
+Focal length, image centre, the horizon row, range from size, the world direction of a
+pixel, and the target_offset angles (how far a pixel is from the image centre, as the
+gimbal must turn). The camera's orientation is given as the three unit vectors it looks along
 (forward), of image right and of image down, in the world frame (NED), as ground_truth.py
 saves them and as the gimbal's attitude will give them on the drone. World point -> pixel
 is ground_truth.project for now.
@@ -60,6 +61,57 @@ class CameraModel:
         return tuple(c / norm for c in ray)
 
 
+    def position(self, u: float, v: float, size_px: float, forward: Vector3, right: Vector3,
+                 down: Vector3, size: float = TARGET_SIZE_M) -> Vector3:
+        """Where a target `size` metres across, seen at pixel (u, v) and `size_px` wide, is
+        relative to the camera, world NED, metres: direction x distance (target_position)."""
+        distance = self.range_from_width(size_px, size)
+        return tuple(distance * c for c in self.direction(u, v, forward, right, down))
+
+    def offset_angles(self, u: float, v: float, roll: float = 0.0) -> tuple[float, float]:
+        """(x, y) radians from the image centre to pixel (u, v), as target_offset carries them:
+        x = horizontal, right positive; y = vertical, up positive; turned back by the camera's
+        `roll` (radians, right side down positive) so they are angles about the world's
+        vertical and horizontal, the way the gimbal turns (yaw by x, pitch by y)."""
+        a = math.atan((u - self.cx) / self.f)
+        b = math.atan((self.cy - v) / self.f)
+        cos, sin = math.cos(roll), math.sin(roll)
+        return a * cos + b * sin, -a * sin + b * cos
+
+
 def angle_deg(a: Vector3, b: Vector3) -> float:
     """Angle between two unit vectors."""
     return math.degrees(math.acos(max(-1.0, min(1.0, sum(x * y for x, y in zip(a, b))))))
+
+
+def _dot(a: Vector3, b: Vector3) -> float:
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _unit(v: Vector3) -> Vector3:
+    norm = math.hypot(*v)
+    return tuple(c / norm for c in v)
+
+
+def level_axes(forward: Vector3) -> tuple[Vector3, Vector3]:
+    """(right, up) of an unrolled camera looking along `forward` (world NED): right is
+    horizontal, up is in the vertical plane through forward."""
+    fx, fy, fz = forward
+    right = _unit((-fy, fx, 0.0))  # forward x world-up, with up = (0, 0, -1)
+    rx, ry, rz = right
+    up = (ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx)  # right x forward
+    return right, up
+
+
+def camera_roll(forward: Vector3, right: Vector3) -> float:
+    """Roll of a camera about its optical axis, radians, right side down positive."""
+    level_right, level_up = level_axes(forward)
+    return math.atan2(-_dot(right, level_up), _dot(right, level_right))
+
+
+def true_offset(direction: Vector3, forward: Vector3) -> tuple[float, float]:
+    """The target_offset angles (x right, y up, radians) that a world `direction` has from a
+    camera looking along `forward`, measured in the unrolled frame."""
+    right, up = level_axes(forward)
+    depth = _dot(direction, forward)
+    return math.atan2(_dot(direction, right), depth), math.atan2(_dot(direction, up), depth)
