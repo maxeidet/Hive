@@ -8,6 +8,8 @@ it, so the camera sees it against the sky, through the camera's view, at constan
   headon    a straight line from `ahead` metres in front, over the guard position and
             HEADON_OVERSHOOT_M beyond it
   circle    a circle of radius `half_width` whose centre is `ahead` metres in front
+  offset    the simplest run: head-on at the defender's own height, but `half_width`
+            metres to its right, so the defender has to turn a little to meet it
 
 "In front" is the attack's search heading. A hit is the two drones within `radius` of
 each other, from their true positions; ClosestApproach also catches a pass between two
@@ -19,26 +21,34 @@ from dataclasses import dataclass
 from swarm_backend.config import Vector3
 from swarm_backend.intercept.paths import Path, make_path
 
-PATTERNS = ('crossing', 'headon', 'circle')
+PATTERNS = ('crossing', 'headon', 'circle', 'offset')
 HEADON_OVERSHOOT_M = 20.0
-DEFAULT_AHEAD = {'crossing': 35.0, 'headon': 80.0, 'circle': 30.0}
-DEFAULT_HALF_WIDTH = {'crossing': 60.0, 'headon': 0.0, 'circle': 20.0}
+DEFAULT_AHEAD = {'crossing': 35.0, 'headon': 80.0, 'circle': 30.0, 'offset': 60.0}
+DEFAULT_HALF_WIDTH = {'crossing': 60.0, 'headon': 0.0, 'circle': 20.0, 'offset': 8.0}
+# Metres above the guard position. More and PX4's 3 m/s climb limit makes head-on attacks
+# fall short; less and the real detector does not see the target against the sky. The
+# offset run is at the same height, for the fake detector only.
+DEFAULT_HEIGHT = {'crossing': 10.0, 'headon': 10.0, 'circle': 10.0, 'offset': 0.0}
 
 
 @dataclass(frozen=True)
 class Scenario:
     pattern: str = 'crossing'
     speed: float = 4.0  # m/s
-    height: float = 10.0  # metres above the guard position (more and PX4's 3 m/s climb
-    # limit makes head-on attacks fall short; less and the target is not against the sky)
+    height: float | None = None  # metres above the guard position; None = the pattern's default
     ahead: float | None = None  # metres in front of the guard; None = the pattern's default
-    half_width: float | None = None  # crossing half-length or circle radius; None = default
+    half_width: float | None = None  # crossing half-length, circle radius or offset to the
+    # right; None = the pattern's default
 
     def __post_init__(self):
         if self.pattern not in PATTERNS:
             raise ValueError(f'Unknown pattern {self.pattern!r}; use one of {", ".join(PATTERNS)}')
         if self.speed <= 0:
             raise ValueError('speed must be positive')
+
+    @property
+    def height_m(self) -> float:
+        return DEFAULT_HEIGHT[self.pattern] if self.height is None else self.height
 
     @property
     def ahead_m(self) -> float:
@@ -56,7 +66,7 @@ def hostile_path(scenario: Scenario, guard: Vector3, heading: float) -> tuple[Pa
     f = (math.cos(heading), math.sin(heading))  # in front
     r = (-math.sin(heading), math.cos(heading))  # to the right
     gx, gy, gz = guard
-    z = gz - scenario.height
+    z = gz - scenario.height_m
     ahead, half = scenario.ahead_m, scenario.half_width_m
 
     def point(forward: float, right: float) -> Vector3:
@@ -66,6 +76,8 @@ def hostile_path(scenario: Scenario, guard: Vector3, heading: float) -> tuple[Pa
         start, end = point(ahead, -half), point(ahead, half)
     elif scenario.pattern == 'headon':
         start, end = point(ahead, 0.0), point(-HEADON_OVERSHOOT_M, 0.0)
+    elif scenario.pattern == 'offset':
+        start, end = point(ahead, half), point(-HEADON_OVERSHOOT_M, half)
     else:
         # make_path's circle leaves its start point straight ahead and curves right, so
         # starting on the far side, heading right, puts the centre `ahead` in front.

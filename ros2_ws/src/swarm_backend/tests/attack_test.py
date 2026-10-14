@@ -6,8 +6,8 @@ drone, drone 2 in swarm.yaml) and the hostile drone is `attack.target_id` (drone
 attack knows only the two detection topics. By default this test runs the fake detector
 itself; --external-detector leaves that to the camera detector (or `fakedetect`) running
 next to it. Each run: the defender hovers at its guard position looking toward the
-hostile drone's side, the hostile drone flies the scenario (crossing, headon or circle,
-intercept/attack_scenario.py), and the run ends with
+hostile drone's side, the hostile drone flies the scenario (crossing, headon, circle or
+offset, intercept/attack_scenario.py), and the run ends with
 
   hit            the two within --hit-radius (1.5 m) of each other, from the true positions
   target_passed  the hostile drone reached the end of its line
@@ -19,6 +19,7 @@ to --csv (default data/attack_runs.csv in the repo). Inside the container:
 
     python3 /workspace/ros2_ws/src/swarm_backend/tests/attack_test.py --pattern crossing
     python3 .../attack_test.py --pattern headon --runs 10 --realistic
+    python3 .../attack_test.py --pattern offset     # simplest: same height, 8 m to the side
 
 On the host: ./mount-backend.sh attacktest [same arguments].
 
@@ -136,16 +137,28 @@ class AttackTest:
         wait_until(self.manager.ready, 60, 'pre-flight checks to pass on both drones')
         wait_until(lambda: self.clock() is not None, 30, "Gazebo's poses")
         self.log.info(f'Taking off: defender {self.attacker.id} to {c.guard_altitude} m, '
-                      f'hostile {self.hostile.id} to {c.guard_altitude + s.height} m')
-        self.manager.takeoff(c.guard_altitude + s.height, [self.hostile.id])
+                      f'hostile {self.hostile.id} to {c.guard_altitude + s.height_m} m')
+        self.manager.takeoff(c.guard_altitude + s.height_m, [self.hostile.id])
         self.manager.takeoff(c.guard_altitude, [self.attacker.id])
         wait_until(self.manager.all_reached, SETUP_TIMEOUT_S, 'both take-off heights')
 
     def to_start(self) -> None:
         """Hostile drone to the start of its path, defender to its guard position."""
         start, velocity = self.path()[0].at(0.0)
-        self.hostile.set_position(*start, yaw=math.atan2(velocity[1], velocity[0]))
+        yaw = math.atan2(velocity[1], velocity[0])
         self.attacker.set_position(*self.guard, yaw=math.radians(self.config.search_heading_deg))
+        if abs(self.scenario.height_m) < APART_M:
+            # Close to the defender's height, the straight way to the start could go
+            # through the defender: climb above it, fly across, then come down.
+            transit = self.guard[2] - APART_M
+            x, y, z = self.hostile.position
+            self.hostile.set_position(x, y, min(z, transit), yaw=yaw)
+            wait_until(lambda: self.hostile.reached(TOLERANCE_M), SETUP_TIMEOUT_S,
+                       'the hostile drone to climb above the defender')
+            self.hostile.set_position(start[0], start[1], min(z, transit), yaw=yaw)
+            wait_until(lambda: self.hostile.reached(TOLERANCE_M), SETUP_TIMEOUT_S,
+                       'the hostile drone to get above its start point')
+        self.hostile.set_position(*start, yaw=yaw)
         wait_until(self.manager.all_reached, SETUP_TIMEOUT_S, 'the start positions')
         self.wait_sim(SETTLE_S)
 
@@ -164,7 +177,7 @@ class AttackTest:
         t0 = self.clock()
         what = f'{flight_time:.0f} s line' if flight_time else 'circle'
         self.log.info(f'Run {index + 1}/{args.runs}: {s.pattern} at {s.speed} m/s ({what}), '
-                      f'{s.height} m above the defender, detector: {self.detector}')
+                      f'{s.height_m} m above the defender, detector: {self.detector}')
         seen, result = 0, 'timeout'
         try:
             while True:
@@ -205,7 +218,7 @@ class AttackTest:
         times = attack.state_time
         return {
             'time': datetime.datetime.now().isoformat(timespec='seconds'), 'run': index + 1,
-            'pattern': s.pattern, 'hostile_speed': s.speed, 'height': s.height,
+            'pattern': s.pattern, 'hostile_speed': s.speed, 'height': s.height_m,
             'ahead': s.ahead_m, 'half_width': s.half_width_m, 'detector': self.detector,
             'gimbal_gain': c.gimbal_gain, 'max_speed': c.max_speed, 'seed': c.seed,
             'result': result, 'hit': int(judge.hit),
@@ -235,7 +248,7 @@ class AttackTest:
         """Hostile drone up, defender back to its guard position, both away from each other."""
         if self.hostile.offboard and self.hostile.position is not None:
             x, y, z = self.hostile.position
-            self.hostile.set_position(x, y, min(z, self.guard[2] - self.scenario.height) - APART_M)
+            self.hostile.set_position(x, y, min(z, self.guard[2] - self.scenario.height_m) - APART_M)
         if self.attacker.offboard:
             self.attacker.set_position(*self.guard)
         try:
@@ -298,12 +311,13 @@ def main():
     parser.add_argument('--config', default=None, help='swarm.yaml (default: the installed one)')
     parser.add_argument('--pattern', choices=PATTERNS, default='crossing')
     parser.add_argument('--speed', type=float, default=4.0, help='hostile speed, m/s')
-    parser.add_argument('--height', type=float, default=10.0,
-                        help='metres the hostile drone flies above the defender')
+    parser.add_argument('--height', type=float, default=None,
+                        help='metres the hostile drone flies above the defender '
+                             '(default 10, 0 for offset)')
     parser.add_argument('--ahead', type=float, default=None,
                         help='metres in front of the defender (default per pattern)')
     parser.add_argument('--half-width', type=float, default=None,
-                        help='crossing half-length or circle radius, metres')
+                        help='crossing half-length, circle radius or offset to the side, metres')
     parser.add_argument('--runs', type=int, default=1)
     parser.add_argument('--timeout', type=float, default=90.0, help='simulation seconds per run')
     parser.add_argument('--hit-radius', type=float, default=1.5, help='metres')

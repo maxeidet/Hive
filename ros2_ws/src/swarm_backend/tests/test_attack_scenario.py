@@ -27,6 +27,20 @@ def test_headon_flies_over_the_guard_toward_it():
     assert seconds == pytest.approx(100.0 / 5.0)
 
 
+def test_offset_comes_head_on_at_the_same_height_beside_the_guard():
+    path, seconds = hostile_path(Scenario('offset', speed=4.0), GUARD, NORTH)
+    start, velocity = path.at(0.0)
+    assert start == pytest.approx((65.0, 8.0, -20.0))  # 60 m ahead, 8 m right, same height
+    assert velocity == pytest.approx((-4.0, 0.0, 0.0))  # straight back toward the guard
+    assert seconds == pytest.approx(80.0 / 4.0)  # to 20 m behind the guard
+    assert path.at(seconds - 1e-6)[0] == pytest.approx((-15.0, 8.0, -20.0), abs=1e-3)
+
+
+def test_offset_height_and_side_can_be_changed():
+    path, _ = hostile_path(Scenario('offset', height=2.0, half_width=-5.0), GUARD, NORTH)
+    assert path.at(0.0)[0] == pytest.approx((65.0, -5.0, -22.0))
+
+
 def test_circle_is_centred_ahead_and_loops():
     path, seconds = hostile_path(Scenario('circle', half_width=20.0), GUARD, NORTH)
     assert seconds is None
