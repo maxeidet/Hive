@@ -33,7 +33,7 @@ class FakeDrone(Drone):
     def set_position(self, x, y, z, yaw=None, velocity=None):
         self.target = self.position = (x, y, z)
 
-    def set_velocity(self, vx, vy, vz):
+    def set_velocity(self, vx, vy, vz, yaw=None):
         self.target = None
 
 

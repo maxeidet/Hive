@@ -152,10 +152,12 @@ class PX4Drone(Drone):
         if yaw is not None:
             self._yaw = float(yaw)
 
-    def set_velocity(self, vx: float, vy: float, vz: float) -> None:
+    def set_velocity(self, vx: float, vy: float, vz: float, yaw: float | None = None) -> None:
         self.target = None
         self._tracking = False
         self._setpoint = ('velocity', (float(vx), float(vy), float(vz)), None)
+        if yaw is not None:
+            self._yaw = float(yaw)
 
     def point_gimbal(self, pitch: float, yaw: float) -> None:
         self._gimbal_aim = None

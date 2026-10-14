@@ -57,6 +57,33 @@ class InterceptConfig:
 
 
 @dataclass(frozen=True)
+class AttackConfig:
+    """The baseline attack: one drone flies into a hostile drone it sees with its camera
+    (the `attack:` section of swarm.yaml). The camera detector, or the fake one, publishes
+    the target on two topics (intercept/detection.py); the attack node flies on them."""
+    attacker_id: int = 2  # the defender: a gimbal drone
+    target_id: int = 0  # the hostile drone (the fake detector looks for this one)
+    guard_altitude: float = 20.0  # metres above the attacker's start point, while searching
+    search_heading_deg: float = 0.0  # where the hostile drone comes from, degrees from north
+    search_pitch_deg: float = 10.0  # gimbal pitch while searching, degrees above the horizon
+    max_speed: float = 12.0  # m/s; pure pursuit always flies at this speed (PX4's default limit)
+    gimbal_gain: float = 0.5  # share of target_offset the gimbal turns by on each message
+    coast_after: float = 0.5  # seconds without a message before ATTACK becomes COAST
+    lost_after: float = 1.5  # seconds in COAST without a message before LOST
+    lost_hold: float = 3.0  # seconds LOST hovers, looking where the target was, before SEARCH
+    # Fake detector (nodes/fake_detection.py). All errors off by default: a perfect detector.
+    fake_rate_hz: float = 4.0  # images per second, like the baseline detector on a Mac
+    fake_delay: float = 0.0  # seconds from image to message (the real one: about 0.25)
+    fake_angle_noise_deg: float = 0.0  # 1 sigma on each image angle
+    fake_range_noise: float = 0.0  # 1 sigma, as a share of the distance (0.2 = 20 %)
+    fake_blind_range: float = 0.0  # metres; closer than this nothing is seen (real: about 5)
+    fake_max_range: float = 0.0  # metres; 0 = where the target is fake_min_pixels wide
+    fake_min_pixels: float = 4.0  # smallest detectable target, used when fake_max_range is 0
+    fake_confirm_frames: int = 3  # images in a row before the target counts as confirmed
+    seed: int = 0  # fake detector noise
+
+
+@dataclass(frozen=True)
 class SwarmConfig:
     rate_hz: float
     takeoff_altitude: float
@@ -64,6 +91,7 @@ class SwarmConfig:
     formation_spacing: float
     drones: tuple[DroneConfig, ...]
     intercept: InterceptConfig = dataclasses.field(default_factory=InterceptConfig)
+    attack: AttackConfig = dataclasses.field(default_factory=AttackConfig)
 
     def drone(self, drone_id: int) -> DroneConfig:
         for drone in self.drones:
@@ -123,6 +151,7 @@ def parse_config(data: dict, num_drones: int | None = None) -> SwarmConfig:
         formation_spacing=float(swarm['formation_spacing']),
         drones=drones,
         intercept=_parse_intercept(data.get('intercept') or {}),
+        attack=_parse_attack(data.get('attack') or {}),
     )
 
 
@@ -139,6 +168,19 @@ def _parse_intercept(entry: dict) -> InterceptConfig:
     config = InterceptConfig(**values)
     if config.interceptor_id == config.hostile_id:
         raise ValueError('intercept: interceptor_id and hostile_id must differ')
+    return config
+
+
+def _parse_attack(entry: dict) -> AttackConfig:
+    types = {f.name: type(f.default) for f in dataclasses.fields(AttackConfig)}
+    unknown = set(entry) - set(types)
+    if unknown:
+        raise ValueError(f'Unknown attack settings: {sorted(unknown)}')
+    config = AttackConfig(**{k: types[k](v) for k, v in entry.items()})
+    if config.attacker_id == config.target_id:
+        raise ValueError('attack: attacker_id and target_id must differ')
+    if config.max_speed <= 0 or config.fake_rate_hz <= 0:
+        raise ValueError('attack: max_speed and fake_rate_hz must be positive')
     return config
 
 
