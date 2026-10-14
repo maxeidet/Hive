@@ -71,6 +71,11 @@ class AttackConfig:
     coast_after: float = 0.5  # seconds without a message before ATTACK becomes COAST
     lost_after: float = 1.5  # seconds in COAST without a message before LOST
     lost_hold: float = 3.0  # seconds LOST hovers, looking where the target was, before SEARCH
+    # Limits on every command (work plan task 3). PX4's defaults: MPC_XY_VEL_MAX 12,
+    # MPC_Z_VEL_MAX_UP 3, MPC_Z_VEL_MAX_DN 1.5 m/s.
+    min_altitude: float = 5.0  # metres above the start point; never commanded lower
+    max_climb_speed: float = 3.0  # m/s
+    max_descent_speed: float = 1.5  # m/s
     # Fake detector (nodes/fake_detection.py). All errors off by default: a perfect detector.
     fake_rate_hz: float = 4.0  # images per second, like the baseline detector on a Mac
     fake_delay: float = 0.0  # seconds from image to message (the real one: about 0.25)
@@ -179,8 +184,11 @@ def _parse_attack(entry: dict) -> AttackConfig:
     config = AttackConfig(**{k: types[k](v) for k, v in entry.items()})
     if config.attacker_id == config.target_id:
         raise ValueError('attack: attacker_id and target_id must differ')
-    if config.max_speed <= 0 or config.fake_rate_hz <= 0:
-        raise ValueError('attack: max_speed and fake_rate_hz must be positive')
+    if min(config.max_speed, config.fake_rate_hz, config.max_climb_speed,
+           config.max_descent_speed) <= 0:
+        raise ValueError('attack: speeds and fake_rate_hz must be positive')
+    if config.guard_altitude < config.min_altitude:
+        raise ValueError('attack: guard_altitude is below min_altitude')
     return config
 
 

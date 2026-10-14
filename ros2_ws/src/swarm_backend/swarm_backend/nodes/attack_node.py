@@ -52,7 +52,15 @@ class AttackNode:
         self.offset_topic = topic(config.attacker_id, OFFSET_TOPIC)
         node.create_subscription(PointStamped, self.position_topic, self._on_position, 10)
         node.create_subscription(Vector3Stamped, self.offset_topic, self._on_offset, 10)
-        node.create_timer(1.0 / swarm_config.rate_hz, self.attack.step)
+        node.create_timer(1.0 / swarm_config.rate_hz, self._step)
+
+    def new_attack(self) -> AttackAction:
+        """A fresh attack (state, times) on the same drone and topics, e.g. for each test run."""
+        self.attack = AttackAction(self.drone, self.inbox, self.config, lambda: self.drone.stamp)
+        return self.attack
+
+    def _step(self) -> None:
+        self.attack.step()
 
     def _on_position(self, msg) -> None:
         if self.drone.stamp is not None:

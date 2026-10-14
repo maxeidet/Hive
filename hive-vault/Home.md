@@ -20,6 +20,7 @@ Start here, then follow the links.
 | [[Progress 2026-10-13]] | Detection, day 1: what was built (image capture with truth, scenario 1, baseline detector, predict), first results and what we learned |
 | [[Manual - scenario 1, images and prediction]] | Step by step: fly scenario 1, take camera images with the truth saved, run the detector on them |
 | [[Following the target with detection]] | Design: how the detection steers the gimbal and the drone so it follows the target on the camera, with the radar as cue and fallback |
+| [[Baseline attack - how to run]] | The baseline attack (pure pursuit on the detection topics), the fake detector and the attack flight test: how to run them, the contract, the files, first results |
 | [[Lock-on brainstorm]] | Mindmap: how the drone finds, confirms and keeps a lock on the hostile drone (cue → acquire → confirm → locked → lost) |
 
 ## Environment and setup

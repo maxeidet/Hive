@@ -7,7 +7,7 @@ import pytest
 
 from swarm_backend.config import AttackConfig
 from swarm_backend.intercept.attack import (
-    AttackAction, DetectionInbox, State, look_angles, pursuit_velocity)
+    AttackAction, DetectionInbox, State, limit_velocity, look_angles, pursuit_velocity)
 from swarm_backend.intercept.detection import FakeDetector
 from swarm_backend.px4.drone import Drone
 
@@ -17,9 +17,11 @@ HIT_RADIUS = 1.5
 
 class SimDrone(Drone):
     """A point that flies position or velocity setpoints with limited speed and
-    acceleration (roughly PX4 offboard), and a gimbal that points at once."""
+    acceleration (roughly PX4 offboard: 12 m/s across, 3 up, 1.5 down), and a gimbal that
+    points at once."""
 
     MAX_SPEED = 12.0
+    MAX_UP, MAX_DOWN = 3.0, 1.5
     MAX_ACCEL = 4.0
     GAIN = 1.0
 
@@ -66,6 +68,7 @@ class SimDrone(Drone):
         else:
             wanted = [self.GAIN * (c - p) for c, p in zip(self.command, self.position)]
         wanted = _limit(wanted, self.MAX_SPEED)
+        wanted[2] = max(-self.MAX_UP, min(self.MAX_DOWN, wanted[2]))  # PX4 limits each axis
         change = _limit([w - v for w, v in zip(wanted, self.velocity)], self.MAX_ACCEL * dt)
         self.velocity = tuple(v + c for v, c in zip(self.velocity, change))
         self.position = tuple(p + v * dt for p, v in zip(self.position, self.velocity))
@@ -118,6 +121,37 @@ def test_look_angles_are_pitch_up_and_heading_from_north():
     assert look_angles((10.0, 10.0, -math.sqrt(200))) == pytest.approx((45.0, 45.0))
 
 
+def test_limits_keep_the_direction_and_px4s_speeds():
+    config = AttackConfig()  # 12 m/s across, 3 up, 1.5 down
+    assert limit_velocity((0.0, 12.0, 0.0), 20.0, config) == pytest.approx((0.0, 12.0, 0.0))
+    # Steeply up: the climb limit slows the whole vector, so it still points at the target.
+    v = limit_velocity((8.0, 0.0, -6.0), 20.0, config)
+    assert v == pytest.approx((4.0, 0.0, -3.0))
+    # Down: 1.5 m/s at most.
+    assert limit_velocity((0.0, 0.0, 6.0), 20.0, config) == pytest.approx((0.0, 0.0, 1.5))
+
+
+def test_never_descends_below_the_minimum_height():
+    config = replace(AttackConfig(), min_altitude=5.0)
+    assert limit_velocity((6.0, 0.0, 6.0), 6.5, config)[2] == pytest.approx(0.75)  # slowing
+    assert limit_velocity((6.0, 0.0, 6.0), 5.0, config) == pytest.approx((6.0, 0.0, 0.0))  # level
+    assert limit_velocity((6.0, 0.0, 6.0), 3.0, config) == pytest.approx((6.0, 0.0, 0.0))
+    assert limit_velocity((6.0, 0.0, -2.0), 3.0, config) == pytest.approx((6.0, 0.0, -2.0))  # up is fine
+
+
+def test_coasting_keeps_the_height_limit():
+    config = replace(AttackConfig(), min_altitude=5.0, guard_altitude=6.0)
+    action, drone, inbox, clock = make_action(config)
+    drone.position = (0.0, 0.0, -6.0)
+    action.start()
+    run_for(action, clock, 0.3, inbox, (10.0, 0.0, 10.0))  # target below: dive at it
+    run_for(action, clock, 0.6)
+    assert action.state == State.COAST
+    drone.position = (0.0, 0.0, -5.0)  # reached the minimum height while coasting
+    run_for(action, clock, 0.1)
+    assert drone.command[2] == pytest.approx(0.0)
+
+
 # --- states -------------------------------------------------------------------
 
 def test_search_hovers_at_the_guard_position_with_the_gimbal_up():
@@ -140,7 +174,9 @@ def test_first_message_starts_the_attack_toward_the_target():
     run_for(action, clock, 0.1)
     assert action.state == State.ATTACK
     assert drone.mode == 'velocity'
-    assert drone.command == pytest.approx((0.0, 7.2, -9.6))  # 12 m/s toward it
+    assert action.velocity == pytest.approx((0.0, 7.2, -9.6))  # 12 m/s toward it
+    # Sent within PX4's 3 m/s climb limit, still pointing at the target.
+    assert drone.command == pytest.approx((0.0, 2.25, -3.0))
     assert drone.yaw == pytest.approx(math.pi / 2)  # facing it
     assert action.first_detection == pytest.approx(0.6)
 
@@ -264,23 +300,30 @@ def fly(config, hostile_start, hostile_velocity, seconds=60.0, dt=0.02):
 
 
 def test_perfect_detector_hits_a_slow_target_coming_head_on():
-    # The hostile flies at 4 m/s straight toward the defender, 15 m above it.
-    closest, hit_time, action = fly(AttackConfig(), (45.0, 0.0, -35.0), (-4.0, 0.0, 0.0))
+    # The hostile flies at 4 m/s straight toward the defender, 10 m above it.
+    closest, hit_time, action = fly(AttackConfig(), (80.0, 0.0, -30.0), (-4.0, 0.0, 0.0))
     assert hit_time is not None, f'missed, closest {closest:.1f} m'
     states = [s for _, s in action.transitions]
     assert states[:2] == [State.SEARCH, State.ATTACK] and states[-1] == State.HIT
 
 
+def test_head_on_from_far_above_falls_short_on_the_climb_limit():
+    # 15 m above, PX4's 3 m/s climb is too slow to get up to it in time.
+    closest, hit_time, _ = fly(AttackConfig(), (80.0, 0.0, -35.0), (-4.0, 0.0, 0.0))
+    assert hit_time is None and closest < 4.0
+
+
 def test_crossing_target_is_reached_but_the_last_metres_are_hard():
-    # 4 m/s across, about 40 m north of the defender and 15 m above it. With the work
-    # plan's values (4 Hz, gimbal gain 0.5, 12 m/s) this simulated drone passes about 3 m
-    # from it: in the last second the target slides out of view and the drone coasts past.
-    # A gain of 1.0, a 10 Hz detector, 8 m/s or a drone that turns harder all hit here.
-    closest, hit_time, action = fly(AttackConfig(), (40.0, -40.0, -35.0), (0.0, 4.0, 0.0))
+    # 4 m/s across, 35 m in front of the defender and 10 m above it. With the work plan's
+    # values (4 Hz, gimbal gain 0.5, 12 m/s) this simulated drone's first pass misses by
+    # about 3 m: in the last second the target slides out of view and the drone coasts
+    # past (it may come round and hit later). With a gain of 1.0 the camera keeps up.
+    closest, hit_time, action = fly(AttackConfig(), (35.0, -60.0, -30.0), (0.0, 4.0, 0.0),
+                                    seconds=20.0)
     assert closest < 5.0
     assert State.ATTACK in [s for _, s in action.transitions]
     faster_gimbal = replace(AttackConfig(), gimbal_gain=1.0)
-    closest, hit_time, _ = fly(faster_gimbal, (40.0, -40.0, -35.0), (0.0, 4.0, 0.0))
+    closest, hit_time, _ = fly(faster_gimbal, (35.0, -60.0, -30.0), (0.0, 4.0, 0.0))
     assert hit_time is not None, f'missed, closest {closest:.1f} m'
 
 

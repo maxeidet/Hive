@@ -13,6 +13,9 @@ the target. States, as in the work plan:
                                                         after lost_hold -> SEARCH
   HIT     set by whoever scores the run (hit()); the action stops
 
+Every velocity command goes through limit_velocity: never faster than PX4 flies, the
+direction kept, and never down below min_altitude, also while coasting.
+
 Coasting covers the last metres: the real detector loses the target closer than about
 5 m, where it is too big for it. Call step() at the setpoint rate. No ROS here: it only
 uses the Drone interface and a DetectionInbox, so it runs against simulated drones in tests.
@@ -28,6 +31,7 @@ from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 
 MAX_GIMBAL_PITCH = 90.0  # degrees either way from the horizon
 MIN_DIRECTION_M = 1e-3  # a target_position shorter than this has no direction
+SLOW_ZONE_M = 3.0  # descent slows down over this many metres above min_altitude
 
 
 class State(Enum):
@@ -53,10 +57,12 @@ class DetectionInbox:
         self._lock = threading.Lock()
         self._position: Message | None = None
         self._offset: Message | None = None
+        self.position_count = 0  # target_position messages received
 
     def put_position(self, position: Vector3, stamp: float, received: float) -> None:
         with self._lock:
             self._position = Message(tuple(position), stamp, received)
+            self.position_count += 1
 
     def put_offset(self, offset: tuple[float, float], stamp: float, received: float) -> None:
         with self._lock:
@@ -82,6 +88,28 @@ def pursuit_velocity(target: Vector3, speed: float) -> Vector3 | None:
     return tuple(speed * c / distance for c in target)
 
 
+def limit_velocity(velocity: Vector3, altitude: float | None, config: AttackConfig) -> Vector3:
+    """`velocity` (NED) scaled down, direction kept, until it is within PX4's limits:
+    max_speed horizontally, max_climb_speed up, max_descent_speed down. Below
+    min_altitude + SLOW_ZONE_M the descent is cut back, to nothing at min_altitude."""
+    vx, vy, vz = velocity
+    down_limit = config.max_descent_speed
+    if altitude is not None:
+        room = altitude - config.min_altitude
+        down_limit = max(0.0, min(down_limit, down_limit * room / SLOW_ZONE_M))
+    factor = 1.0
+    horizontal = math.hypot(vx, vy)
+    if horizontal > config.max_speed:
+        factor = config.max_speed / horizontal
+    if vz < 0 and -vz > config.max_climb_speed:
+        factor = min(factor, config.max_climb_speed / -vz)
+    if vz > 0 and vz > down_limit:
+        if down_limit == 0.0:
+            return (vx * factor, vy * factor, 0.0)  # level off rather than stop
+        factor = min(factor, down_limit / vz)
+    return (vx * factor, vy * factor, vz * factor)
+
+
 def look_angles(target: Vector3) -> tuple[float, float]:
     """(pitch above the horizon, heading from north), degrees, toward a relative position."""
     horizontal = math.hypot(target[0], target[1])
@@ -101,7 +129,8 @@ class AttackAction:
         self.clock = clock
         self.state = State.SEARCH
         self.running = False
-        self.velocity: Vector3 | None = None  # last pursuit command
+        self.velocity: Vector3 | None = None  # last pursuit velocity (before the limits)
+        self.commanded: Vector3 | None = None  # what was last sent, after the limits
         self.first_detection: float | None = None  # clock time of the first message
         self.transitions: list[tuple[float, State]] = []
         self.state_time: dict[State, float] = {s: 0.0 for s in State}  # seconds in each
@@ -175,6 +204,8 @@ class AttackAction:
             self._enter(State.LOST, now)
         elif self.state == State.LOST and now - self._lost_since > self.config.lost_hold:
             self._enter(State.SEARCH, now)
+        if self.state in (State.ATTACK, State.COAST) and self.velocity is not None:
+            self._send_velocity()  # every tick, so the height limit holds while coasting
 
         offset = self.inbox.offset
         if offset is not None and offset is not self._last_offset:
@@ -209,7 +240,10 @@ class AttackAction:
         if math.hypot(target[0], target[1]) > MIN_DIRECTION_M:
             self._yaw = math.atan2(target[1], target[0])  # face the target, gimbal yaw small
         self.velocity = velocity
-        self.drone.set_velocity(*velocity, yaw=self._yaw)
+
+    def _send_velocity(self) -> None:
+        self.commanded = limit_velocity(self.velocity, self.drone.altitude, self.config)
+        self.drone.set_velocity(*self.commanded, yaw=self._yaw)
 
     # --- gimbal -------------------------------------------------------------
 
