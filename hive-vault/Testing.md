@@ -164,4 +164,4 @@ true centre projected into the image (`detect/metrics.match`).
 
 ## Related
 
-[[Codebase map]], [[ai_components]], [[1octstella]], [[Lock-on brainstorm]], [[Detection implementation plan]]
+[[Codebase map]], [[ai_components]], [[1octstella]], [[Lock-on brainstorm]], [[Detection implementation plan]], [[Progress 2026-10-14 evaluation harness]]
