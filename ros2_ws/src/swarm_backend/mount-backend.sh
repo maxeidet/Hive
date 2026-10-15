@@ -22,6 +22,10 @@
 #                                      attacks on the fake detector; hits scored from Gazebo, one
 #                                      CSV row per run in data/attack_runs.csv (tests/attack_test.py
 #                                      --help, e.g. --pattern headon --runs 10 --realistic)
+#   ./mount-backend.sh ui [args]       operator UI on http://localhost:8090: where the drones are,
+#                                      where their gimbals look, and the search area (published
+#                                      on /base/search_area). Read-only towards the drones
+#                                      (swarm_backend/nodes/operator_ui.py --help)
 #   ./mount-backend.sh demo [N]        formation demo (swarm_node)
 #   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
@@ -276,6 +280,7 @@ case "$cmd" in
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
   attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
+  ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;

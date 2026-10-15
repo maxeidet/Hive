@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive Operator</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --line: #d9dce1; --text: #1b1f24; --muted: #646b75;
+    --grid: #e3e6ea; --area: #2f6fdb; --area-fill: rgba(47, 111, 219, 0.10);
+    --ok: #1f8a4c; --warn: #b7791f; --bad: #c53030;
+    --handle: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --panel: #171b21; --line: #2a3038; --text: #e6e9ee; --muted: #8a93a0;
+      --grid: #20262e; --area: #5b9bff; --area-fill: rgba(91, 155, 255, 0.12);
+      --ok: #4cc38a; --warn: #e5a83a; --bad: #f06a6a;
+      --handle: #171b21;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .link { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.ok { background: var(--ok); }
+  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: calc(100vh - 45px); }
+  #mapWrap { position: relative; min-height: 360px; min-width: 0; }
+  /* Absolute, so the canvas's own pixel size never stretches the grid. */
+  #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .legend {
+    position: absolute; left: 12px; bottom: 12px; font-size: 12px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px;
+  }
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 14px 16px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 10px; }
+  .field { display: grid; grid-template-columns: 70px 1fr 64px; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .field label { color: var(--muted); font-size: 13px; }
+  .field input[type=number] {
+    width: 100%; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--bg); color: var(--text); font: inherit; font-variant-numeric: tabular-nums;
+  }
+  .buttons { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; }
+  button {
+    font: inherit; padding: 5px 12px; border-radius: 5px; border: 1px solid var(--line);
+    background: var(--bg); color: var(--text); cursor: pointer;
+  }
+  button.primary { background: var(--area); border-color: var(--area); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  .note { font-size: 12px; color: var(--muted); min-height: 1.4em; }
+  .note.err { color: var(--bad); }
+  .cards { display: grid; gap: 10px; margin-top: 18px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid; grid-template-columns: 1fr 96px; gap: 8px; }
+  .card.stale { opacity: .5; }
+  .card h3 { margin: 0 0 4px; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; white-space: nowrap; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+  .badge.armed { color: var(--ok); border-color: var(--ok); }
+  .badge.task { color: #fff; border-color: transparent; text-transform: uppercase; letter-spacing: .04em; }
+  .badge.task[hidden] { display: none; }
+  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 12px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .dial { width: 96px; height: 96px; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: minmax(0, 1fr); height: auto; }
+    #mapWrap { height: 60vh; }
+    aside { border-left: 0; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hive operator</h1>
+  <div class="link"><span class="dot" id="linkDot"></span><span id="linkText">connecting…</span></div>
+</header>
+<main>
+  <div id="mapWrap">
+    <canvas id="map"></canvas>
+    <div class="legend">Drag the arc's middle to turn and resize it, its ends to widen it. North is up.</div>
+  </div>
+  <aside>
+    <h2>Search area</h2>
+    <div class="field"><label for="heading">Heading</label><input id="headingR" type="range" min="0" max="359" step="1"><input id="heading" type="number" min="0" max="359" step="1"></div>
+    <div class="field"><label for="width">Width</label><input id="widthR" type="range" min="10" max="180" step="1"><input id="width" type="number" min="10" max="180" step="1"></div>
+    <div class="field"><label for="radius">Radius</label><input id="radiusR" type="range" min="10" max="1000" step="5"><input id="radius" type="number" min="10" max="5000" step="5"></div>
+    <div class="buttons">
+      <button class="primary" id="apply" disabled>Apply</button>
+      <button id="revert" disabled>Revert</button>
+    </div>
+    <div class="note" id="note"></div>
+    <div class="cards" id="cards"></div>
+  </aside>
+</main>
+<script>
+(() => {
+  const POLL_MS = 200;
+  const STALE_S = 2.0;          // no PX4 message for this long: drone shown greyed out
+  const TRAIL_S = 15;           // gimbal heading history shown
+  const CAMERA_HFOV_DEG = 114.6; // gz_x500_gimbal: 2.0 rad (detect/camera.py)
+  const COLORS = ['#e8590c', '#2b8a3e', '#7048e8', '#c2255c', '#1098ad', '#5c940d'];
+  // Attack states (intercept/attack.py) and the colour each one's badge gets.
+  const TASK_COLORS = { idle: '--muted', search: '--area', attack: '--bad', coast: '--warn', lost: '--warn', hit: '--ok' };
+
+  const $ = id => document.getElementById(id);
+  const canvas = $('map'), ctx = canvas.getContext('2d');
+  let server = null;   // last /api/state
+  let draft = null;    // search area being edited, not yet applied
+  let drag = null;     // 'mid' | 'edge'
+  const trails = {};   // drone id -> [{t, h}] gimbal heading history
+  let view = { cx: 0, cy: 0, scale: 1 };
+
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const wrap = a => ((a + 180) % 360 + 360) % 360 - 180;
+  const rad = d => d * Math.PI / 180;
+  const color = id => COLORS[id % COLORS.length];
+  const area = () => draft || (server && server.search_area);
+  const fmt = (v, unit = '', digits = 0) => v == null ? '–' : v.toFixed(digits) + unit;
+
+  // World NED (north, east) <-> canvas pixels, north up.
+  const toPx = (n, e) => [view.cx + e * view.scale, view.cy - n * view.scale];
+  const toWorld = (x, y) => [(view.cy - y) / view.scale, (x - view.cx) / view.scale];
+  const bearing = (n, e, c) => (Math.atan2(e - c[1], n - c[0]) * 180 / Math.PI + 360) % 360;
+
+  function resize() {
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+
+  function fitView() {
+    const r = canvas.getBoundingClientRect(), a = area();
+    if (!a) return;
+    let reach = a.radius_m * 1.15;
+    for (const d of server.drones) {
+      if (d.north != null) reach = Math.max(reach, 1.1 * Math.hypot(d.north - a.centre[0], d.east - a.centre[1]));
+    }
+    // Keep the scale while dragging, so the handle stays under the pointer.
+    if (!drag) view.scale = Math.min(r.width, r.height) / 2 / reach;
+    [view.cx, view.cy] = [r.width / 2 - a.centre[1] * view.scale, r.height / 2 + a.centre[0] * view.scale];
+  }
+
+  function niceStep(span) {
+    const p = Math.pow(10, Math.floor(Math.log10(span)));
+    return [1, 2, 5, 10].map(m => m * p).find(s => span / s <= 5);
+  }
+
+  function arcHandles(a) {
+    const at = (h, r) => toPx(a.centre[0] + r * Math.cos(rad(h)), a.centre[1] + r * Math.sin(rad(h)));
+    return {
+      mid: at(a.heading_deg, a.radius_m),
+      left: at(a.heading_deg - a.width_deg / 2, a.radius_m),
+      right: at(a.heading_deg + a.width_deg / 2, a.radius_m),
+    };
+  }
+
+  function draw() {
+    const r = canvas.getBoundingClientRect();
+    ctx.clearRect(0, 0, r.width, r.height);
+    if (!server) return;
+    fitView();
+    const a = area(), [bx, by] = toPx(a.centre[0], a.centre[1]);
+
+    // Range rings.
+    const reach = Math.hypot(r.width, r.height) / view.scale;
+    const step = niceStep(reach / 2);
+    ctx.strokeStyle = css('--grid'); ctx.fillStyle = css('--muted'); ctx.lineWidth = 1;
+    ctx.font = '11px system-ui';
+    for (let d = step; d < reach; d += step) {
+      ctx.beginPath(); ctx.arc(bx, by, d * view.scale, 0, 2 * Math.PI); ctx.stroke();
+      ctx.fillText(d + ' m', bx + 4, by - d * view.scale - 3);
+    }
+
+    // Search area: canvas angle 0 is east; heading 0 is north (up).
+    const a0 = rad(a.heading_deg - a.width_deg / 2 - 90), a1 = rad(a.heading_deg + a.width_deg / 2 - 90);
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.arc(bx, by, a.radius_m * view.scale, a0, a1); ctx.closePath();
+    ctx.fillStyle = css('--area-fill'); ctx.fill();
+    ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.5;
+    ctx.setLineDash(draft ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
+    const hs = arcHandles(a);
+    for (const [x, y] of [hs.mid, hs.left, hs.right]) {
+      ctx.beginPath(); ctx.arc(x, y, 6, 0, 2 * Math.PI);
+      ctx.fillStyle = css('--handle'); ctx.fill(); ctx.strokeStyle = css('--area'); ctx.lineWidth = 2; ctx.stroke();
+    }
+
+    // Base.
+    ctx.fillStyle = css('--text');
+    ctx.fillRect(bx - 5, by - 5, 10, 10);
+    ctx.fillText('base', bx + 8, by + 14);
+
+    // Drones: camera field of view, gimbal sweep trail, body, detection.
+    const now = performance.now() / 1000, fovLen = Math.min(r.width, r.height) * 0.18;
+    for (const d of server.drones) {
+      if (d.north == null) continue;
+      const [x, y] = toPx(d.north, d.east), c = color(d.id), stale = d.age_s == null || d.age_s > STALE_S;
+      ctx.globalAlpha = stale ? 0.35 : 1;
+      for (const p of trails[d.id] || []) {
+        const age = now - p.t;
+        ctx.strokeStyle = c; ctx.globalAlpha = (stale ? 0.35 : 1) * 0.35 * (1 - age / TRAIL_S);
+        ctx.beginPath(); ctx.moveTo(x, y);
+        ctx.lineTo(x + fovLen * 1.3 * Math.sin(rad(p.h)), y - fovLen * 1.3 * Math.cos(rad(p.h))); ctx.stroke();
+      }
+      ctx.globalAlpha = stale ? 0.35 : 1;
+      if (d.gimbal_heading_deg != null) {
+        const g = d.gimbal_heading_deg;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        ctx.arc(x, y, fovLen, rad(g - CAMERA_HFOV_DEG / 2 - 90), rad(g + CAMERA_HFOV_DEG / 2 - 90)); ctx.closePath();
+        ctx.fillStyle = c; ctx.globalAlpha *= 0.12; ctx.fill(); ctx.globalAlpha = stale ? 0.35 : 1;
+        ctx.strokeStyle = c; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + fovLen * 1.3 * Math.sin(rad(g)), y - fovLen * 1.3 * Math.cos(rad(g))); ctx.stroke();
+      }
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rad(d.heading_deg || 0));
+      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(7, 8); ctx.lineTo(0, 4); ctx.lineTo(-7, 8); ctx.closePath();
+      ctx.fillStyle = c; ctx.fill(); ctx.restore();
+      ctx.fillStyle = css('--text'); ctx.fillText(String(d.id), x + 10, y - 8);
+      if (d.attack_state) {
+        const w = ctx.measureText(String(d.id)).width;
+        ctx.fillStyle = css(TASK_COLORS[d.attack_state] || '--muted'); ctx.font = '600 11px system-ui';
+        ctx.fillText(d.attack_state.toUpperCase(), x + 16 + w, y - 8); ctx.font = '11px system-ui';
+      }
+      if (d.detection) {
+        const [tx, ty] = toPx(d.detection.north, d.detection.east);
+        ctx.strokeStyle = css('--bad'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
+        ctx.lineWidth = 2.5; ctx.beginPath();
+        ctx.moveTo(tx - 6, ty - 6); ctx.lineTo(tx + 6, ty + 6); ctx.moveTo(tx + 6, ty - 6); ctx.lineTo(tx - 6, ty + 6); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // North arrow.
+    ctx.fillStyle = css('--muted'); ctx.font = '600 12px system-ui';
+    ctx.beginPath(); ctx.moveTo(r.width - 24, 14); ctx.lineTo(r.width - 30, 30); ctx.lineTo(r.width - 18, 30); ctx.closePath(); ctx.fill();
+    ctx.fillText('N', r.width - 28, 44);
+  }
+
+  // Gimbal dial in a drone card: compass with the search arc, the drone's nose, the
+  // gimbal's heading now and where it pointed over the last TRAIL_S seconds.
+  function drawDial(cv, d) {
+    const dpr = window.devicePixelRatio || 1, s = 96;
+    if (cv.width !== s * dpr) { cv.width = cv.height = s * dpr; }
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, s, s);
+    const c = s / 2, R = 38, a = area(), now = performance.now() / 1000;
+    g.strokeStyle = css('--line'); g.lineWidth = 1; g.beginPath(); g.arc(c, c, R, 0, 2 * Math.PI); g.stroke();
+    g.beginPath(); g.moveTo(c, c);
+    g.arc(c, c, R, rad(a.heading_deg - a.width_deg / 2 - 90), rad(a.heading_deg + a.width_deg / 2 - 90)); g.closePath();
+    g.fillStyle = css('--area-fill'); g.fill();
+    g.fillStyle = css('--muted'); g.font = '10px system-ui'; g.textAlign = 'center'; g.fillText('N', c, 9);
+    const ray = (h, len) => [c + len * Math.sin(rad(h)), c - len * Math.cos(rad(h))];
+    for (const p of trails[d.id] || []) {
+      const [x, y] = ray(p.h, R - 4);
+      g.globalAlpha = 0.7 * (1 - (now - p.t) / TRAIL_S); g.fillStyle = color(d.id);
+      g.beginPath(); g.arc(x, y, 2, 0, 2 * Math.PI); g.fill();
+    }
+    g.globalAlpha = 1;
+    if (d.heading_deg != null) {
+      const [x, y] = ray(d.heading_deg, R + 1);
+      g.strokeStyle = css('--muted'); g.lineWidth = 3; g.beginPath(); g.moveTo(...ray(d.heading_deg, R - 7)); g.lineTo(x, y); g.stroke();
+    }
+    if (d.gimbal_heading_deg != null) {
+      g.strokeStyle = color(d.id); g.lineWidth = 2.5; g.beginPath(); g.moveTo(c, c); g.lineTo(...ray(d.gimbal_heading_deg, R - 2)); g.stroke();
+    } else {
+      g.fillStyle = css('--muted'); g.fillText('no gimbal', c, c + 4);
+    }
+  }
+
+  function renderCards() {
+    const box = $('cards');
+    for (const d of server.drones) {
+      let card = box.querySelector(`[data-id="${d.id}"]`);
+      if (!card) {
+        card = document.createElement('div'); card.className = 'card'; card.dataset.id = d.id;
+        card.innerHTML = `<div><h3><span class="swatch" style="background:${color(d.id)}"></span>Drone ${d.id}
+          <span class="badge conn"></span><span class="badge task" hidden></span></h3><dl></dl></div><canvas class="dial"></canvas>`;
+        box.appendChild(card);
+      }
+      const stale = d.age_s == null || d.age_s > STALE_S;
+      card.classList.toggle('stale', stale);
+      const badge = card.querySelector('.badge.conn');
+      badge.textContent = d.armed == null ? 'no link' : (d.armed ? 'armed' : 'disarmed');
+      badge.classList.toggle('armed', !!d.armed);
+      const task = card.querySelector('.badge.task');
+      task.hidden = !d.attack_state;
+      if (d.attack_state) {
+        task.textContent = d.attack_state;
+        task.style.background = css(TASK_COLORS[d.attack_state] || '--muted');
+        task.title = 'Attack state (published by the attack node)';
+      }
+      const inArea = d.gimbal_heading_deg != null && Math.abs(wrap(d.gimbal_heading_deg - area().heading_deg)) <= area().width_deg / 2;
+      card.querySelector('dl').innerHTML = `
+        <dt>Mode</dt><dd>${d.nav_state ? d.nav_state.toLowerCase().replace(/_/g, ' ') : '–'}</dd>
+        <dt>Altitude</dt><dd>${fmt(d.altitude, ' m', 1)}</dd>
+        <dt>Speed</dt><dd>${fmt(d.speed, ' m/s', 1)}</dd>
+        <dt>Gimbal</dt><dd>${fmt(d.gimbal_heading_deg, '°')}${d.gimbal_heading_deg != null ? (inArea ? '' : ' (outside)') : ''}</dd>
+        <dt>Pitch</dt><dd>${fmt(d.gimbal_pitch_deg, '°')}</dd>
+        <dt>Last msg</dt><dd>${d.age_s == null ? '–' : d.age_s < 1 ? 'now' : d.age_s.toFixed(0) + ' s ago'}</dd>
+        ${d.detection ? `<dt>Target</dt><dd style="color:var(--bad)">seen</dd>` : ''}`;
+      drawDial(card.querySelector('canvas'), d);
+    }
+  }
+
+  // Search area form: sliders and number boxes edit the draft; Apply sends it.
+  const fields = { heading: 'heading_deg', width: 'width_deg', radius: 'radius_m' };
+  function syncForm() {
+    const a = area();
+    for (const [k, f] of Object.entries(fields)) {
+      for (const el of [$(k), $(k + 'R')]) if (document.activeElement !== el) el.value = Math.round(a[f]);
+    }
+    $('apply').disabled = $('revert').disabled = !draft;
+  }
+  function editDraft(changes) {
+    draft = { ...(draft || server.search_area), ...changes };
+    $('note').textContent = 'Not applied yet.'; $('note').className = 'note';
+    syncForm(); draw();
+  }
+  for (const [k, f] of Object.entries(fields)) {
+    for (const el of [$(k), $(k + 'R')]) {
+      el.addEventListener('input', () => {
+        const v = parseFloat(el.value);
+        if (Number.isFinite(v)) editDraft({ [f]: f === 'heading_deg' ? (v % 360 + 360) % 360 : v });
+      });
+    }
+  }
+  $('revert').onclick = () => { draft = null; $('note').textContent = ''; syncForm(); draw(); };
+  $('apply').onclick = async () => {
+    const body = {}; for (const f of Object.values(fields)) body[f] = draft[f];
+    try {
+      const res = await fetch('/api/search_area', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || res.statusText);
+      server.search_area = out; draft = null;
+      $('note').textContent = `Applied (revision ${out.revision}).`; $('note').className = 'note';
+    } catch (e) {
+      $('note').textContent = e.message; $('note').className = 'note err';
+    }
+    syncForm(); draw();
+  };
+
+  // Dragging the arc's handles.
+  canvas.addEventListener('pointerdown', ev => {
+    if (!server) return;
+    const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, hs = arcHandles(area());
+    const near = ([hx, hy]) => Math.hypot(hx - x, hy - y) < 14;
+    drag = near(hs.mid) ? 'mid' : (near(hs.left) || near(hs.right)) ? 'edge' : null;
+    if (drag) canvas.setPointerCapture(ev.pointerId);
+  });
+  canvas.addEventListener('pointermove', ev => {
+    const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+    if (!drag) {
+      if (server) {
+        const hs = arcHandles(area());
+        canvas.style.cursor = [hs.mid, hs.left, hs.right].some(([hx, hy]) => Math.hypot(hx - x, hy - y) < 14) ? 'grab' : 'default';
+      }
+      return;
+    }
+    const a = area(), [n, e] = toWorld(x, y), b = bearing(n, e, a.centre);
+    if (drag === 'mid') {
+      const dist = Math.hypot(n - a.centre[0], e - a.centre[1]);
+      editDraft({ heading_deg: Math.round(b), radius_m: Math.max(10, Math.min(5000, Math.round(dist / 5) * 5)) });
+    } else {
+      editDraft({ width_deg: Math.max(10, Math.min(180, Math.round(2 * Math.abs(wrap(b - a.heading_deg))))) });
+    }
+  });
+  const endDrag = () => { if (drag) { drag = null; draw(); } };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/state', { cache: 'no-store' });
+      server = await res.json();
+      const now = performance.now() / 1000;
+      for (const d of server.drones) {
+        const t = (trails[d.id] = (trails[d.id] || []).filter(p => now - p.t < TRAIL_S));
+        if (d.gimbal_heading_deg != null && d.age_s != null && d.age_s < STALE_S) t.push({ t: now, h: d.gimbal_heading_deg });
+      }
+      $('linkDot').classList.add('ok'); $('linkText').textContent = `${server.drones.length} drones`;
+      syncForm(); renderCards(); draw();
+    } catch (e) {
+      $('linkDot').classList.remove('ok'); $('linkText').textContent = 'no connection to the UI node';
+    }
+    setTimeout(poll, POLL_MS);
+  }
+
+  window.addEventListener('resize', resize);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+  resize();
+  poll();
+})();
+</script>
+</body>
+</html>

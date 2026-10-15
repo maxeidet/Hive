@@ -47,6 +47,8 @@ A hit is a real collision at up to 5 m/s (`attack.max_speed`). The drones can tu
 
 Only for a confirmed target, stamped with the image time. Code: `intercept/detection.py`.
 
+The attack node also publishes its own state on `/px4_2/attack/state` (`std_msgs/String`: `idle`, `search`, `attack`, `coast`, `lost` or `hit`), on every change and once a second. The operator UI (`./mount-backend.sh ui`) shows it on the drone's card.
+
 ## What is where
 
 | File | What |

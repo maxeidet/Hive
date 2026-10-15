@@ -7,7 +7,8 @@ import pytest
 
 from swarm_backend.config import AttackConfig
 from swarm_backend.intercept.attack import (
-    AttackAction, DetectionInbox, State, limit_velocity, look_angles, pursuit_velocity)
+    AttackAction, DetectionInbox, State, limit_velocity, look_angles, pursuit_velocity,
+    state_label)
 from swarm_backend.intercept.detection import FakeDetector
 from swarm_backend.px4.drone import Drone
 
@@ -262,6 +263,21 @@ def test_hit_stops_the_attack_and_counts_the_time_in_each_state():
     assert action.state_time[State.SEARCH] == pytest.approx(1.1)
     assert action.state_time[State.ATTACK] == pytest.approx(1.9)
 
+
+
+def test_state_label_is_idle_unless_running_but_keeps_a_hit():
+    action, drone, inbox, clock = make_action()
+    assert state_label(action) == 'idle'  # before start: taking off
+    action.start()
+    assert state_label(action) == 'search'
+    run_for(action, clock, 1.0, inbox, (20.0, 0.0, 0.0))
+    assert state_label(action) == 'attack'
+    action.hit()
+    assert state_label(action) == 'hit'
+    action, *_ = make_action()
+    action.start()
+    action.stop()
+    assert state_label(action) == 'idle'  # stopped without a hit: landing
 
 # --- closed loop --------------------------------------------------------------
 

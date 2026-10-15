@@ -29,6 +29,10 @@ from enum import Enum
 from swarm_backend.config import AttackConfig, Vector3
 from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 
+# Where the attack node reports its state (std_msgs/String, the label of state_label()),
+# under the drone's namespace like the detection topics: /px4_2/attack/state.
+STATE_TOPIC = 'attack/state'
+
 MAX_GIMBAL_PITCH = 90.0  # degrees either way from the horizon
 MIN_DIRECTION_M = 1e-3  # a target_position shorter than this has no direction
 SLOW_ZONE_M = 3.0  # descent slows down over this many metres above min_altitude
@@ -115,6 +119,14 @@ def look_angles(target: Vector3) -> tuple[float, float]:
     horizontal = math.hypot(target[0], target[1])
     return (math.degrees(math.atan2(-target[2], horizontal)),
             math.degrees(math.atan2(target[1], target[0])))
+
+
+def state_label(attack: 'AttackAction') -> str:
+    """The state to report: 'idle' while the attack is not running (taking off, between
+    test runs, landing), except that a hit stays 'hit' until the next attack."""
+    if attack.running or attack.state == State.HIT:
+        return attack.state.value
+    return 'idle'
 
 
 class AttackAction:
