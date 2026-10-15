@@ -24,6 +24,7 @@ Start here, then follow the links.
 | [[Following the target with detection]]        | Design: how the detection steers the gimbal and the drone so it follows the target on the camera, with the radar as cue and fallback                |
 | [[Baseline attack work plan]]                  | Oskar/Max agreement (13 Oct): the two shared ROS topics (target_position, target_offset), who builds what, the attack states, open points           |
 | [[Join test results 2026-10-14]] | First runs of Max's attack on the real detector: head-on hits, crossing misses by ~4 m, what went wrong and what's next |
+| [[Base surveillance plan]] | 3 drones on a quarter circle, option A (widen the sweeps) for the gap while one attacks, central control by the base station with its messages. Decisions open for Jostien |
 | [[Lock-on brainstorm]]                         | Mindmap: how the drone finds, confirms and keeps a lock on the hostile drone (cue → acquire → confirm → locked → lost)                              |
 
 ## Environment and setup
