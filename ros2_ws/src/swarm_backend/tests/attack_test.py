@@ -23,8 +23,8 @@ to --csv (default data/attack_runs.csv in the repo). Inside the container:
 
 On the host: ./mount-backend.sh attacktest [same arguments].
 
-A hit means the defender flew into the hostile drone at up to 12 m/s: in Gazebo the two
-can really collide and tumble. The test then still tries to land them; if one has
+A hit means the defender flew into the hostile drone at up to attack.max_speed (5 m/s): in
+Gazebo the two can really collide and tumble. The test then still tries to land them; if one has
 crashed, restart the simulation.
 """
 import argparse
@@ -310,7 +310,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--config', default=None, help='swarm.yaml (default: the installed one)')
     parser.add_argument('--pattern', choices=PATTERNS, default='crossing')
-    parser.add_argument('--speed', type=float, default=4.0, help='hostile speed, m/s')
+    parser.add_argument('--speed', type=float, default=1.0, help='hostile speed, m/s')
     parser.add_argument('--height', type=float, default=None,
                         help='metres the hostile drone flies above the defender '
                              '(default 10, 0 for offset)')
@@ -319,7 +319,8 @@ def main():
     parser.add_argument('--half-width', type=float, default=None,
                         help='crossing half-length, circle radius or offset to the side, metres')
     parser.add_argument('--runs', type=int, default=1)
-    parser.add_argument('--timeout', type=float, default=90.0, help='simulation seconds per run')
+    parser.add_argument('--timeout', type=float, default=150.0,
+                        help='simulation seconds per run (the 1 m/s lines take 100-120 s)')
     parser.add_argument('--hit-radius', type=float, default=1.5, help='metres')
     parser.add_argument('--realistic', action='store_true',
                         help='fake detector with 0.25 s delay, 1 deg and 20 %% noise, 5 m blind zone')

@@ -32,7 +32,7 @@ attack:
   guard_altitude: 20.0      # metres; where the defender hovers while searching
   search_heading_deg: 0.0   # where the hostile comes from (degrees from north)
   search_pitch_deg: 10.0    # gimbal tilted up a little, so the target has sky behind it
-  max_speed: 12.0           # m/s, pure pursuit flies at this speed (PX4's default limit)
+  max_speed: 5.0            # m/s, pure pursuit flies at this speed (PX4's limit is 12)
   gimbal_gain: 0.5          # gimbal turns by this share of target_offset on each message
   coast_after: 0.5          # s without a message: ATTACK -> COAST
   lost_after: 1.5           # s more in COAST: -> LOST

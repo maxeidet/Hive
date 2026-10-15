@@ -13,7 +13,7 @@ Start the container and drone 0 as usual, then from `ros2_ws/src/swarm_backend/`
 | Command | What it does |
 |---|---|
 | `./mount-backend.sh spawn` | Drones 1 and 2 from `swarm.yaml`. Drone 0 is the hostile drone, drone 2 (gimbal) the defender |
-| `./mount-backend.sh attacktest` | The whole test: both take off, the hostile drone flies across in front of the defender, 10 m above it, at 4 m/s, and the defender attacks. Runs the fake detector itself |
+| `./mount-backend.sh attacktest` | The whole test: both take off, the hostile drone flies across in front of the defender, 10 m above it, at 1 m/s (`--speed`), and the defender attacks at up to 5 m/s (`attack.max_speed`). Runs the fake detector itself |
 | `./mount-backend.sh attacktest --pattern headon --runs 10` | Ten head-on runs in a row, one CSV row each |
 | `./mount-backend.sh attacktest --realistic --runs 10` | The same with the real detector's errors: 0.25 s delay, 1° and 20 % noise, blind below 5 m |
 | `./mount-backend.sh attacktest --gain 1.0` | Gimbal gain 1.0 instead of the plan's 0.5 |
@@ -36,7 +36,7 @@ Patterns: `crossing` (default: 35 m ahead, from 60 m left to 60 m right), `heado
 
 Each run ends with **hit** (within 1.5 m, from Gazebo's true positions, also between samples), **target_passed** (the hostile drone reached the end of its line) or **timeout**. The drones then move apart and go back to the start for the next run. Results: one row per run in `data/attack_runs.csv` (hit, time from first detection to hit, closest distance, time in each state, end reason, settings).
 
-A hit is a real collision at up to 12 m/s. The drones can tumble in Gazebo; the test still tries to land them. If one has crashed, restart the simulation.
+A hit is a real collision at up to 5 m/s (`attack.max_speed`). The drones can tumble in Gazebo; the test still tries to land them. If one has crashed, restart the simulation.
 
 ## The contract
 
