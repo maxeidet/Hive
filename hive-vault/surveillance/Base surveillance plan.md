@@ -99,7 +99,7 @@ These close the gaps between the decisions above. Numbers are settings, not fixe
 |---|---|---|
 | `sector_deg` | 30° / 45° | 90° divided by the drones on patrol |
 | `leash_m` | 1000 | Max distance from the base for an attacker (decision 7) |
-| `close_radius_m` | 1500 | "Close to the base": the last drone may go for a confirmed target inside this |
+| `close_radius_m` | 500 | "Close to the base": the last drone may go for a confirmed target inside this |
 | `reserve` | 1 | Drones that are never sent unless the target is confirmed and inside `close_radius_m` |
 | `resweep_delay_s` | 10 | Wait before sectors go back to 30° after an attacker returns |
 
@@ -110,7 +110,8 @@ These close the gaps between the decisions above. Numbers are settings, not fixe
 | Free drones on patrol are above `reserve` | The detecting drone may start an attack on its own |
 | Only `reserve` drones are left on patrol | The drone may not start on its own. It starts only when the base station says the target is confirmed and inside `close_radius_m` |
 | Several targets | One drone per target. When no drone may go, the target waits. Targets inside `close_radius_m` are served first, closest to the base first |
-| Attacker passes `leash_m` or loses the target | RETURN. The target lock is released |
+| Target further than `leash_m` from the base | Not attacked. It waits until it is closer |
+| Attacker passes `leash_m` or loses the target | RETURN, and the target is forgotten until a drone sights it again |
 | Miss, attacker still exists | RETURN to its own slot. Sectors go back to 30° after `resweep_delay_s` |
 | Miss, attacker lost, target still inbound | A new drone is sent from those on patrol, under the same `reserve` rule |
 | Miss, attacker lost, target gone | Nothing is sent. Sectors stay widened |
