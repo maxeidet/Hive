@@ -11,7 +11,8 @@ Back to [[Home]]. Related: [[Baseline attack work plan]] (the attack a defender 
 - **3 surveillance drones on a quarter circle** (90° arc) in front of the base, facing the direction the threat comes from. This replaces the full ring of N drones that the report and Oscar's evaluation harness still describe.
 - **Baseline for covering the gap (option A):** when one drone leaves to attack, the two that remain stay where they are and widen their gimbal sweeps to cover the empty slice. No drone moves.
 - **Central control by the base station:** the drones report to the base station, and the base station gives the orders. The message types are below.
-- **Open:** exactly how the base station makes its decisions. **Jostien decides this.** The section on decisions only lists suggestions.
+- **One drone attacks, not all three:** the drone that detects the target goes, and the other two stay. The rules are in section 4.
+- **Rules decided and proposed in section 4:** the detecting drone turns at once, the first report on a target wins, one drone is held in reserve, and an attack is called off at 1000 m from the base or when the target is lost. Still open: what "target lost" means and the "close to the base" distance.
 
 ## 1. The setup: 3 drones on a quarter circle
 
@@ -76,19 +77,51 @@ PATROL --(ENGAGE from base)--> ENGAGE --(hit)--> lost
 
 Later, for realism: add delay and lost messages, like the fake detector's errors, and measure how much worse it gets.
 
-## 4. How the base station decides — open, Jostien decides
+## 4. How the base station decides
 
-**Jostien owns this section.** The points below are suggestions from the brainstorm, not decisions.
+**Jostein owns this section.**
 
-1. **Who starts the attack?**
-   - *Suggestion 1:* the drone that sees the target turns toward it at once (as the report says) and the base station confirms or calls it back. Fast, but two drones can see the same target.
-   - *Suggestion 2:* the drone only reports, and the base station sends the ENGAGE order. Slower, but the base station is always in control.
-2. **Two drones see the same target.** The first report wins, or the drone closest to the target's path wins.
-3. **How many may be away at once?** Triangulation needs two drones to see the target, but sending two away leaves one to watch the whole arc. Suggestion: at most one attacking, a second only when the target is confirmed and close.
-4. **How the new slices are split in option A.** Each of the two remaining drones takes half of the empty slice, or the drone nearer the gap takes all of it.
-5. **When to call an attack off** (target lost, low confidence it is a drone, too far from the arc) and what the drone does then.
+### Decided
 
-*Jostien: write your decisions here and remove the suggestions you don't use.*
+1. **Who goes:** the drone that detects the target.
+2. **The two that stay:** they hold their points and widen their sweeps from 30° to 45° each (option A). The surveillance always covers 90° in total, split over the drones that are left (90° / number on patrol).
+3. **On a miss:** the drone is sent back if it still exists. A new drone is sent only if the target is still on its way in.
+4. **The last drone:** it is held back until the target is confirmed and close to the base. At that point it is better to use it than to save it.
+5. **Several targets:** each target gets one drone.
+6. **Who starts the attack:** the drone that sees the target turns toward it at once (as the report says), and the base station confirms or calls it back.
+7. **Call-off:** an attacker turns back when it is more than 1000 m from the base or when it loses the target.
+
+### Proposal: the rules in detail
+
+These close the gaps between the decisions above. Numbers are settings, not fixed values.
+
+| Setting | Start value | Meaning |
+|---|---|---|
+| `sector_deg` | 30° / 45° | 90° divided by the drones on patrol |
+| `leash_m` | 1000 | Max distance from the base for an attacker (decision 7) |
+| `close_radius_m` | 1500 | "Close to the base": the last drone may go for a confirmed target inside this |
+| `reserve` | 1 | Drones that are never sent unless the target is confirmed and inside `close_radius_m` |
+| `resweep_delay_s` | 10 | Wait before sectors go back to 30° after an attacker returns |
+
+| Situation | Rule |
+|---|---|
+| A drone detects a new target | It locks the target ID in the base station's target table and goes to ENGAGE at once. The base station confirms or calls it back |
+| Two drones see the same target | First report wins. Ties go to the lowest drone id. The other stays on PATROL (it never leaves, the lock only stops it from starting) |
+| Free drones on patrol are above `reserve` | The detecting drone may start an attack on its own |
+| Only `reserve` drones are left on patrol | The drone may not start on its own. It starts only when the base station says the target is confirmed and inside `close_radius_m` |
+| Several targets | One drone per target. When no drone may go, the target waits. Targets inside `close_radius_m` are served first, closest to the base first |
+| Attacker passes `leash_m` or loses the target | RETURN. The target lock is released |
+| Miss, attacker still exists | RETURN to its own slot. Sectors go back to 30° after `resweep_delay_s` |
+| Miss, attacker lost, target still inbound | A new drone is sent from those on patrol, under the same `reserve` rule |
+| Miss, attacker lost, target gone | Nothing is sent. Sectors stay widened |
+
+Check before building: `leash_m` must be long enough to reach where an intercept can happen, and short enough that the arc is not left open for long. With defenders at 5 m/s and the hostile at 1 m/s, a return from 1000 m takes about 200 s.
+
+### Still open
+
+1. **Is the 1000 m measured from the base to the attacker or to the target?** The proposal uses the attacker.
+2. **What counts as "target lost"** (no detection for how many seconds, or low confidence it is a drone).
+3. **Value of `close_radius_m`**, which depends on the detection range we measure.
 
 ## 5. To agree on as a team
 
