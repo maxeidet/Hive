@@ -22,6 +22,12 @@
 #                                      attacks on the fake detector; hits scored from Gazebo, one
 #                                      CSV row per run in data/attack_runs.csv (tests/attack_test.py
 #                                      --help, e.g. --pattern headon --runs 10 --realistic)
+#   ./mount-backend.sh basestation     surveillance base station: reads the defenders' sightings and
+#                                      status and sends orders (nodes/base_station_node.py,
+#                                      surveillance: in swarm.yaml). Use scenarios/surveillance.yaml
+#   ./mount-backend.sh patrol ID [args] one defender on the arc: flies to its slot, sweeps its camera,
+#                                      attacks when told to (nodes/patrol_node.py). One per
+#                                      defender, each with its own detector (`fakedetect --id ID`)
 #   ./mount-backend.sh demo [N]        formation demo (swarm_node)
 #   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
@@ -275,6 +281,8 @@ case "$cmd" in
   detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
+  basestation) run "python3 -m swarm_backend.nodes.base_station_node --config $CONFIG $*" ;;
+  patrol) run "python3 -m swarm_backend.nodes.patrol_node --config $CONFIG --id $*" ;;
   attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;

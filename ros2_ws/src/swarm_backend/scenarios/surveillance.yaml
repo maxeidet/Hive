@@ -1,0 +1,65 @@
+# Surveillance scenario: drone 0 is the hostile drone (started by docker/start-dev.sh), drones
+# 1-3 are the three gimbal defenders on the arc in front of the base. Use it for spawning and
+# for every command below, each in its own terminal:
+#
+#   export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml
+#   ./mount-backend.sh spawn
+#   ./mount-backend.sh fakedetect --id 1 --realistic     (and --id 2, --id 3)
+#   ./mount-backend.sh basestation
+#   ./mount-backend.sh patrol 1                          (and 2, 3)
+#
+# Then fly the hostile drone from the shell toward the base, from the threat heading.
+# Same format as config/swarm.yaml (see the comments there).
+
+swarm:
+  rate_hz: 10.0
+  takeoff_altitude: 5.0
+  position_tolerance: 0.3
+  formation_spacing: 4.0
+
+drones:
+  - id: 0
+    spawn_pose: [0.0, 0.0, 0.0]
+
+  - id: 1
+    spawn_pose: [-10.0, 0.0, 0.0]
+    model: gz_x500_gimbal
+
+  - id: 2
+    spawn_pose: [-15.0, 0.0, 0.0]
+    model: gz_x500_gimbal
+
+  - id: 3
+    spawn_pose: [-20.0, 0.0, 0.0]
+    model: gz_x500_gimbal
+
+# The defenders attack with the baseline attack (see attack: in config/swarm.yaml).
+attack:
+  attacker_id: 1            # only used by the fake detector's default; patrol sets its own
+  target_id: 0
+  guard_altitude: 20.0
+  search_pitch_deg: 10.0
+  max_speed: 5.0
+  min_altitude: 5.0
+
+# Surveillance plan: hive-vault/surveillance/Base surveillance plan.md
+surveillance:
+  drone_ids: [1, 2, 3]      # left to right on the arc
+  base_position: [0.0, 0.0] # world NED x, y
+  threat_heading_deg: 0.0   # the threat comes from the north
+  arc_deg: 90.0
+  arc_radius: 60.0          # m from the base to the defenders
+  altitude: 20.0            # m above each defender's start point
+  aim_beyond_arc: 30.0      # the camera aims this far beyond the arc
+  sweep_deg_s: 30.0         # how fast the aim point crosses the sector, seen from the base
+  # The baseline detector sees about 50 m, so the distances are small.
+  leash_m: 200.0            # an attacker further from the base than this turns back
+  close_radius_m: 100.0     # inside this a confirmed target may take the last defender
+  reserve: 1
+  resweep_delay_s: 10.0
+  confirmed_hits: 10
+  contact_m: 3.0
+  gate_m: 15.0
+  track_expiry_s: 5.0
+  status_hz: 2.0
+  status_timeout_s: 5.0

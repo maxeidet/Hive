@@ -89,6 +89,32 @@ class AttackConfig:
 
 
 @dataclass(frozen=True)
+class SurveillanceConfig:
+    """Three defenders on an arc in front of the base, and the base station that sends them
+    (the `surveillance:` section of swarm.yaml; surveillance plan in hive-vault)."""
+    drone_ids: tuple = (1, 2, 3)  # the gimbal defenders, in slot order from left to right
+    base_position: tuple = (0.0, 0.0)  # world NED x, y of the base
+    threat_heading_deg: float = 0.0  # where the threat comes from, degrees from north
+    arc_deg: float = 90.0
+    arc_radius: float = 60.0  # metres from the base to the defenders' points
+    altitude: float = 20.0  # metres above each defender's start point
+    aim_beyond_arc: float = 30.0  # the camera aims this far beyond the arc
+    sweep_deg_s: float = 30.0  # how fast the aim point crosses the sector, seen from the base
+    # The base station's rules (intercept/base_station.py). The detection range of the
+    # baseline detector is about 50 m, so these are small.
+    leash_m: float = 200.0
+    close_radius_m: float = 100.0
+    reserve: int = 1
+    resweep_delay_s: float = 10.0
+    confirmed_hits: int = 10  # detections in a row before the base counts a target as confirmed
+    contact_m: float = 3.0  # an attacker this close to its target counts as a hit
+    gate_m: float = 15.0  # two sightings this close (m) are the same target
+    track_expiry_s: float = 5.0  # a target not sighted for this long gets a new id
+    status_hz: float = 2.0
+    status_timeout_s: float = 5.0  # a defender silent this long is counted as lost
+
+
+@dataclass(frozen=True)
 class SwarmConfig:
     rate_hz: float
     takeoff_altitude: float
@@ -97,6 +123,7 @@ class SwarmConfig:
     drones: tuple[DroneConfig, ...]
     intercept: InterceptConfig = dataclasses.field(default_factory=InterceptConfig)
     attack: AttackConfig = dataclasses.field(default_factory=AttackConfig)
+    surveillance: SurveillanceConfig = dataclasses.field(default_factory=SurveillanceConfig)
 
     def drone(self, drone_id: int) -> DroneConfig:
         for drone in self.drones:
@@ -157,6 +184,7 @@ def parse_config(data: dict, num_drones: int | None = None) -> SwarmConfig:
         drones=drones,
         intercept=_parse_intercept(data.get('intercept') or {}),
         attack=_parse_attack(data.get('attack') or {}),
+        surveillance=_parse_surveillance(data.get('surveillance') or {}),
     )
 
 
@@ -189,6 +217,26 @@ def _parse_attack(entry: dict) -> AttackConfig:
         raise ValueError('attack: speeds and fake_rate_hz must be positive')
     if config.guard_altitude < config.min_altitude:
         raise ValueError('attack: guard_altitude is below min_altitude')
+    return config
+
+
+def _parse_surveillance(entry: dict) -> SurveillanceConfig:
+    types = {f.name: type(f.default) for f in dataclasses.fields(SurveillanceConfig)}
+    unknown = set(entry) - set(types)
+    if unknown:
+        raise ValueError(f'Unknown surveillance settings: {sorted(unknown)}')
+    values = {k: types[k](v) for k, v in entry.items()}
+    if 'drone_ids' in values:
+        values['drone_ids'] = tuple(int(v) for v in values['drone_ids'])
+    if 'base_position' in values:
+        if len(values['base_position']) != 2:
+            raise ValueError('surveillance: base_position must be [x, y]')
+        values['base_position'] = tuple(float(v) for v in values['base_position'])
+    config = SurveillanceConfig(**values)
+    if len(set(config.drone_ids)) != len(config.drone_ids) or not config.drone_ids:
+        raise ValueError('surveillance: drone_ids must be a non-empty list without repeats')
+    if min(config.arc_deg, config.arc_radius, config.sweep_deg_s, config.status_hz) <= 0:
+        raise ValueError('surveillance: arc_deg, arc_radius, sweep_deg_s and status_hz must be positive')
     return config
 
 
