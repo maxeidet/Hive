@@ -24,9 +24,11 @@ Start here, then follow the links.
 | [[Manual tests to do]]                         | Checklist of tests that need a person and the running simulation, kept up to date as things are built                                               |
 | [[Following the target with detection]]        | Design: how the detection steers the gimbal and the drone so it follows the target on the camera, with the radar as cue and fallback                |
 | [[Baseline attack work plan]]                  | Oskar/Max agreement (13 Oct): the two shared ROS topics (target_position, target_offset), who builds what, the attack states, open points           |
+| [[Baseline attack - how to run]] | The baseline attack (pure pursuit on the detection topics), the fake detector and the attack flight test: how to run them, the contract, the files, first results |
 | [[Join test results 2026-10-14]] | First runs of Max's attack on the real detector: head-on hits, crossing misses by ~4 m, what went wrong and what's next |
 | [[Baseline evaluation - how to run]] | `./mount-backend.sh baseline-eval`: the report's 30-seed intercept and detection scenarios and metrics, flown in Gazebo by the 3-defender arc with real detectors |
 | [[Surveillance attack test - how to run]] | `./mount-backend.sh attacktest`: 3 defenders on the arc, base station, real detectors; a hit removes the hostile and the defender returns to its slot |
+| [[Progress 2026-10-14 evaluation harness]] | Evaluation harness for the report's intercept and detection baselines: what was built, the merge with dev, what is still a placeholder |
 | [[Base surveillance plan]] | 3 drones on a quarter circle, option A (widen the sweeps) for the gap while one attacks, central control by the base station with its messages. Decisions open for Jostien |
 | [[Baseline attack - how to run]] | The baseline attack (pure pursuit on the detection topics), the fake detector and the attack flight test: how to run them, the contract, the files, first results |
 | [[Progress 2026-10-14 evaluation harness]] | Evaluation harness for the report's intercept and detection baselines: what was built, the merge with dev, what is still a placeholder |
