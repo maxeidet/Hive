@@ -108,4 +108,48 @@ How the chase flies:
 
 Timing uses each PX4's own clock (`Drone.stamp`, simulation time in SITL), so speeds and rates stay right when Gazebo runs slower than real time. The flight test aborts and flies both drones home (at different heights) if they get within 3 m of each other.
 
+### Intercept baseline evaluation
+
+The scenarios and metrics of the planning report (Interception > Evaluation). A hostile drone flies straight and level toward the base at the origin. The run starts at first detection: the target is `detect_range` from an interceptor on the `perimeter_radius` ring, and its line of sight makes the *aspect* with its track (0° head-on, 30/60/90° crossing). Each aspect × speed (4–17 m/s) is run with `eval_runs` seeds. A run ends with a **hit** (within 1.5 m, found along the segment between samples, not only at the samples), the **target reaching the base**, the **target lost**, or a **timeout**. Each run records hit and success (a hit more than `goal_radius` = x from the base), time to hit, lock-on (k of n images, within d_lock, held t_lock), distance to base at hit, the target's closest distance to base, and the closest miss. All of it is computed from true positions. The settings are the `hit_radius` … `eval_timeout` keys in `intercept:`.
+
+The harness never sees how a method works. A method plugs in as two classes:
+
+| Module (`swarm_backend/intercept/`) | Role |
+|---|---|
+| `interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. `PurePursuitAction` is the baseline, **a placeholder for now**, meant to wrap the attack's `attack.AttackAction`. |
+| `target_detector.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `NoisyTruthDetector` (true position + noise, inside the camera's view and range) stands in for YOLO, **a placeholder for now**, meant to wrap the attack's fake detector (`detection.measure`). |
+| `scenario.py` | `make_scenario`, `scenario_grid`, and `run_scenario(scenario, sim, make_action, make_detector, config)`. `sim` is anything with `hostile`, `interceptor`, `now()`, `advance(dt)`. |
+| `metrics.py` | `score_run(samples, scenario, config) -> RunMetrics`, `summarize(results)` (the table), `LockOnTracker`, `closest_approach` / `first_within`. |
+
+```bash
+python3 -m pytest tests/test_intercept_metrics.py           # the harness itself (test doubles, no guidance)
+python3 -m pytest tests/test_intercept_baseline.py -s       # full sweep + table; skipped until the baseline exists
+./mount-backend.sh baseline-intercept --aspect 90 --speed 8 --seed 3   # one scenario in Gazebo
+```
+
+To evaluate another method or detector, pass its classes to `run_scenario` in place of `PurePursuitAction` / `noisy_truth` (see `tests/test_intercept_baseline.py`). The fast sim (`tests/sim.py`) runs the full 600-run grid in about 20 s.
+
+### Detection evaluation
+
+The same pattern for the report's detection section, in `swarm_backend/detect/`. Defenders hold a static ring (`num_defenders` at `perimeter_radius`) and search with their gimbal cameras. A hostile drone and birds come from random directions, and a run ends when the hostile drone reaches the ring. Every image is a `Frame` (pixels, camera pose, and the truth: what projects into the image, where and how many pixels wide). A detection is correct when its centre is within `match_radius_px` of the true centre. Settings are in `detect:` in `swarm.yaml`.
+
+| Module (`swarm_backend/detect/`) | Role |
+|---|---|
+| `frame.py` | The truth per image: `Frame` (image, camera pose as forward/right/down like `ground_truth.camera_pose`, true objects), `TrueObject`, `aimed_camera`, `make_frame` (projects with `ground_truth.project` and `camera.CameraModel`). |
+| `detector.py` | `ImageDetector` (`reset()`, `detect(frame) -> [Detection]`, the report's detection report). `DarkObjectDetector`, `Yolo26Detector` and the fast-sim stand-in `PixelModelDetector` are **placeholders**. |
+| `scan.py` | `GimbalScan.aim(t, drone, position)`. `SectorScan` (the static ring's outward sweep) is a **placeholder**. |
+| `scenario.py` | `make_scenario`, `scenario_grid`, `run_scenario(scenario, sim, make_detector, make_scan, config)`. `sim` has `now()`, `advance(dt)`, `bodies()`, `frame(drone, pitch, yaw)`. |
+| `metrics.py` | `match`, `score_run` (missed, warning, range views, birds flagged, background alarms), `detection_by_range`, `summarize`. |
+| `dataset.py` | Labelled images: `split_by_run`, `evaluate_dataset` (recall vs size, background alarms, inference time), `summarize_dataset`. `GazeboImageDataset` is a **placeholder**. |
+
+```bash
+python3 -m pytest tests/test_detect_metrics.py         # the harness itself (test doubles)
+python3 -m pytest tests/test_detect_baseline.py -s     # sweep + tables; skipped until the baseline exists
+HIVE_DETECT_DATASET=/path/to/images python3 -m pytest tests/test_detect_baseline.py -s -k recall
+```
+
+The default sweep (30 runs, 12 defenders) takes under a minute.
+
+How tests and evaluations are written, and what a run should save: `hive-vault/Testing.md`.
+
 Unit tests for the parts that do not need ROS (config, topics, formations, swarm logic, intercept incl. a closed-loop chase sim): `python3 -m pytest tests/test_*.py`.

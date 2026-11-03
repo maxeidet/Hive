@@ -12,6 +12,9 @@
 #   ./mount-backend.sh intercept [args] chase test: drone 2 chases drone 0 at 50 m using mock
 #                                      radar fixes (tests/intercept_test.py --help, e.g.
 #                                      --pattern figure8 --speed 5 --csv /tmp/run.csv)
+#   ./mount-backend.sh baseline-intercept [args]  one intercept baseline scenario of the
+#                                      report (tests/intercept_baseline_test.py --help,
+#                                      e.g. --aspect 90 --speed 8 --seed 3)
 #   ./mount-backend.sh fakedetect [args] fake camera detector: publishes /px4_2/detection/target_position
 #                                      and target_offset from Gazebo's true positions (attack: in
 #                                      swarm.yaml; --realistic for delay, noise and blind zone)
@@ -273,6 +276,7 @@ case "$cmd" in
   multi)  run "python3 $PKG/tests/multi_drone_swarm_test.py --config $CONFIG $*" ;;
   intercept) run "python3 $PKG/tests/intercept_test.py --config $CONFIG $*" ;;
   detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
+  baseline-intercept) run "python3 $PKG/tests/intercept_baseline_test.py --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
   attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
