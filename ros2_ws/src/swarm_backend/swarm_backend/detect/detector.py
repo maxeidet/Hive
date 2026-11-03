@@ -6,12 +6,14 @@ Using Sensors > Interface). It may keep state between images (tracking, the k
 consecutive images before a candidate counts as a drone); reset() clears it. The
 dark-object baseline and YOLO26 plug in by subclassing. No ROS here.
 """
+import math
 import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 
 from swarm_backend.config import DetectConfig, Vector3
+from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect.frame import Frame, Kind
 
 
@@ -97,13 +99,40 @@ class PixelModelDetector(ImageDetector):
     `classify_px` wide is classified correctly, and a found drone counts as a drone
     after `confirm_k` consecutive images.
 
-    Placeholder: to be replaced by the real detectors when they run in Gazebo."""
+    Below `classify_px` nothing can be told apart, so a found bird also counts as a
+    drone after `confirm_k` images, as with the dark-object baseline. Until then a found
+    object is a CANDIDATE without a kind. The streak is kept per true object (a
+    stand-in may track by identity) and broken by any image it is not found in."""
+
+    PIXEL_STD = 0.5  # px, noise of the reported centre
 
     def __init__(self, config: DetectConfig, rng: random.Random):
-        raise NotImplementedError
+        self.config = config
+        self.rng = rng
+        self.camera = CameraModel(config.camera_hfov, config.image_width, config.image_height)
+        self.streaks: dict[str, int] = {}
 
     def reset(self) -> None:
-        raise NotImplementedError
+        self.streaks = {}
 
     def detect(self, frame: Frame) -> list[Detection]:
-        raise NotImplementedError
+        config = self.config
+        found = [o for o in frame.objects if o.size_px >= config.detect_px]
+        self.streaks = {o.id: self.streaks.get(o.id, 0) + 1 for o in found}
+        detections = []
+        for o in found:
+            u = o.pixel[0] + self.rng.gauss(0.0, self.PIXEL_STD)
+            v = o.pixel[1] + self.rng.gauss(0.0, self.PIXEL_STD)
+            classified = o.size_px >= config.classify_px
+            confirmed = self.streaks[o.id] >= config.confirm_k
+            if confirmed:
+                stage, kind = Stage.CLASSIFIED, (o.kind if classified else Kind.DRONE)
+            else:
+                stage, kind = Stage.CANDIDATE, None
+            detections.append(Detection(
+                time=frame.time, drone=frame.drone, pixel=(u, v), box_px=(o.size_px, o.size_px),
+                stage=stage, kind=kind, confidence=1.0 if classified else config.confidence_threshold,
+                track=None,
+                direction=self.camera.direction(u, v, frame.forward, frame.right, frame.down),
+                range=self.camera.range_from_width(o.size_px, config.target_size)))
+        return detections
