@@ -11,8 +11,13 @@ def test_messages_round_trip():
     assert m.decode_sighting(m.encode_sighting(s)) == s
     st = m.StatusMsg(3, Mode.ENGAGE, 41.5)
     assert m.decode_status(m.encode_status(st)) == st
-    e = m.EventMsg(1, 'contact')
-    assert m.decode_event(m.encode_event(e)) == e
+    st = m.StatusMsg(3, Mode.PATROL, 60.0, (60.0, 0.0, -20.0))
+    assert m.decode_status(m.encode_status(st)) == st
+    for kind in m.EVENT_KINDS:
+        e = m.EventMsg(1, kind)
+        assert m.decode_event(m.encode_event(e)) == e
+    with pytest.raises(ValueError):
+        m.encode_event(m.EventMsg(1, 'boom'))
 
 
 @pytest.mark.parametrize('order', [

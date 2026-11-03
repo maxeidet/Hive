@@ -35,7 +35,9 @@ CONNECT_TIMEOUT_S = 180.0  # three freshly spawned drones take a while to reach 
 class PatrolNode:
     """A PX4Drone, the detection and surveillance topics and the patrol, on one ROS node."""
 
-    def __init__(self, node, swarm_config, drone_id):
+    def __init__(self, node, swarm_config, drone_id, clock=None):
+        """`clock` gives seconds for the patrol and the attack (default: PX4's time stamps;
+        the attack test gives Gazebo's clock, which does not jump)."""
         from geometry_msgs.msg import PointStamped, Vector3Stamped
 
         self.config = swarm_config.surveillance
@@ -46,7 +48,7 @@ class PatrolNode:
         self.drone = PX4Drone(node, swarm_config.drone(drone_id), rate_hz=swarm_config.rate_hz)
         self.manager = SwarmManager(Swarm([self.drone]), ALTITUDE_TOLERANCE_M)
         self.inbox = DetectionInbox()
-        self.clock = lambda: self.drone.stamp
+        self.clock = clock or (lambda: self.drone.stamp)
         slot = self.config.drone_ids.index(drone_id)
         self.patrol = PatrolAction(self.drone, self.inbox, swarm_config.attack, self.config,
                                    slot, self.clock)
@@ -55,6 +57,10 @@ class PatrolNode:
         node.create_subscription(Vector3Stamped, topic(drone_id, OFFSET_TOPIC),
                                  self._on_offset, 10)
         node.create_subscription(String, msgs.ASSIGNMENT_TOPIC, self._on_order, 10)
+        node.create_subscription(String, msgs.STATUS_TOPIC, self._on_friend_status, 10)
+        self._dropped_stamp: float | None = None  # a detection that was another defender
+        self._pending_offset = None  # (offset, stamp, received) waiting for its position
+        self.friendly_drops = 0
         self._sightings = node.create_publisher(String, msgs.SIGHTING_TOPIC, 10)
         self._status = node.create_publisher(String, msgs.STATUS_TOPIC, 10)
         self._events = node.create_publisher(String, msgs.EVENT_TOPIC, 10)
@@ -66,7 +72,7 @@ class PatrolNode:
         for s in self.patrol.take_sightings():
             self._sightings.publish(String(data=msgs.encode_sighting(s)))
         for e in self.patrol.take_events():
-            self.log.info(f'{e.kind}')
+            self.log.info(f'drone {self.drone.id}: {e.kind}')
             self._events.publish(String(data=msgs.encode_event(e)))
 
     def _send_status(self) -> None:
@@ -80,19 +86,55 @@ class PatrolNode:
             before = self.patrol.mode
             self.patrol.apply(order)
             if self.patrol.mode is not before:
-                self.log.info(f'{self.patrol.mode.value.upper()}')
+                self.log.info(f'drone {self.drone.id}: {self.patrol.mode.value.upper()}')
+
+    def _on_friend_status(self, msg) -> None:
+        now = self.clock()
+        s = msgs.decode_status(msg.data)
+        if now is not None and s.position is not None:
+            self.patrol.note_friend(s.drone_id, s.position, now)
 
     def _on_position(self, msg) -> None:
         now = self.clock()
-        if now is not None:
-            p = msg.point
-            self.inbox.put_position((p.x, p.y, p.z), stamp_seconds(msg.header), now)
+        if now is None:
+            return
+        p = msg.point
+        stamp = stamp_seconds(msg.header)
+        pending, self._pending_offset = self._pending_offset, None
+        if self.patrol.is_friendly((p.x, p.y, p.z), now):
+            # Another defender: neither the patrol nor the attack may see it, nor the
+            # target_offset of the same image.
+            self._dropped_stamp = stamp
+            self.friendly_drops += 1
+            if self.friendly_drops % 20 == 1:
+                self.log.info(f'drone {self.drone.id}: ignoring detections of another defender '
+                              f'({self.friendly_drops} so far)')
+            if pending is not None and pending[1] != stamp:
+                self.inbox.put_offset(*pending)
+            return
+        if pending is not None:
+            self.inbox.put_offset(*pending)
+        self.inbox.put_position((p.x, p.y, p.z), stamp, now)
 
     def _on_offset(self, msg) -> None:
+        """The real detector sends target_offset before target_position (the fake one after
+        it), so an offset waits for the position of the same image, which decides whether it
+        is another defender. One without a position (camera roll unknown) goes in when the
+        next message comes."""
         now = self.clock()
-        if now is not None:
-            v = msg.vector
-            self.inbox.put_offset((v.x, v.y), stamp_seconds(msg.header), now)
+        if now is None:
+            return
+        v = msg.vector
+        stamp = stamp_seconds(msg.header)
+        if stamp == self._dropped_stamp:
+            return
+        if self._pending_offset is not None:
+            self.inbox.put_offset(*self._pending_offset)
+        if self.inbox.position is not None and self.inbox.position.stamp == stamp:
+            self._pending_offset = None
+            self.inbox.put_offset((v.x, v.y), stamp, now)  # its position came first
+        else:
+            self._pending_offset = ((v.x, v.y), stamp, now)
 
     def fly(self, duration: float) -> None:
         c = self.config

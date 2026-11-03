@@ -7,10 +7,13 @@ swarm.yaml.
 
     python3 -m swarm_backend.nodes.base_station_node --config <swarm.yaml>
 
-Times are when a message arrives here, not the drones' own clocks. A defender that has not
-reported for `status_timeout_s` is counted as lost, and a `contact` from an attacker is
-counted as a hit: the base station does not see the hostile drone itself, and a miss is not
-detected on real drones yet.
+Times are when a message arrives here, not the drones' own clocks (wall clock, or the
+`clock` the attack test gives: Gazebo's). A defender that has not reported for
+`status_timeout_s` is counted as lost. A `kill` event (sent by the attack test's referee,
+which scores hits from Gazebo) means the attacker destroyed its target and survives: the
+target is forgotten and the attacker flies back to its slot. A `contact` from an attacker
+(its detector saw the target within contact_m) is only logged: the base station does not
+see the hostile drone itself, and a miss is not detected on real drones yet.
 """
 import argparse
 import sys
@@ -31,8 +34,11 @@ RESEND_S = 1.0  # every current order is sent again this often, so a late drone 
 
 class BaseStationNode:
 
-    def __init__(self, node, config):
+    def __init__(self, node, config, clock=None):
+        """`clock` gives seconds (default: time.monotonic)."""
         self.node = node
+        self._clock = clock or time.monotonic
+        self._last_now = 0.0
         self.log = node.get_logger()
         self.config = config.surveillance
         c = self.config
@@ -50,9 +56,12 @@ class BaseStationNode:
         node.create_timer(1.0 / TICK_HZ, self._tick)
         self._publish(self.station.tick(self.now()))
 
-    @staticmethod
-    def now() -> float:
-        return time.monotonic()
+    def now(self) -> float:
+        """The clock's time; while it does not know the time yet, the last time it gave."""
+        now = self._clock()
+        if now is not None:
+            self._last_now = now
+        return self._last_now
 
     # --- what the drones say ---------------------------------------------------
 
@@ -84,12 +93,15 @@ class BaseStationNode:
         self.last_heard[e.drone_id] = now
         if self.station.drones[e.drone_id].mode is Mode.LOST:
             return
-        if e.kind == 'contact':
+        if e.kind == 'kill':
             target = self.station.drones[e.drone_id].target
             if target is not None:
                 self.associator.forget(target)
-            self.log.info(f'drone {e.drone_id} made contact: counted as a hit')
-            orders = self.station.on_hit(e.drone_id, now)
+            self.log.info(f'drone {e.drone_id} killed its target: returning to its slot')
+            orders = self.station.on_kill(e.drone_id, now)
+        elif e.kind == 'contact':
+            self.log.info(f'drone {e.drone_id} made contact')
+            orders = []
         elif e.kind == 'target_lost':
             orders = self.station.on_target_lost(e.drone_id, now)
         else:

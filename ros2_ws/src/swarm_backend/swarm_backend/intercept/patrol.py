@@ -9,11 +9,17 @@ the sector the base station gave it, report what it sees, and attack when told t
 Call step() at the setpoint rate, apply() with each order from the base station, and
 collect what to send with take_sightings() and take_events(). No ROS here: it only uses
 the Drone interface, like AttackAction.
+
+Two guards against false targets: a detection counts only when it arrived within
+STALE_DETECTION_S (the detector runs during take-off, and an old message in the inbox
+must not start an attack), and is_friendly() tells the ROS node to drop detections that
+are where another defender is (from their status messages), so a defender never attacks
+a neighbour on the arc or one flying back to its slot.
 """
 import math
 from collections.abc import Callable
 
-from swarm_backend.config import AttackConfig, SurveillanceConfig
+from swarm_backend.config import AttackConfig, SurveillanceConfig, Vector3
 from swarm_backend.intercept.attack import AttackAction, DetectionInbox, State
 from swarm_backend.intercept.base_station import Mode, Order
 from swarm_backend.intercept.surveillance_msgs import EventMsg, SightingMsg, StatusMsg
@@ -23,6 +29,8 @@ from swarm_backend.swarm.arc import aim_bearing_deg, arc_points, slot_angles
 RETURN_TOLERANCE_M = 1.5
 STALE_DETECTION_S = 1.0  # no target_position this long and the run of detections is over
 ENGAGE_TIMEOUT_S = 3.0  # an attack that has not seen its target by then gives up
+FRIENDLY_GATE_M = 8.0  # a detection this close to another defender is that defender
+FRIENDLY_MAX_AGE_S = 3.0  # positions older than this are not used (status comes at 2 Hz)
 
 
 class PatrolAction:
@@ -57,12 +65,14 @@ class PatrolAction:
         self._lost_sent = False
         self._sightings: list[SightingMsg] = []
         self._events: list[EventMsg] = []
+        self._friends: dict[int, tuple[Vector3, float]] = {}  # id -> (position, when)
 
     # --- commands -----------------------------------------------------------
 
     def start(self) -> None:
         self.running = True
         self.mode = Mode.PATROL
+        self._last_position = self.inbox.position  # whatever came before is not a sighting
         self._fly_to_slot()
 
     def stop(self) -> None:
@@ -96,7 +106,21 @@ class PatrolAction:
             return None
         bx, by = self.config.base_position
         return StatusMsg(self.drone.id, self.mode,
-                         math.hypot(self.drone.position[0] - bx, self.drone.position[1] - by))
+                         math.hypot(self.drone.position[0] - bx, self.drone.position[1] - by),
+                         tuple(self.drone.position))
+
+    def note_friend(self, drone_id: int, position: Vector3, now: float) -> None:
+        """Where another defender is (from its status)."""
+        if drone_id != self.drone.id:
+            self._friends[drone_id] = (tuple(position), now)
+
+    def is_friendly(self, relative: Vector3, now: float) -> bool:
+        """Is a detection at `relative` (from this drone, world NED) another defender?"""
+        if self.drone.position is None:
+            return False
+        world = tuple(p + r for p, r in zip(self.drone.position, relative))
+        return any(now - when <= FRIENDLY_MAX_AGE_S and math.dist(world, pos) <= FRIENDLY_GATE_M
+                   for pos, when in self._friends.values())
 
     # --- the loop -----------------------------------------------------------
 
@@ -107,7 +131,8 @@ class PatrolAction:
         dt = 0.0 if self._last_step is None else max(0.0, now - self._last_step)
         self._last_step = now
         position = self.inbox.position
-        fresh = position is not None and position is not self._last_position
+        fresh = (position is not None and position is not self._last_position
+                 and now - position.received <= STALE_DETECTION_S)
         if fresh:
             self._last_position = position
             self._last_detection = now

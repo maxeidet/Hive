@@ -115,6 +115,13 @@ class BaseStation:
         drone.mode, drone.target = Mode.LOST, None
         return self._finish(now, [])
 
+    def on_kill(self, drone_id: int, now: float) -> list[Order]:
+        """The attacker destroyed its target and survived: the target is gone and the
+        attacker flies back to its slot (then `on_returned`)."""
+        drone = self.drones[drone_id]
+        orders = self._call_off(drone_id) if drone.mode is Mode.ENGAGE else []
+        return self._finish(now, orders)
+
     def on_miss(self, drone_id: int, drone_alive: bool, target_inbound: bool,
                 now: float) -> list[Order]:
         """A missed attack. A surviving attacker goes back; a target that is no longer on

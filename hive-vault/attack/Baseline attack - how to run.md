@@ -4,6 +4,8 @@ The baseline attack from the work plan ("Baseline attack: work plan", Max's task
 
 Back to [[Home]].
 
+> **Replaced (3 Nov 2026):** `attacktest` now runs the full surveillance chain with three defenders: see [[Surveillance attack test - how to run]]. The one-on-one patterns below (`--pattern`, `--external-detector`, `scenarios/attack.yaml` with `attacktest`) no longer exist. `attack` and `fakedetect` still work as described.
+
 ---
 
 ## Run it

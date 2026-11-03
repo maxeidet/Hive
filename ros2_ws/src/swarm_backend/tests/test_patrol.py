@@ -124,3 +124,36 @@ def test_orders_for_other_drones_are_ignored():
     patrol, *_ = make()
     patrol.apply(Order(3, Mode.ENGAGE, 'T1'))
     assert patrol.mode is Mode.PATROL
+
+
+def test_a_detection_from_before_the_patrol_started_starts_nothing():
+    # The detector runs during take-off; what it saw then is still in the inbox.
+    clock = [5.0]
+    drone = SimDrone(2, (0.0, 5.0, 0.0))
+    inbox = DetectionInbox()
+    inbox.put_position((3.0, 0.0, 1.0), 4.9, 4.9)
+    patrol = PatrolAction(drone, inbox, AttackConfig(), CONFIG, 1, lambda: clock[0])
+    patrol.start()
+    patrol.apply(Order(2, Mode.PATROL, sector=(-15.0, 15.0), may_start=True))
+    run(patrol, drone, clock, 1.0)
+    assert patrol.mode is Mode.PATROL and patrol.take_sightings() == []
+
+
+def test_an_old_detection_is_not_a_sighting():
+    patrol, drone, inbox, clock = make()
+    patrol.apply(Order(2, Mode.PATROL, sector=(-15.0, 15.0), may_start=True))
+    run(patrol, drone, clock, 3.0)
+    inbox.put_position((20.0, 5.0, 0.0), 0.5, 0.5)  # arrives late: 2.5 s old
+    run(patrol, drone, clock, 0.3)
+    assert patrol.mode is Mode.PATROL
+
+
+def test_a_detection_where_another_defender_is_is_friendly():
+    patrol, drone, inbox, clock = make()
+    drone.position = (60.0, 0.0, -20.0)
+    patrol.note_friend(3, (52.0, 31.0, -20.0), now=1.0)
+    patrol.note_friend(2, (60.0, 0.0, -20.0), now=1.0)  # itself: ignored
+    assert patrol.is_friendly((-6.0, 29.0, 1.0), now=2.0)  # 3 m from drone 3
+    assert not patrol.is_friendly((20.0, 5.0, -10.0), now=2.0)  # the hostile, out ahead
+    assert not patrol.is_friendly((-6.0, 29.0, 1.0), now=10.0)  # drone 3's position is stale
+    assert patrol.status().position == pytest.approx((60.0, 0.0, -20.0))

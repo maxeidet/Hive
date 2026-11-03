@@ -19,7 +19,9 @@ STATUS_TOPIC = '/surveillance/status'
 EVENT_TOPIC = '/surveillance/event'
 ASSIGNMENT_TOPIC = '/surveillance/assignment'
 
-EVENT_KINDS = ('contact', 'target_lost', 'returned')
+# 'kill': the attacker destroyed its target and survives (sent by the referee in the
+# attack test, which scores hits from Gazebo's true positions)
+EVENT_KINDS = ('contact', 'target_lost', 'returned', 'kill')
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,8 @@ class StatusMsg:
     drone_id: int
     mode: Mode
     distance_m: float  # from the base
+    position: tuple[float, float, float] | None = None  # the drone, world NED; lets the
+    # other defenders ignore detections of it (friendly filter in patrol.py)
 
 
 @dataclass(frozen=True)
@@ -54,12 +58,17 @@ def decode_sighting(text: str) -> SightingMsg:
 
 
 def encode_status(m: StatusMsg) -> str:
-    return json.dumps({'drone': m.drone_id, 'mode': m.mode.value, 'distance_m': m.distance_m})
+    d = {'drone': m.drone_id, 'mode': m.mode.value, 'distance_m': m.distance_m}
+    if m.position is not None:
+        d['position'] = list(m.position)
+    return json.dumps(d)
 
 
 def decode_status(text: str) -> StatusMsg:
     d = json.loads(text)
-    return StatusMsg(int(d['drone']), Mode(d['mode']), float(d['distance_m']))
+    position = d.get('position')
+    return StatusMsg(int(d['drone']), Mode(d['mode']), float(d['distance_m']),
+                     None if position is None else tuple(float(v) for v in position))
 
 
 def encode_event(m: EventMsg) -> str:

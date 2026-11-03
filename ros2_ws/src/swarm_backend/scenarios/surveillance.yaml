@@ -1,5 +1,7 @@
-# Surveillance scenario: drone 0 is the hostile drone (started by docker/start-dev.sh), drones
-# 1-3 are the three gimbal defenders on the arc in front of the base. Use it for spawning and
+# Surveillance scenario: drones 1-3 are the three gimbal defenders on the arc in front of the
+# base, drone 4 is the hostile drone. Drone 0 (started by docker/start-stellar.sh or
+# start-dev.sh) only stays parked at the base: its PX4 runs the container, so stopping it
+# stops everything, and the attack test removes and restarts the hostile drone every run. Use it for spawning and
 # for every command below, each in its own terminal:
 #
 #   export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml
@@ -8,7 +10,8 @@
 #   ./mount-backend.sh basestation
 #   ./mount-backend.sh patrol 1                          (and 2, 3)
 #
-# Then fly the hostile drone from the shell toward the base, from the threat heading.
+# Then fly the hostile drone (drone 4) from the shell toward the base, from the threat
+# heading. Or run the whole test: ./mount-backend.sh attacktest
 # Same format as config/swarm.yaml (see the comments there).
 
 swarm:
@@ -17,30 +20,41 @@ swarm:
   position_tolerance: 0.3
   formation_spacing: 4.0
 
+# Spawn poses are Gazebo ENU (x east, y north). In hive_base only a 7 m circle around the
+# origin is free of camp objects (tents, the camouflage net, the fire place), so the
+# defenders start in a row 4 m south of drone 0, 3 m apart, left to right like their slots.
+# (The old -10/-15/-20 m west put drone 3 inside tent_4 at (-18, -2).)
 drones:
   - id: 0
     spawn_pose: [0.0, 0.0, 0.0]
 
   - id: 1
-    spawn_pose: [-10.0, 0.0, 0.0]
+    spawn_pose: [-2.0, -4.0, 0.0]
     model: gz_x500_gimbal
 
   - id: 2
-    spawn_pose: [-15.0, 0.0, 0.0]
+    spawn_pose: [1.0, -4.0, 0.0]
     model: gz_x500_gimbal
 
   - id: 3
-    spawn_pose: [-20.0, 0.0, 0.0]
+    spawn_pose: [4.0, -4.0, 0.0]
     model: gz_x500_gimbal
+
+  # The hostile drone: 150 m north, past the forest, where the attack test's first run
+  # starts it anyway.
+  - id: 4
+    spawn_pose: [0.0, 150.0, 0.0]
+    model: gz_x500
 
 # The defenders attack with the baseline attack (see attack: in config/swarm.yaml).
 attack:
   attacker_id: 1            # only used by the fake detector's default; patrol sets its own
-  target_id: 0
-  guard_altitude: 20.0
+  target_id: 4              # the hostile drone (never 0, see the top)
+  guard_altitude: 30.0      # not used by the patrol (it guards its slot); must be >= min_altitude
   search_pitch_deg: 10.0
   max_speed: 5.0
-  min_altitude: 5.0
+  min_altitude: 25.0        # m; hive_base's trees are up to 20 m, so no attack command
+                            # may take a defender lower (it chased targets into them at 5 m)
 
 # Surveillance plan: hive-vault/surveillance/Base surveillance plan.md
 surveillance:
@@ -48,13 +62,16 @@ surveillance:
   base_position: [0.0, 0.0] # world NED x, y
   threat_heading_deg: 0.0   # the threat comes from the north
   arc_deg: 90.0
-  arc_radius: 60.0          # m from the base to the defenders
-  altitude: 20.0            # m above each defender's start point
+  arc_radius: 150.0         # m from the base to the defenders: outside the evaluation's
+                            # goal radius (intercept.goal_radius, 100 m) and just outside
+                            # hive_base's forest (trees up to 120 m from the base)
+  altitude: 30.0            # m above each defender's start point (trees reach 20 m)
   aim_beyond_arc: 30.0      # the camera aims this far beyond the arc
   sweep_deg_s: 30.0         # how fast the aim point crosses the sector, seen from the base
-  # The baseline detector sees about 50 m, so the distances are small.
-  leash_m: 200.0            # an attacker further from the base than this turns back
+  # The baseline detector sees about 50-70 m, so the distances are small.
+  leash_m: 400.0            # an attacker further from the base than this turns back
   close_radius_m: 100.0     # inside this a confirmed target may take the last defender
+                            # (= the evaluation's goal radius)
   reserve: 1
   resweep_delay_s: 10.0
   confirmed_hits: 10
@@ -63,3 +80,12 @@ surveillance:
   track_expiry_s: 5.0
   status_hz: 2.0
   status_timeout_s: 5.0
+
+# Baseline evaluation (`mount-backend.sh baseline-eval`, tests/baseline_eval_test.py). The
+# intercept: and detect: sections keep the planning report's values (config.py defaults:
+# 30 seeds, aspects 0/30/60/90, speeds 4-17 m/s, hostile altitudes 20-120 m, goal radius
+# 100 m, interceptor 12 m/s); only what the real detector in Gazebo needs differs.
+detect:
+  match_radius_px: 25.0     # a confirmed track counts as the hostile within this of where the
+                            # truth projects it (3 px in the fast sim; in Gazebo the box centre
+                            # and PX4's camera orientation put it up to ~2 deg = ~20 px off)

@@ -143,6 +143,22 @@ def test_a_hit_removes_the_target_and_loses_the_attacker():
     assert mode(s, 2) is Mode.LOST and 'A' not in s.targets
 
 
+def test_a_kill_removes_the_target_and_sends_the_attacker_back():
+    s = station()
+    s.on_sightings([see(2)], 1.0)
+    orders = s.on_kill(2, 2.0)
+    assert Order(2, Mode.RETURN) in orders
+    assert mode(s, 2) is Mode.RETURN and 'A' not in s.targets
+    s.on_returned(2, 3.0)
+    assert mode(s, 2) is Mode.PATROL
+
+
+def test_a_kill_by_a_drone_on_patrol_changes_nothing():
+    s = station()
+    assert s.on_kill(1, 2.0) == []
+    assert mode(s, 1) is Mode.PATROL
+
+
 def test_returned_drone_gets_its_sector_back_after_the_delay():
     s = station(resweep_delay_s=10.0)
     s.on_sightings([see(2)], 1.0)

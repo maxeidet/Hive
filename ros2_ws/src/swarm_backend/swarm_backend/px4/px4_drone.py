@@ -121,6 +121,26 @@ class PX4Drone(Drone):
 
         self._log.info(f'Using topics under "{topics.namespace or "/"}", system id {config.system_id}')
 
+    def reset(self, home: Vector3) -> None:
+        """Forget everything about the PX4 behind this drone: it was stopped and a new one
+        started (same instance, so the same topics) at `home`, world NED on the ground."""
+        self.home = home
+        self.position = self.velocity = self.attitude = self.stamp = None
+        self.connected = self.preflight_ok = self.armed = self.offboard = self.landing = False
+        self.target = None
+        self.gimbal = None
+        self.nav_state = None
+        self._setpoint = None
+        self._tracking = True
+        self._yaw = 0.0
+        self._want_armed = None
+        self._want_offboard = self._want_land = self._disarm_on_touchdown = False
+        self._want_gimbal = self._gimbal_aim = None
+        self._gimbal_tries = 0
+        self._gimbal_controlled = False
+        self._still_on_ground_since = None
+        self._streamed_ticks = 0
+
     # --- commands ----------------------------------------------------------
 
     def arm(self) -> None:
