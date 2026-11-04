@@ -33,3 +33,15 @@ def test_every_kind_has_its_mesh_and_a_sensible_scale(kind):
     k = birds.KINDS[kind]
     assert (Path(__file__).resolve().parents[4] / 'worlds' / 'birds' / k.mesh).exists()
     assert 0 < k.scale < 1
+
+
+def test_label_adds_the_label_system():
+    model = ET.fromstring(birds.bird_sdf('b', birds.KINDS['dove'], label=2)).find('model')
+    assert model.find('plugin').get('name') == 'gz::sim::systems::Label'
+    assert model.find('plugin/label').text == '2'
+    assert ET.fromstring(birds.bird_sdf('b', birds.KINDS['dove'])).find('model/plugin') is None
+
+
+def test_flying_birds_are_the_ones_the_generators_use():
+    assert set(birds.FLYING) == {'dove', 'seagull', 'gull', 'eagle', 'soaring_bird'}
+    assert all(0.3 < birds.KINDS[k].span < 2.5 for k in birds.FLYING)

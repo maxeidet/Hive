@@ -32,16 +32,29 @@ class Kind:
     scale: float  # mesh units -> metres
     yaw: float = 0.0  # radians: turns the mesh so it faces +x (its flight direction)
     roll: float = 1.5708  # radians: glTF files are y-up, Gazebo is z-up
+    span: float = 0.45  # metres across the wings (the generators use it for the distance)
+    flying: bool = True  # in a flying pose (wings spread): used by the data generators
 
 
-# Scales from each file's size (largest extent across the wings) to a realistic wingspan:
-# dove and mourning dove about 0.45 m, the flock's birds about 0.4 m each. Check them by
-# eye next to a drone (0.5 m across) and adjust here if needed.
+# Scales from each file's size (its extent across the wings) to a realistic wingspan; `span`
+# is the width across the wings after scaling, as seen from above. The
+# orientations of the 18 Oct birds come from top, front and side views of their meshes:
+# eagle faces -z with its wings along x, the gulls face +x with their wings along z (raised
+# in a V), soaring_bird is modelled z-up facing +x with its wings along y.
 KINDS = {
-    'dove': Kind('dove.glb', 0.45 / 27.153),
-    'mourning_dove': Kind('mourning_dove.glb', 0.45 / 5.466),
-    'flock': Kind('flock.glb', 0.4 * 5 / 3.924),  # five birds about 4 units across
+    'dove': Kind('dove.glb', 0.45 / 27.153, yaw=1.5708),  # faced east at yaw 0 (box test 17 Oct);
+    # seen from above its wings are spread, so it counts as flying (it has its feet down)
+    'mourning_dove': Kind('mourning_dove.glb', 0.45 / 5.466,
+                          flying=False),  # renders as a thin sliver (box test 17 Oct)
+    'flock': Kind('flock.glb', 0.4 * 5 / 3.924, span=2.0, flying=False),  # five birds about 4 units across
+    # The gulls' wings are raised, so across them they are only a little wider than long:
+    # scaled by their length (0.7 and 0.55 m, beak to tail) instead of the wingspan.
+    'seagull': Kind('seagull.glb', 0.7 / 82.163, span=0.75),
+    'gull': Kind('gull.glb', 0.55 / 82.163, span=0.6),  # same shape as seagull, smaller
+    'eagle': Kind('eagle.glb', 1.9 / 260.07, yaw=-1.5708, span=1.9),
+    'soaring_bird': Kind('soaring_bird.glb', 0.9 / 241.44, roll=0.0, span=0.9),
 }
+FLYING = [name for name, kind in KINDS.items() if kind.flying]
 
 
 def enu(north: float, east: float, up: float) -> tuple[float, float, float]:
@@ -56,13 +69,17 @@ def yaw_quaternion(heading: float) -> tuple[float, float, float, float]:
     return 0.0, 0.0, math.sin(angle / 2), math.cos(angle / 2)
 
 
-def bird_sdf(name: str, kind: Kind) -> str:
-    """A static, collision-free model that shows the bird's mesh."""
+def bird_sdf(name: str, kind: Kind, label: int | None = None) -> str:
+    """A static, collision-free model that shows the bird's mesh. `label`: a class number
+    for Gazebo's bounding-box and segmentation cameras (the Label system), or None."""
     s = kind.scale
+    plugin = '' if label is None else (
+        '\n    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">'
+        f'<label>{label}</label></plugin>')
     return f'''<?xml version="1.0"?>
 <sdf version="1.9">
   <model name="{name}">
-    <static>true</static>
+    <static>true</static>{plugin}
     <link name="body">
       <visual name="visual">
         <pose>0 0 0 {kind.roll} 0 {kind.yaw}</pose>
@@ -92,7 +109,8 @@ def world_name() -> str:
 
 
 class Gazebo:
-    """The three Gazebo services this needs: create, set_pose and remove."""
+    """The Gazebo services for putting models in the world and moving them (create,
+    set_pose, remove), and for changing the sun (light_config)."""
 
     def __init__(self, world: str | None = None):
         from gz.transport13 import Node
@@ -106,10 +124,15 @@ class Gazebo:
         return bool(ok and reply.data)
 
     def spawn(self, name: str, kind: Kind, north: float, east: float, up: float,
-              heading: float = 0.0) -> bool:
+              heading: float = 0.0, label: int | None = None) -> bool:
+        return self.spawn_sdf(name, bird_sdf(name, kind, label), north, east, up, heading)
+
+    def spawn_sdf(self, name: str, sdf: str, north: float, east: float, up: float,
+                  heading: float = 0.0) -> bool:
+        """Any model from its SDF text, facing `heading` (radians from north)."""
         from gz.msgs10.entity_factory_pb2 import EntityFactory
         request = EntityFactory()
-        request.sdf = bird_sdf(name, kind)
+        request.sdf = sdf
         request.name = name
         _fill_pose(request.pose, north, east, up, heading)
         return self._call('create', request, EntityFactory)
@@ -121,6 +144,37 @@ class Gazebo:
         request.name = name
         _fill_pose(request, north, east, up, heading)
         return self._call('set_pose', request, Pose, timeout_ms)
+
+    def set_pose(self, name: str, xyz_enu: tuple[float, float, float],
+                 quaternion: tuple[float, float, float, float], timeout_ms: int = 5000,
+                 tries: int = 2) -> bool:
+        """Put a model anywhere, in Gazebo's own frame (ENU) and orientation (x, y, z, w).
+        Gazebo answers on its next simulation step, which takes long when it runs slowly
+        (a real-time factor of 0.1 gave 0.3-0.5 s answers and some over 1 s), so the wait is
+        generous and a timed-out call is sent once more."""
+        from gz.msgs10.pose_pb2 import Pose
+        request = Pose()
+        request.name = name
+        request.position.x, request.position.y, request.position.z = xyz_enu
+        (request.orientation.x, request.orientation.y, request.orientation.z,
+         request.orientation.w) = quaternion
+        return any(self._call('set_pose', request, Pose, timeout_ms) for _ in range(tries))
+
+    def set_sun(self, name: str, direction_enu: tuple[float, float, float],
+                diffuse: tuple[float, float, float], specular: float = 0.3) -> bool:
+        """Change a directional light (the world's sun) while Gazebo runs."""
+        from gz.msgs10.light_pb2 import Light
+        request = Light()
+        request.name = name
+        request.type = Light.DIRECTIONAL
+        request.direction.x, request.direction.y, request.direction.z = direction_enu
+        request.diffuse.r, request.diffuse.g, request.diffuse.b = diffuse
+        request.diffuse.a = 1.0
+        request.specular.r = request.specular.g = request.specular.b = specular
+        request.specular.a = 1.0
+        request.cast_shadows = True
+        request.intensity = 1.0
+        return self._call('light_config', request, Light)
 
     def remove(self, name: str) -> bool:
         from gz.msgs10.entity_pb2 import Entity
