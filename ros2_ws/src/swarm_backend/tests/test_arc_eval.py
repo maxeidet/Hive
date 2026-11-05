@@ -156,9 +156,9 @@ def test_missing_truth_is_skipped():
 
 
 def test_saved_runs_load_back_and_summarize(tmp_path):
-    from baseline_eval_test import as_detect, as_intercept, load_runs, save_run, summary_text
-
     from swarm_backend.config import load_config
+    from swarm_backend.scenarios.baseline_eval import (
+        as_detect, as_intercept, load_runs, save_run, summary_text)
 
     truth, records, statuses = flight()
     scenario, _ = make_intercept_scenario(0.0, 4.0, 3, ICONFIG, ARC)

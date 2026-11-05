@@ -11,7 +11,7 @@
 #   ./mount-backend.sh patrol 1                          (and 2, 3)
 #
 # Then fly the hostile drone (drone 4) from the shell toward the base, from the threat
-# heading. Or run the whole test: ./mount-backend.sh attacktest
+# heading. Or run the whole scenario: ./mount-backend.sh scenario attack (--sim: no Gazebo)
 # Same format as config/swarm.yaml (see the comments there).
 
 swarm:
@@ -81,7 +81,7 @@ surveillance:
   status_hz: 2.0
   status_timeout_s: 5.0
 
-# Baseline evaluation (`mount-backend.sh baseline-eval`, tests/baseline_eval_test.py). The
+# Baseline evaluation (`mount-backend.sh scenario baseline_eval`, swarm_backend/scenarios/). The
 # intercept: and detect: sections keep the planning report's values (config.py defaults:
 # 30 seeds, aspects 0/30/60/90, speeds 4-17 m/s, hostile altitudes 20-120 m, goal radius
 # 100 m, interceptor 12 m/s); only what the real detector in Gazebo needs differs.
