@@ -29,6 +29,15 @@ world); gate --gate-deg. Until PX4's camera orientation is known they are matche
 (gate --gate), and switching between the two starts the tracks over. --horizon ROW can cut off
 everything below a fixed image row, e.g. 360 for a level gimbal at 1280x720. LiveDetector
 is also used by tests/detection_test.py.
+
+--tracker bytetrack uses ByteTrack (bytetrack.py) instead of that k-in-a-row matching: a
+Kalman filter per track in pixels, moved along when the camera turns (from PX4's
+orientation in this image and the last), and low-score detections used to continue
+tracks but never to start them. Its score thresholds depend on the detector (--high,
+--low, --new; defaults in TRACK_SCORES); for the baseline the detector's own --contrast
+is lowered to --low so that it reports the weak candidates too. In the debug image a
+track is drawn with its id: red = confirmed, yellow = tentative (images seen), grey =
+lost (where the filter predicts it, with the images since it was last seen).
 """
 import argparse
 import math
@@ -47,7 +56,9 @@ from swarm_backend.detect import detectors
 from swarm_backend.detect.camera import GIMBAL_HFOV, CameraModel, camera_roll
 from swarm_backend.detect.orientation import Axes
 from swarm_backend.detect.candidates import above_line
+from swarm_backend.detect.bytetrack import ByteTracker, Settings, State
 from swarm_backend.detect.detectors import Detection, Detector, draw
+from swarm_backend.detect.kalman import Noise, rotation_homography
 from swarm_backend.detect.tracking import Confirmer, Track, angle_between
 from swarm_backend.sensor_view import (
     bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
@@ -56,6 +67,12 @@ CANDIDATE = (255, 220, 0)
 CONFIRMED = (255, 0, 0)
 HORIZON = (0, 160, 255)
 CENTRE = (255, 255, 255)
+LOST = (170, 170, 170)
+
+# ByteTrack's score thresholds per detector (high, low, new), in the detector's own score:
+# the baseline's is contrast in grey levels (it reports nothing under its --contrast, 60 by
+# default, so with ByteTrack that is lowered to `low`), YOLO's a confidence 0-1.
+TRACK_SCORES = {'baseline': (60.0, 30.0, 60.0), 'yolo': (0.5, 0.1, 0.6)}
 
 
 @dataclass
@@ -72,7 +89,8 @@ class Result:
     offset: tuple[float, float] | None = None  # its target_offset (x, y), radians
     axes: Axes | None = None  # camera forward, right, down (world NED) from PX4, if known
     roll: float | None = None  # camera roll used for the offset, radians (None = uncorrected)
-    matching: str = 'pixels'  # how detections were matched to tracks: 'world' or 'pixels'
+    matching: str = 'pixels'  # how detections were matched to tracks: 'world', 'pixels',
+    # or with ByteTrack 'pixels+gimbal' (compensated for the camera turning)
     position: tuple[float, float, float] | None = None  # target_position, world NED, metres
 
 
@@ -125,12 +143,17 @@ def annotate(img: np.ndarray, result: Result) -> np.ndarray:
     seen = [t for t in result.tracks if t.detection is not None]
     tracked = {id(t.detection) for t in seen}
     out = draw(img, [b for b in result.boxes if id(b) not in tracked], CANDIDATE)
+    byte = any(hasattr(t, 'state') for t in result.tracks)  # ByteTrack's tracks
     confirmed = [t for t in seen if t.confirmed]
     out = draw(out, [t.detection for t in confirmed], CONFIRMED,
-               labels=[f'T{t.id} {t.detection.width}px' for t in confirmed])
+               labels=[f'T{t.id} {t.detection.width}px'
+                       + (f' s{t.detection.score:.3g}' if byte else '') for t in confirmed])
     unconfirmed = [t for t in seen if not t.confirmed]
     out = draw(out, [t.detection for t in unconfirmed], CANDIDATE,
-               labels=[str(t.streak) for t in unconfirmed])
+               labels=[f'T{t.id} {t.streak}' if byte else str(t.streak) for t in unconfirmed])
+    lost = [t for t in result.tracks if getattr(t, 'state', None) == State.LOST]
+    out = draw(out, [predicted_box(t) for t in lost], LOST,
+               labels=[f'T{t.id} lost {t.misses}' for t in lost])
     if result.horizon is not None and 0 <= result.horizon < out.shape[0]:
         row = int(result.horizon)
         cv2.line(out, (0, row), (out.shape[1] - 1, row), HORIZON, 1)
@@ -150,13 +173,68 @@ def annotate(img: np.ndarray, result: Result) -> np.ndarray:
     return out
 
 
+def predicted_box(track) -> Detection:
+    """A ByteTrack track's Kalman box (where it should be now) as a Detection, to draw."""
+    u, v, w, h = track.box
+    return Detection(round(u - w / 2), round(v - h / 2), round(w), round(h), 0.0)
+
+
+def add_tracker_options(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group('tracker')
+    group.add_argument('--tracker', choices=('confirmer', 'bytetrack'), default='confirmer',
+                       help='k-in-a-row matching (tracking.py) or ByteTrack (bytetrack.py); '
+                            'default %(default)s')
+    group.add_argument('--high', type=float,
+                       help='ByteTrack: lowest score of a sure detection (default per detector, '
+                            'TRACK_SCORES)')
+    group.add_argument('--low', type=float,
+                       help='ByteTrack: lowest score used at all, to continue tracks')
+    group.add_argument('--new', type=float, help='ByteTrack: lowest score that starts a track')
+    group.add_argument('--max-lost', type=int, default=30,
+                       help='ByteTrack: images a lost track is kept (default %(default)s)')
+    group.add_argument('--gate-sigma', type=float, default=3.0,
+                       help='ByteTrack: largest distance from the prediction, in standard '
+                            'deviations (default %(default)s)')
+    group.add_argument('--min-px', type=float, default=2.0,
+                       help="ByteTrack: floor of the Kalman filter's noise, px (default "
+                            '%(default)s; covers the camera orientation error)')
+
+
+def make_tracker(args: argparse.Namespace, argv: list[str] | None = None
+                 ) -> ByteTracker | None:
+    """The ByteTracker the options ask for, or None for the Confirmer. Call it before
+    making the detector: for the baseline it lowers --contrast to --low (unless --contrast
+    was given) so that the detector also reports the weak candidates ByteTrack can use."""
+    if args.tracker != 'bytetrack':
+        return None
+    high, low, new = TRACK_SCORES.get(args.detector, TRACK_SCORES['yolo'])
+    high = high if args.high is None else args.high
+    low = low if args.low is None else args.low
+    new = new if args.new is None else args.new
+    given = sys.argv[1:] if argv is None else argv
+    if args.detector == 'baseline' and not any(a.startswith('--contrast') for a in given):
+        args.contrast = min(args.contrast, low)
+    return ByteTracker(Settings(high=high, low=low, new=new, k=args.k, max_lost=args.max_lost,
+                                gate=args.gate_sigma, gate_low=args.gate_sigma,
+                                noise=Noise(min_px=args.min_px)))
+
+
+def describe_tracker(tracker: ByteTracker | None) -> str:
+    if tracker is None:
+        return 'Confirmer (k in a row)'
+    s = tracker.settings
+    return (f'ByteTrack (high >= {s.high:g}, low >= {s.low:g}, new >= {s.new:g}, k {s.k}, '
+            f'gate {s.gate:g} sigma, lost kept {s.max_lost} images)')
+
+
 class LiveDetector:
     """Detection on one drone's camera, inside an existing ROS node.
 
     detector: any detector from detectors.py. horizon: callable giving the image row of the
     horizon for the next image (or None to search the whole image). use_px4: read the
     camera's orientation from PX4 (roll for the offset); off, the offset is not
-    roll-corrected. on_result is called with every Result.
+    roll-corrected. on_result is called with every Result. tracker: a ByteTracker to use
+    instead of the confirmers (make_tracker).
     """
 
     def __init__(self, node, drone_id: int, detector: Detector,
@@ -165,7 +243,8 @@ class LiveDetector:
                  on_result: Callable[[Result], None] | None = None,
                  save: Path | None = None, save_every: float = 1.0,
                  use_px4: bool = True, hfov: float = GIMBAL_HFOV,
-                 direction_confirmer: Confirmer | None = None):
+                 direction_confirmer: Confirmer | None = None,
+                 tracker: ByteTracker | None = None):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -191,6 +270,8 @@ class LiveDetector:
         self.confirmer = confirmer or Confirmer()  # in pixels, while the orientation is unknown
         self.world_confirmer = direction_confirmer or world_confirmer(self.confirmer.k)
         self._matching = None
+        self.tracker = tracker
+        self._last_axes: Axes | None = None  # the camera's orientation in the last image
         self.horizon = horizon
         self.on_result = on_result
         self.save = save
@@ -250,15 +331,18 @@ class LiveDetector:
         axes = None if self.px4 is None else self.px4.axes(stamp)
         roll = None if axes is None else camera_roll(axes[0], axes[1])
         camera = CameraModel(self.hfov, msg.width, msg.height)
-        matching = 'pixels' if axes is None else 'world'
-        if matching != self._matching:  # positions of the two kinds can't be compared
-            self.confirmer.tracks.clear()
-            self.world_confirmer.tracks.clear()
-            self._matching = matching
-        if axes is None:
-            tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
+        if self.tracker is not None:
+            tracks, matching = self._byte_track(boxes, camera, axes)
         else:
-            tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
+            matching = 'pixels' if axes is None else 'world'
+            if matching != self._matching:  # positions of the two kinds can't be compared
+                self.confirmer.tracks.clear()
+                self.world_confirmer.tracks.clear()
+                self._matching = matching
+            if axes is None:
+                tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
+            else:
+                tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
         target = best_target(tracks)
         offset = position = None
         if target is not None:
@@ -294,6 +378,17 @@ class LiveDetector:
             self._last_save = stamp
         if self.on_result is not None:
             self.on_result(result)
+
+    def _byte_track(self, boxes: list[Detection], camera: CameraModel, axes: Axes | None):
+        """ByteTrack on this image; the tracks are moved along for the camera's turning since
+        the last image when the orientation is known in both. Returns all tracks (lost ones
+        too, to draw them) and how they were matched."""
+        homography = None
+        if axes is not None and self._last_axes is not None:
+            homography = rotation_homography(camera, self._last_axes, axes)
+        self._last_axes = axes
+        self.tracker.update(boxes, homography)
+        return list(self.tracker.tracks), 'pixels' if homography is None else 'pixels+gimbal'
 
 
 def result_record(result: Result) -> dict:
@@ -339,7 +434,9 @@ def main(argv: list[str] | None = None) -> int:
                         help='append one JSON line per processed image to this file (boxes, '
                              'confirmed tracks; used by the baseline evaluation)')
     detectors.add_options(parser)
+    add_tracker_options(parser)
     args = parser.parse_args(argv)
+    tracker = make_tracker(args, argv)  # before the detector: may lower --contrast
     try:
         detector = detectors.make(args.detector, args)
     except NotImplementedError as e:
@@ -384,7 +481,8 @@ def main(argv: list[str] | None = None) -> int:
         live = LiveDetector(node, args.id, detector, Confirmer(k=args.k, gate=args.gate),
                             args.rate, lambda: args.horizon, log, args.save, args.save_every,
                             use_px4=not args.no_px4,
-                            direction_confirmer=world_confirmer(args.k, args.gate_deg))
+                            direction_confirmer=world_confirmer(args.k, args.gate_deg),
+                            tracker=tracker)
     except RuntimeError as e:
         print(e)
         return 1
@@ -392,7 +490,8 @@ def main(argv: list[str] | None = None) -> int:
           f'{live.camera.gz_topic}\n  -> {live.camera.ros_topic}\n'
           f'  target_offset on {live.offset_topic}\n'
           f'  target_position on {live.position_topic}\n  debug image on {live.debug_topic}\n'
-          f'  camera orientation from PX4: {"off" if args.no_px4 else "on"}')
+          f'  camera orientation from PX4: {"off" if args.no_px4 else "on"}\n'
+          f'  tracker: {describe_tracker(tracker)}')
     if live._bridge is None:
         print('  using the camera bridge another program (e.g. view) already runs: '
               'closing that stops the images here too')

@@ -46,3 +46,77 @@ def test_a_gimbal_turn_keeps_the_track_when_matching_by_world_direction():
         tracks = confirmer.update(directions([box], camera, axes), [box])
     assert pixel_jumps[0] - pixel_jumps[1] > 20  # in pixels it jumped past the 20 px gate
     assert len(tracks) == 1 and tracks[0].confirmed  # in the world it stayed one track
+
+
+# --- ByteTrack in the live detector ----------------------------------------------------
+
+def _args(argv):
+    import argparse
+
+    from swarm_backend.detect import detectors
+    from swarm_backend.detect.live import add_tracker_options
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--detector', default='baseline')
+    parser.add_argument('--k', type=int, default=3)
+    detectors.add_options(parser)
+    add_tracker_options(parser)
+    return parser.parse_args(argv)
+
+
+def test_confirmer_is_still_the_default():
+    from swarm_backend.detect.live import make_tracker
+
+    assert make_tracker(_args([]), []) is None
+
+
+def test_bytetrack_with_the_baseline_lowers_its_contrast_to_low():
+    from swarm_backend.detect.live import TRACK_SCORES, make_tracker
+
+    argv = ['--tracker', 'bytetrack']
+    args = _args(argv)
+    tracker = make_tracker(args, argv)
+    high, low, new = TRACK_SCORES['baseline']
+    s = tracker.settings
+    assert (s.high, s.low, s.new, s.k) == (high, low, new, 3)
+    assert args.contrast == low  # the detector now reports the weak candidates too
+    argv = ['--tracker', 'bytetrack', '--contrast', '45', '--high', '70']
+    args = _args(argv)
+    tracker = make_tracker(args, argv)
+    assert args.contrast == 45 and tracker.settings.high == 70  # given: kept
+
+
+def test_live_bytetrack_follows_a_target_while_the_gimbal_turns():
+    from swarm_backend.detect.bytetrack import ByteTracker, Settings
+    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.fake_detections import camera_axes
+    from swarm_backend.detect.kalman import rotation_homography, warp
+    from swarm_backend.detect.live import LiveDetector
+
+    live = LiveDetector.__new__(LiveDetector)  # without ROS: only the tracking part
+    live.tracker, live._last_axes = ByteTracker(Settings(high=60, low=30, new=60)), None
+    camera = CameraModel()
+    still = camera_axes(0.0, 10.0)
+    for i, yaw in enumerate([0, 3, 6, 9, 12, 15]):  # 3 degrees (~22 px) per image
+        axes = camera_axes(yaw, 10.0)
+        u, v = warp(rotation_homography(camera, still, axes), 700.0, 300.0)
+        tracks, matching = live._byte_track([Detection(round(u) - 3, round(v) - 3, 6, 6, 80.0)],
+                                            camera, axes)
+        assert matching == ('pixels' if i == 0 else 'pixels+gimbal')
+    assert [t.id for t in tracks if t.confirmed] == [1]
+
+
+def test_annotate_draws_bytetrack_tracks_with_lost_ones():
+    import numpy as np
+
+    from swarm_backend.detect.bytetrack import ByteTracker, Settings, State
+    from swarm_backend.detect.live import Result, annotate
+
+    tracker = ByteTracker(Settings(k=2, high=60, low=30, new=60))
+    for i in range(3):
+        tracker.update([Detection(100 + 5 * i, 100, 6, 6, 80.0)])
+    tracker.update([])
+    assert tracker.tracks[0].state == State.LOST
+    img = np.full((240, 320, 3), 200, np.uint8)
+    out = annotate(img, Result(0.0, 320, 240, [], list(tracker.tracks), None, 1.0))
+    assert out.shape == img.shape and (out != img).any()  # the lost box was drawn

@@ -26,7 +26,8 @@ from rclpy.signals import SignalHandlerOptions
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect import detectors
-from swarm_backend.detect.live import LiveDetector, Result
+from swarm_backend.detect.live import (
+    LiveDetector, Result, add_tracker_options, describe_tracker, make_tracker)
 from swarm_backend.detect.tracking import Confirmer
 from swarm_backend.intercept import guidance
 from swarm_backend.px4.drone import pitch_yaw_deg, wrap_deg
@@ -45,7 +46,7 @@ BIN_M = 10.0
 
 class Run:
 
-    def __init__(self, node: Node, config, args):
+    def __init__(self, node: Node, config, args, tracker=None):
         self.args = args
         self.log = node.get_logger()
         self.target = PX4Drone(node, config.drone(args.target), rate_hz=config.rate_hz)
@@ -61,7 +62,7 @@ class Run:
             detectors.make('baseline', args),
             Confirmer(k=args.k, gate=args.gate), rate_hz=args.rate,
             horizon=self._horizon, on_result=self._on_result,
-            save=args.save, save_every=args.save_every)
+            save=args.save, save_every=args.save_every, tracker=tracker)
 
     # --- callbacks (ROS thread) --------------------------------------------
 
@@ -283,12 +284,16 @@ def main():
     parser.add_argument('--save-every', type=float, default=2.0, help='sim seconds')
     parser.add_argument('--csv', help='write one row per image here')
     detectors.add_options(parser)
+    add_tracker_options(parser)
     args = parser.parse_args()
+    args.detector = 'baseline'  # this test runs the baseline only
+    tracker = make_tracker(args)  # before the detector is made: may lower --contrast
+    print(f'Tracker: {describe_tracker(tracker)}')
 
     config = load_config(args.config or default_config_path())
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = Node('detection_test')
-    run = Run(node, config, args)
+    run = Run(node, config, args, tracker)
 
     with spinning(node):
         try:
