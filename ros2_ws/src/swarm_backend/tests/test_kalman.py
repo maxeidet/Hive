@@ -1,8 +1,12 @@
 import math
 import random
 
-from swarm_backend.detect.fake_detections import Errors, crossing_targets, run
-from swarm_backend.detect.kalman import BoxKalman
+import numpy as np
+
+from swarm_backend.detect.camera import CameraModel
+from swarm_backend.detect.fake_detections import (
+    Errors, camera_axes, crossing_targets, panning_camera, run)
+from swarm_backend.detect.kalman import BoxKalman, rotation_homography, warp
 
 
 def test_learns_the_velocity_from_noisy_boxes():
@@ -59,3 +63,66 @@ def test_predicts_better_than_the_last_position_on_the_crossing_targets():
     kalman = sum(kalman_errors[later:]) / len(kalman_errors[later:])
     old = sum(last_errors[later:]) / len(last_errors[later:])
     assert kalman < 4 < 8 < old
+
+
+# --- camera motion (the gimbal turning) ------------------------------------------------
+
+def _prediction_errors(images, axes, compensated: bool) -> list[float]:
+    """Distance from each track's prediction to its target's next detection."""
+    camera = CameraModel()
+    filters, errors = {}, []
+    for i, image in enumerate(images):
+        h = rotation_homography(camera, axes[i - 1], axes[i]) if i else None
+        if compensated and h is not None:
+            for kf in filters.values():
+                kf.compensate(h)
+        for d, target in zip(image.detections, image.sources):
+            box = (d.u, d.v, d.width, d.height)
+            if target in filters:
+                errors.append(math.dist(filters[target].predict()[:2], box[:2]))
+                filters[target].update(box)
+            else:
+                filters[target] = BoxKalman(box)
+    return errors[len(errors) // 3:]  # after the velocities are learnt
+
+
+def test_same_orientation_changes_nothing():
+    camera, axes = CameraModel(), camera_axes(30.0, 5.0)
+    h = rotation_homography(camera, axes, axes)
+    assert np.allclose(h, np.eye(3))
+
+
+def test_turning_right_moves_the_image_left():
+    camera = CameraModel()
+    h = rotation_homography(camera, camera_axes(0.0), camera_axes(5.0))
+    u, v = warp(h, camera.cx, camera.cy)
+    assert math.isclose(u, camera.cx - camera.f * math.tan(math.radians(5)), abs_tol=1e-6)
+    assert math.isclose(v, camera.cy, abs_tol=1e-6)
+
+
+def test_compensate_moves_the_track_but_keeps_its_own_velocity():
+    camera = CameraModel()
+    kf = BoxKalman((camera.cx, camera.cy, 10.0, 10.0))
+    for i in range(1, 10):
+        kf.predict()
+        kf.update((camera.cx + 5.0 * i, camera.cy, 10.0, 10.0))
+    u_before = kf.box[0]
+    assert kf.compensate(rotation_homography(camera, camera_axes(0.0), camera_axes(2.0)))
+    assert kf.box[0] < u_before - 12  # 2 degrees ~ 14 px to the left
+    assert abs(kf.velocity[0] - 5.0) < 0.5  # the target's own motion is unchanged
+
+
+def test_turning_away_from_the_track_is_refused():
+    camera = CameraModel()
+    kf = BoxKalman((camera.cx, camera.cy, 10.0, 10.0))
+    assert not kf.compensate(rotation_homography(camera, camera_axes(0.0), camera_axes(180.0)))
+    assert kf.box[:2] == (camera.cx, camera.cy)
+
+
+def test_a_swinging_gimbal_breaks_the_prediction_unless_compensated():
+    frames, axes = panning_camera(crossing_targets())
+    images = run(frames, 1280, 720, Errors(miss=0.0, weak=0.0, false_per_image=0.0), seed=3)
+    without = _prediction_errors(images, axes, compensated=False)
+    with_ = _prediction_errors(images, axes, compensated=True)
+    mean = lambda e: sum(e) / len(e)
+    assert mean(with_) < 4 < 10 < mean(without)

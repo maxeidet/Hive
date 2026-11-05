@@ -2,8 +2,9 @@
 testing the tracker (ByteTrack) before a trained detector exists.
 
 The truth is where each target really is in the image: a box per target and image. It
-comes from a made-up scenario (`crossing_targets`, no Gazebo needed) or from the truth
-saved next to a camera image (`targets_from_truth`, see ground_truth.truth). `detect`
+comes from a made-up scenario (`crossing_targets`, no Gazebo needed; `panning_camera`
+adds a swinging gimbal to it) or from the truth saved next to a camera image
+(`targets_from_truth`, see ground_truth.truth). `detect`
 turns one image's truth into what a detector would report, with:
 
   - noise on the box centre and size,
@@ -19,7 +20,10 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect.detectors import Detection
+from swarm_backend.detect.kalman import rotation_homography, warp
+from swarm_backend.detect.orientation import Axes
 
 
 @dataclass(frozen=True)
@@ -107,6 +111,42 @@ def crossing_targets(images: int = 60, width: int = 1280, height: int = 720,
                 boxes.append(TruthBox(target_id, u, v, size_px, size_px))
         frames.append(boxes)
     return frames
+
+
+def camera_axes(yaw_deg: float, pitch_deg: float = 0.0) -> Axes:
+    """(forward, right, down), world NED, of an unrolled camera turned yaw_deg from north
+    (right positive) and pitch_deg up."""
+    yaw, pitch = math.radians(yaw_deg), math.radians(pitch_deg)
+    forward = (math.cos(pitch) * math.cos(yaw), math.cos(pitch) * math.sin(yaw), -math.sin(pitch))
+    right = (-math.sin(yaw), math.cos(yaw), 0.0)
+    down = (forward[1] * right[2] - forward[2] * right[1],  # forward x right
+            forward[2] * right[0] - forward[0] * right[2],
+            forward[0] * right[1] - forward[1] * right[0])
+    return forward, right, down
+
+
+def panning_camera(frames: list[list[TruthBox]], camera: CameraModel = CameraModel(),
+                   swing_deg: float = 10.0, period_images: int = 20, pitch_deg: float = 10.0
+                   ) -> tuple[list[list[TruthBox]], list[Axes]]:
+    """The same targets seen by a camera whose gimbal swings left and right (yaw =
+    swing_deg * sin, one swing per period_images), as a gimbal searching or following
+    does. `frames` are where the targets are for a camera that stays at yaw 0; returns
+    where they show in the swinging camera, and its orientation in each image (what PX4
+    would report). The targets jump across the image by up to ~swing_deg * 2 pi /
+    period_images degrees per image (7 px per degree near the centre of the gimbal camera)."""
+    still = camera_axes(0.0, pitch_deg)
+    seen, all_axes = [], []
+    for i, boxes in enumerate(frames):
+        axes = camera_axes(swing_deg * math.sin(2 * math.pi * i / period_images), pitch_deg)
+        homography = rotation_homography(camera, still, axes)
+        moved = []
+        for t in boxes:
+            uv = warp(homography, t.u, t.v)
+            if uv is not None and 0 <= uv[0] < camera.width and 0 <= uv[1] < camera.height:
+                moved.append(TruthBox(t.id, uv[0], uv[1], t.width, t.height))
+        seen.append(moved)
+        all_axes.append(axes)
+    return seen, all_axes
 
 
 def targets_from_truth(truth: dict, drone_size_m: float = 0.5) -> list[TruthBox]:

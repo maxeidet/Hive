@@ -16,11 +16,23 @@ and can be found again a few images later.
 
 The noise is a fraction of the box size, as in ByteTrack (a big box near the camera moves
 more px than a small one far away), with a floor in px so that the tiny boxes of far
-drones still get a sensible uncertainty. dt = 1 image. Pure numpy, no ROS.
+drones still get a sensible uncertainty. dt = 1 image.
+
+When the camera turns (the gimbal, or the drone under it), every target jumps across the
+image although it hardly moved in the world. That is not the target's motion, so it must
+not end up in the velocity: before predict(), the tracker moves each track from the last
+image's pixels to the new image's with compensate(rotation_homography(...)), from the
+camera's orientation in both images (PX4's gimbal attitude, orientation.py). This is
+BoT-SORT's camera motion compensation, but with the rotation known instead of estimated
+from the images. Only the camera's turning is removed; its own flight moves targets
+slowly and smoothly, which the velocity follows. Pure numpy, no ROS.
 """
 from dataclasses import dataclass
 
 import numpy as np
+
+from swarm_backend.detect.camera import CameraModel
+from swarm_backend.detect.orientation import Axes
 
 Box = tuple[float, float, float, float]  # u, v (centre), w, h; px
 
@@ -73,6 +85,28 @@ class BoxKalman:
         self.cov = (np.eye(8) - gain @ H) @ self.cov
         return self.box
 
+    def compensate(self, homography: np.ndarray) -> bool:
+        """Moves the track into the next image's pixels after the camera turned (before
+        predict). The centre is mapped exactly; the velocity, size and uncertainty are
+        turned and scaled by how the image is stretched around the centre (the
+        homography's Jacobian there). False, and nothing changed, if the centre would end
+        up behind the camera (the camera turned more than 90 degrees away)."""
+        u, v = self.mean[:2]
+        x, y, w = homography @ np.array([u, v, 1.0])
+        if w <= 1e-9:
+            return False
+        new_u, new_v = x / w, y / w
+        jacobian = (homography[:2, :2] - np.outer([new_u, new_v], homography[2, :2])) / w
+        scale = float(np.sqrt(abs(np.linalg.det(jacobian))))
+        t = np.zeros((8, 8))
+        for at in (0, 4):  # position and velocity are turned the same way
+            t[at:at + 2, at:at + 2] = jacobian
+            t[at + 2, at + 2] = t[at + 3, at + 3] = scale
+        self.mean = t @ self.mean
+        self.mean[:2] = new_u, new_v  # exact, not the linearised map
+        self.cov = t @ self.cov @ t.T
+        return True
+
     # --- reading it -----------------------------------------------------------------
 
     @property
@@ -93,3 +127,26 @@ class BoxKalman:
 
     def _std(self, fraction: float, box: Box) -> float:
         return max(self.noise.min_px, fraction * max(box[2], box[3]))
+
+
+def rotation_homography(camera: CameraModel, old: Axes, new: Axes) -> np.ndarray:
+    """3x3 matrix taking a pixel of the image taken with orientation `old` to where the same
+    world direction shows in the image taken with `new` (only the camera turned: exact for
+    any distance). Axes are (forward, right, down), world NED unit vectors.
+
+    pixel -> camera ray (K^-1) -> world (old axes) -> new camera's ray (new axes) -> pixel (K)
+    """
+    k = np.array([[camera.f, 0.0, camera.cx], [0.0, camera.f, camera.cy], [0.0, 0.0, 1.0]])
+    return k @ _to_world(new).T @ _to_world(old) @ np.linalg.inv(k)
+
+
+def warp(homography: np.ndarray, u: float, v: float) -> tuple[float, float] | None:
+    """Where pixel (u, v) goes; None if behind the camera."""
+    x, y, w = homography @ np.array([u, v, 1.0])
+    return None if w <= 1e-9 else (float(x / w), float(y / w))
+
+
+def _to_world(axes: Axes) -> np.ndarray:
+    """Camera ray (x right, y down, z forward, as K uses) -> world NED."""
+    forward, right, down = axes
+    return np.column_stack([right, down, forward])
