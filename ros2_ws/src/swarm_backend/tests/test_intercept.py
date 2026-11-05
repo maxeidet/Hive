@@ -13,7 +13,7 @@ from swarm_backend.intercept.paths import PATTERNS, make_path
 from swarm_backend.intercept.target import PositionFix, TargetSource
 from swarm_backend.intercept.tracker import KalmanTracker
 
-from sim import SimDrone
+from swarm_backend.fast_sim import SimDrone
 
 ALT = -50.0
 DT = 0.1

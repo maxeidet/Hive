@@ -23,7 +23,7 @@ from swarm_backend.detect.metrics import detection_by_range, score_run, summariz
 from swarm_backend.detect.scan import SectorScan
 from swarm_backend.detect.scenario import run_scenario, scenario_grid
 
-from sim import DetectFastSim
+from swarm_backend.fast_sim import DetectFastSim
 
 CONFIG = DetectConfig()
 NOT_YET = 'detection baseline not implemented yet ({})'
