@@ -25,6 +25,8 @@ export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.
 ./mount-backend.sh baseline-eval summary                   # the report's tables from the saved runs
 ```
 
+Or in one command, without the `export` and `spawn`: `scenarios/baseline_eval.sh` takes the same arguments (`intercept`, `detect`, `summary`), starts the drones that are not running and waits for them. It also runs without a terminal, so `nohup` works as well as `tmux`.
+
 Each run is appended to `data/baseline_eval/intercept.jsonl` or `detect.jsonl`, and runs already there are skipped. So Ctrl-C (the defenders land) and starting again picks up where it stopped. `--rerun` flies saved runs again. After a batch the tables are printed and written to `data/baseline_eval/summary.txt`. Don't run `detect`, `attacktest` or the patrol and base-station commands alongside it.
 
 ## What it does
@@ -67,7 +69,8 @@ Everything else is the harness's: seeds, aspects, speeds, altitudes, goal radius
 
 | File | What |
 |---|---|
-| `tests/baseline_eval_test.py` | The Gazebo runner (`intercept`, `detect`, `summary`); reuses `tests/attack_test.py` |
+| `swarm_backend/scenarios/baseline_eval.py` | The scenario (`intercept`, `detect`, `summary`; `--sim` for the fast simulation, into `data/baseline_eval_sim/`); flies in `SurveillanceWorld` (`scenarios/surveillance.py`), shared with the attack scenario |
 | `swarm_backend/intercept/arc_eval.py` | The harness's scenarios placed on the arc; recordings → the harness's `Sample`s and `FrameRecord`s |
 | `swarm_backend/detect/live.py --record` | One JSON line per processed image (boxes, confirmed tracks) |
 | `scenarios/surveillance.yaml` | The arc, and the `detect:` setting above |
+| `scenarios/baseline_eval.sh`, `scenarios/lib.sh` | The one-command launcher, and what launchers share: checks, waiting for the drones, running in the container |

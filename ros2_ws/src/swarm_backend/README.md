@@ -127,7 +127,7 @@ python3 -m pytest tests/test_intercept_baseline.py -s       # full sweep + table
 ./mount-backend.sh baseline-intercept --aspect 90 --speed 8 --seed 3   # one scenario in Gazebo
 ```
 
-To evaluate another method or detector, pass its classes to `run_scenario` in place of `PurePursuitAction` / `noisy_truth` (see `tests/test_intercept_baseline.py`). The fast sim (`tests/sim.py`) runs the full 600-run grid in about 20 s.
+To evaluate another method or detector, pass its classes to `run_scenario` in place of `PurePursuitAction` / `noisy_truth` (see `tests/test_intercept_baseline.py`). The fast sim (`swarm_backend/fast_sim.py`) runs the full 600-run grid in about 20 s.
 
 ### Detection evaluation
 

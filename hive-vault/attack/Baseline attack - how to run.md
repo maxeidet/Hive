@@ -58,7 +58,7 @@ Only for a confirmed target, stamped with the image time. Code: `intercept/detec
 | `intercept/attack_scenario.py` | The test's hostile paths and hit scoring |
 | `nodes/fake_detection.py` | Fake detector node on Gazebo's poses |
 | `nodes/attack_node.py` | Attack node on a PX4 drone |
-| `tests/attack_test.py` | The flight test (tasks 4-6) |
+| `swarm_backend/scenarios/attack.py` (was `tests/attack_test.py`) | The attack scenario (tasks 4-6) |
 | `tests/test_detection.py`, `test_attack.py`, `test_attack_scenario.py` | Unit tests without ROS, including closed-loop runs against a simulated drone |
 
 Settings: the `attack:` section of `config/swarm.yaml`.
