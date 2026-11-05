@@ -49,6 +49,12 @@
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
 #                                      Any drone type; one without sensors shows where it is.
 #                                      (`lidar [ID]` and `camera [ID]` do the same)
+#   ./mount-backend.sh map [ID] [args]  build a 3D map (OctoMap) from drone ID's depth camera or
+#                                      lidar (default 0) and show it in RViz: /mapping/octomap_full.
+#                                      Args: --ns NS --resolution M --max-range M (mapping.py --help)
+#   ./mount-backend.sh maptest [args]  3D mapping flight test: drone 0 (depth or lidar model) maps,
+#                                      flies 6 m north and checks that the map grew
+#                                      (tests/mapping_test.py --help, e.g. --distance 10 --bearing 90)
 #   ./mount-backend.sh snap [ID] [args] save drone ID's camera images as PNGs in data/Manualimages/ of
 #                                      the repo, default drone 2, one per second until Ctrl-C
 #                                      (e.g. snap 2 --count 10 --label sky_30m; --help for more).
@@ -203,6 +209,13 @@ view() {
   run "python3 -m swarm_backend.sensor_view --id ${1:-1} --rviz $PKG/config/sensors.rviz"
 }
 
+mapping() {
+  # Build a 3D map (OctoMap) from the drone's depth camera or lidar (mapping.py).
+  local id="${1:-0}"
+  [ $# -gt 0 ] && shift
+  run "python3 -m swarm_backend.mapping --id $id --rviz $PKG/config/sensors.rviz $*"
+}
+
 restart() {
   local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings
   while [ $# -gt 0 ]; do
@@ -305,6 +318,8 @@ case "$cmd" in
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;
+  map) mapping "$@" ;;
+  maptest) run "python3 $PKG/tests/mapping_test.py --config $CONFIG $*" ;;
   predict) run "python3 -m swarm_backend.detect.predict $*" ;;
   snap)
     id=2
