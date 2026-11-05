@@ -1,8 +1,32 @@
 # 3D mapping plan
 
-How a drone builds a 3D model of an area when it is given a command, using the DAEP exploration planner from LiU. Written 5 Nov 2026 on branch `feat-3d-mapping`. Nothing is built yet: DAEP is cloned and the setup is described here.
+How a drone builds a 3D model of an area when it is given a command, using the DAEP exploration planner from LiU. Written 5 Nov 2026 on branch `feat-3d-mapping`. DAEP builds and the 3D map from one drone works; DAEP does not fly the drone yet (see Status).
 
-Back to [[Home]]. Related: [[Codebase map]], [[StackV2]].
+Back to [[Home]]. Related: [[Progress 2026-11-05 3D mapping]] (what was built and how to run it), [[Codebase map]], [[StackV2]].
+
+---
+
+## Status (updated 5 Nov 2026)
+
+**Done**
+
+| What | Where | Notes |
+|---|---|---|
+| DAEP builds on Jazzy | DAEP fork, branch `feat-3d-mapping` | `colcon build --packages-up-to daep` in the dev container: 0 errors, only warnings. All DAEP nodes start and find each other (`pig.py`, `dfm.py`, `aeplanner`, `rrt`, `coverage_evaluation`, `rpl_exploration`); they then wait for a pose and a map |
+| `lrs_util` removed | DAEP fork, `src/pig.py` | Replaced by `tf_transformations` (same `quaternion_from_euler`) |
+| Launch files fixed | DAEP fork, 5 launch files | `config_package` was declared but not added to the launch description, so `config_package:=daep` had to be passed by hand |
+| Packages in the image | Hive, `docker/Dockerfile` | octomap, octomap_server, irobot_create_msgs, tf_transformations, python3-rtree |
+| Mapping flight test | Hive, `tests/mapping_test.py`, `./mount-backend.sh maptest` | Passed: ×8.3 voxels and +5.4 m reach after flying 6 m north. See [[Progress 2026-11-05 3D mapping]] |
+| 3D map from one drone | Hive, `swarm_backend/mapping.py`, `./mount-backend.sh map [ID]` | Bridges the depth camera / lidar point cloud, publishes TF from Gazebo's true poses on `/mapping_<id>/tf`, runs octomap_server. Map on `/mapping/octomap_full`, voxels on `/mapping/occupied_cells_vis_array`. No DAEP code: it is generic and can be used without DAEP. Unit tests: `tests/test_mapping.py` |
+
+**Seen so far**
+- Drone 0 as `gz_x500_depth` in `hive_base`, headless. Parked on the ground the map holds 2 146 occupied voxels, all ground (z ≈ −0.1 m) in a fan 0.6–8 m in front of the drone, which shows the TF and camera frames are right. After a flight (3 m up, 6 m north, hover, land) it holds 12 973 occupied voxels and reaches y = 14 m, in the direction the drone flew.
+- On the dev laptop the sim runs at a real-time factor of 0.10–0.15 with the depth camera (software rendering). Tests with wall-clock timeouts (e.g. `single_drone_test.py`, 30 s takeoff) time out; scale them or use Stellar.
+
+**Next**
+1. Bridge node in the DAEP fork: `goal` → PX4 setpoint (ENU → NED) → `/goal_reached`, `/init_motion`, pose on `pose`.
+2. Drone parameter file for DAEP (sphere collision checking, z bounds, FOV of the depth camera).
+3. Run DAEP on `/mapping/octomap_full` with a fixed box and check that it explores and stops.
 
 ---
 

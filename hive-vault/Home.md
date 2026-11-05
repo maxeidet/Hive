@@ -32,6 +32,7 @@ Start here, then follow the links.
 | [[Base surveillance plan]] | 3 drones on a quarter circle, option A (widen the sweeps) for the gap while one attacks, central control by the base station with its messages. Decisions open for Jostien |
 | [[Baseline attack - how to run]] | The baseline attack (pure pursuit on the detection topics), the fake detector and the attack flight test: how to run them, the contract, the files, first results |
 | [[Progress 2026-10-14 evaluation harness]] | Evaluation harness for the report's intercept and detection baselines: what was built, the merge with dev, what is still a placeholder |
+| [[Progress 2026-11-05 3D mapping]] | 3D mapping, day 1: DAEP builds on Jazzy, `mount-backend.sh map` builds an OctoMap from a depth-camera drone, the `maptest` flight test, results and what is next |
 | [[3D mapping plan]] | On command (centre + radius), one drone explores the area with the DAEP planner and builds a 3D model (OctoMap): pipeline, where the private DAEP code lives, what we must build, order of work |
 | [[Lock-on brainstorm]]                         | Mindmap: how the drone finds, confirms and keeps a lock on the hostile drone (cue → acquire → confirm → locked → lost)                              |
 

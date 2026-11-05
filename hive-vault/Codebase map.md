@@ -51,6 +51,7 @@ swarm_backend/
 │   ├── runner.py                spins ROS in a background thread; wait_until()
 │   ├── shell.py                 interactive shell (Pilot): takeoff, goto, move, form, land, gimbal, hostile, chase
 │   ├── sensor_view.py           bridges a drone's Gazebo sensors to ROS 2 and opens RViz
+│   ├── mapping.py               3D map (OctoMap) from a drone's depth camera or lidar (see [[3D mapping plan]])
 │   ├── backend_node.py          original single-drone script: arm, offboard, hover at 5 m
 │   ├── keyboard.py              original keyboard teleop
 │   ├── px4/
@@ -78,7 +79,8 @@ swarm_backend/
     ├── single_drone_test.py     Milestone 1 flight test (Gazebo)
     ├── multi_drone_swarm_test.py  Milestone 2 flight test (Gazebo)
     ├── intercept_test.py        chase flight test with a scored summary and optional CSV (Gazebo)
-    └── test_*.py                unit tests without ROS: config, topics, formation, swarm, intercept, sensor_view
+    ├── mapping_test.py          3D mapping flight test: the map grows in the direction flown (Gazebo)
+    └── test_*.py                unit tests without ROS: config, topics, formation, swarm, intercept, sensor_view, mapping
 ```
 
 Dependencies only point downwards: `shell` / `nodes` / `tests` → `swarm` / `intercept` → `Drone` interface → `PX4Drone` → `topics` / `messages`. `formation.py` and `guidance.py` don't use ROS or PX4.
