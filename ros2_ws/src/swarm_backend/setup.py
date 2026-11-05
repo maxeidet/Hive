@@ -31,6 +31,8 @@ setup(
             'mock_radar = swarm_backend.nodes.mock_radar:main',
             'fake_detection = swarm_backend.nodes.fake_detection:main',
             'attack_node = swarm_backend.nodes.attack_node:main',
+            'base_station_node = swarm_backend.nodes.base_station_node:main',
+            'patrol_node = swarm_backend.nodes.patrol_node:main',
         ],
     },
 )

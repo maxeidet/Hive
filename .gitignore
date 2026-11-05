@@ -260,3 +260,5 @@ CLAUDE.md
 training/runs/
 models/
 *.pt
+# Test run output (hive-vault/Testing.md)
+runs/

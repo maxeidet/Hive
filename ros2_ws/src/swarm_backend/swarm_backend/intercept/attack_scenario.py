@@ -1,90 +1,53 @@
-"""The attack test's scenario and scoring (work plan task 4), as pure math.
+"""The attack test's scenario and scoring, as pure math.
 
-The defender hovers at its guard position. The hostile drone flies `height` metres above
-it, so the camera sees it against the sky, through the camera's view, at constant speed:
+The defenders hold their slots on the surveillance arc (surveillance: in swarm.yaml). The
+hostile drone starts `start_m` metres from the base, `bearing_deg` off the threat heading
+(positive to the right, like the arc's slot angles: -30, 0, +30 for three defenders on
+90 degrees), and flies in a straight line toward the base at constant speed, `height`
+metres above the defenders' altitude so the cameras see it against the sky. The run is
+over when it is shot down or reaches the base.
 
-  crossing  a straight line across the view, `ahead` metres in front, from `half_width`
-            metres to one side to `half_width` to the other
-  headon    a straight line from `ahead` metres in front, over the guard position and
-            HEADON_OVERSHOOT_M beyond it
-  circle    a circle of radius `half_width` whose centre is `ahead` metres in front
-  offset    the simplest run: head-on at the defender's own height, but `half_width`
-            metres to its right, so the defender has to turn a little to meet it
-
-"In front" is the attack's search heading. A hit is the two drones within `radius` of
-each other, from their true positions; ClosestApproach also catches a pass between two
-samples (head-on they close at up to 16 m/s). World NED, metres.
+A hit is a defender and the hostile drone within `radius` of each other, from their true
+positions; ClosestApproach also catches a pass between two samples (head-on they close at
+up to 6 m/s). World NED, metres.
 """
 import math
 from dataclasses import dataclass
 
 from swarm_backend.config import Vector3
-from swarm_backend.intercept.paths import Path, make_path
+from swarm_backend.intercept.paths import Path
 
-PATTERNS = ('crossing', 'headon', 'circle', 'offset')
-HEADON_OVERSHOOT_M = 20.0
-DEFAULT_AHEAD = {'crossing': 35.0, 'headon': 80.0, 'circle': 30.0, 'offset': 60.0}
-DEFAULT_HALF_WIDTH = {'crossing': 60.0, 'headon': 0.0, 'circle': 20.0, 'offset': 8.0}
-# Metres above the guard position. More and PX4's 3 m/s climb limit makes head-on attacks
-# fall short; less and the real detector does not see the target against the sky. The
-# offset run is at the same height, for the fake detector only.
-DEFAULT_HEIGHT = {'crossing': 10.0, 'headon': 10.0, 'circle': 10.0, 'offset': 0.0}
+DEFAULT_START_M = 150.0  # from the base: well beyond what the defenders on a 60 m arc see
+# Metres above the defenders. More and PX4's 3 m/s climb limit makes head-on attacks fall
+# short; less and the real detector does not see the target against the sky.
+DEFAULT_HEIGHT_M = 10.0
 
 
 @dataclass(frozen=True)
-class Scenario:
-    pattern: str = 'crossing'
-    speed: float = 4.0  # m/s
-    height: float | None = None  # metres above the guard position; None = the pattern's default
-    ahead: float | None = None  # metres in front of the guard; None = the pattern's default
-    half_width: float | None = None  # crossing half-length, circle radius or offset to the
-    # right; None = the pattern's default
+class Inbound:
+    speed: float = 1.0  # m/s
+    bearing_deg: float = 0.0  # where it comes from, degrees off the threat heading
+    start_m: float = DEFAULT_START_M  # metres from the base
+    height_m: float = DEFAULT_HEIGHT_M  # metres above the defenders' altitude
 
     def __post_init__(self):
-        if self.pattern not in PATTERNS:
-            raise ValueError(f'Unknown pattern {self.pattern!r}; use one of {", ".join(PATTERNS)}')
         if self.speed <= 0:
             raise ValueError('speed must be positive')
-
-    @property
-    def height_m(self) -> float:
-        return DEFAULT_HEIGHT[self.pattern] if self.height is None else self.height
-
-    @property
-    def ahead_m(self) -> float:
-        return DEFAULT_AHEAD[self.pattern] if self.ahead is None else self.ahead
-
-    @property
-    def half_width_m(self) -> float:
-        return DEFAULT_HALF_WIDTH[self.pattern] if self.half_width is None else self.half_width
+        if self.start_m <= 0:
+            raise ValueError('start_m must be positive')
 
 
-def hostile_path(scenario: Scenario, guard: Vector3, heading: float) -> tuple[Path, float | None]:
-    """The hostile drone's path and how many seconds it takes to fly it (None for a
-    circle, which loops until the run times out). `heading` is the defender's search
-    heading, radians from north."""
-    f = (math.cos(heading), math.sin(heading))  # in front
-    r = (-math.sin(heading), math.cos(heading))  # to the right
-    gx, gy, gz = guard
-    z = gz - scenario.height_m
-    ahead, half = scenario.ahead_m, scenario.half_width_m
-
-    def point(forward: float, right: float) -> Vector3:
-        return (gx + forward * f[0] + right * r[0], gy + forward * f[1] + right * r[1], z)
-
-    if scenario.pattern == 'crossing':
-        start, end = point(ahead, -half), point(ahead, half)
-    elif scenario.pattern == 'headon':
-        start, end = point(ahead, 0.0), point(-HEADON_OVERSHOOT_M, 0.0)
-    elif scenario.pattern == 'offset':
-        start, end = point(ahead, half), point(-HEADON_OVERSHOOT_M, half)
-    else:
-        # make_path's circle leaves its start point straight ahead and curves right, so
-        # starting on the far side, heading right, puts the centre `ahead` in front.
-        anchor = point(ahead + half, 0.0)
-        return make_path('circle', anchor, heading + math.pi / 2, scenario.speed, 2 * half), None
-    path = Path([start, end], scenario.speed)
-    return path, math.dist(start, end) / scenario.speed
+def inbound_path(scenario: Inbound, base: tuple[float, float], defender_z: float,
+                 heading: float) -> tuple[Path, float]:
+    """The hostile drone's path from its start point to above the base, and how many seconds
+    it takes to fly it. `defender_z` is the defenders' patrol height (world NED z), `heading`
+    the threat heading, radians from north."""
+    z = defender_z - scenario.height_m
+    direction = heading + math.radians(scenario.bearing_deg)
+    start = (base[0] + scenario.start_m * math.cos(direction),
+             base[1] + scenario.start_m * math.sin(direction), z)
+    end = (base[0], base[1], z)
+    return Path([start, end], scenario.speed), scenario.start_m / scenario.speed
 
 
 def segment_distance(a0: Vector3, a1: Vector3, b0: Vector3, b1: Vector3) -> float:

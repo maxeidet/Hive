@@ -1,0 +1,176 @@
+"""The baseline evaluation on the surveillance arc (intercept/arc_eval.py): his seeded
+scenarios placed on our arc, and a Gazebo run's recordings turned into his Samples and
+FrameRecords."""
+import math
+import random
+
+import pytest
+
+from swarm_backend.config import DetectConfig, InterceptConfig, SurveillanceConfig
+from swarm_backend.detect.metrics import score_run as score_detect
+from swarm_backend.intercept import arc_eval
+from swarm_backend.intercept.arc_eval import (
+    MAX_START_M, TruthPoint, frame_records, intercept_samples, make_detect_scenario,
+    make_intercept_scenario, slots)
+from swarm_backend.intercept.interceptor import Status
+from swarm_backend.intercept.metrics import Outcome, score_run
+from swarm_backend.intercept.scenario import make_scenario
+
+ICONFIG = InterceptConfig()
+DCONFIG = DetectConfig()
+ARC = SurveillanceConfig(arc_radius=150.0, altitude=30.0)
+HFOV = 2.0
+
+
+def angle_deg(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    return math.degrees(math.acos(max(-1.0, min(1.0, dot / (math.hypot(*a) * math.hypot(*b))))))
+
+
+@pytest.mark.parametrize('aspect', ICONFIG.eval_aspects)
+@pytest.mark.parametrize('seed', [0, 1, 7, 29])
+def test_the_aspect_holds_against_the_defender_at_detect_range(aspect, seed):
+    scenario, index = make_intercept_scenario(aspect, 8.0, seed, ICONFIG, ARC)
+    assert scenario.interceptor_start == pytest.approx(slots(ARC)[index])
+    # Where the track (horizontally, as in his scenario) first comes detect_range from the
+    # defender: solve |start + s*d - me| = r; at 90 deg the root is double (closest point).
+    sx, sy = scenario.target_start[:2]
+    gx, gy = scenario.target_goal[:2]
+    length = math.hypot(gx - sx, gy - sy)
+    d = ((gx - sx) / length, (gy - sy) / length)
+    mx, my = scenario.interceptor_start[:2]
+    px, py = sx - mx, sy - my
+    b = px * d[0] + py * d[1]
+    c = px * px + py * py - ICONFIG.detect_range ** 2
+    s_cross = -b - math.sqrt(max(0.0, b * b - c))
+    assert 0.0 < s_cross < length
+    target = (sx + s_cross * d[0], sy + s_cross * d[1])
+    to_me = (mx - target[0], my - target[1], 0.0)
+    velocity = (d[0], d[1], 0.0)
+    assert angle_deg(to_me, (velocity[0], velocity[1], 0.0)) == pytest.approx(aspect, abs=1.0)
+
+
+def test_same_seed_same_draws_as_his_scenario():
+    for seed in range(30):
+        his = make_scenario(30.0, 8.0, seed, ICONFIG)
+        ours, _ = make_intercept_scenario(30.0, 8.0, seed, ICONFIG, ARC)
+        assert ours.target_start[2] == his.target_start[2]  # the altitude draw
+        assert ours.target_goal[:2] == (0.0, 0.0)
+        assert ours.interceptor_start[2] == -30.0
+
+
+def test_every_defender_gets_scenarios_and_the_start_is_out_of_reach():
+    used = set()
+    for seed in range(30):
+        scenario, index = make_intercept_scenario(0.0, 4.0, seed, ICONFIG, ARC)
+        used.add(index)
+        start = math.dist(scenario.target_start[:2], scenario.interceptor_start[:2])
+        assert start >= ICONFIG.detect_range + 50.0
+        assert math.hypot(*scenario.target_start[:2]) <= MAX_START_M
+    assert used == {0, 1, 2}
+
+
+def test_detect_scenario_comes_from_inside_the_arc_and_starts_on_the_ground_plane():
+    for seed in range(30):
+        s = make_detect_scenario(seed, DCONFIG, ARC)
+        bearing = math.degrees(math.atan2(s.hostile.start[1], s.hostile.start[0]))
+        assert abs(bearing) <= ARC.arc_deg / 2 + 1e-9
+        assert math.hypot(*s.hostile.start[:2]) == pytest.approx(MAX_START_M)
+        assert s.birds == () and len(s.defenders) == 3 and s.perimeter_radius == 150.0
+        assert DCONFIG.hostile_altitude_min <= -s.hostile.start[2] <= DCONFIG.hostile_altitude_max
+    # same altitude draw as his scenario
+    rng = random.Random(4)
+    assert make_detect_scenario(4, DCONFIG, ARC).hostile.start[2] == -rng.uniform(
+        DCONFIG.hostile_altitude_min, DCONFIG.hostile_altitude_max)
+
+
+# --- recordings -> metrics ----------------------------------------------------------
+
+def camera_north(position):
+    """A level camera at `position` looking north."""
+    return {'position': position, 'forward': (1.0, 0.0, 0.0), 'right': (0.0, 1.0, 0.0),
+            'down': (0.0, 0.0, 1.0)}
+
+
+def flight(t_end=10.0, hit=True):
+    """Defender 1 at (150, 0, -30) looking north; the hostile comes south straight at it
+    from 40 m, at 4 m/s, and (if hit) is hit at t=10."""
+    truth, records, statuses = [], {1: []}, []
+    me = (150.0, 0.0, -30.0)
+    for i in range(int(t_end * 50) + 1):
+        t = i * 0.02
+        hostile = (190.0 - 4.0 * t, 0.0 if hit else 3.0, -30.0)
+        truth.append(TruthPoint(t, {1: me}, {1: camera_north(me)}, hostile))
+    for i in range(int(t_end * 10) + 1):  # images at 10 Hz, confirmed from t = 1 s
+        t = i * 0.1
+        confirmed = [[640.0, 360.0 if hit else 360.0, 10, 10, 7]] if t >= 1.0 else []
+        records[1].append({'stamp': t, 'width': 1280, 'height': 720, 'boxes': [],
+                           'confirmed': confirmed})
+        statuses.append((t, {1: Status.TRACKING if t >= 1.0 else Status.IDLE}))
+    return truth, records, statuses
+
+
+def test_intercept_samples_score_with_his_metrics():
+    truth, records, statuses = flight()
+    samples = intercept_samples(truth, records, statuses, 1, 0.0, 10.0, HFOV, 0.5, 25.0)
+    assert len(samples) == 101
+    assert samples[0].in_view and not samples[0].detected
+    assert samples[20].detected and samples[20].status is Status.TRACKING
+    scenario, _ = make_intercept_scenario(0.0, 4.0, 0, ICONFIG, ARC)
+    result = score_run(samples, scenario, ICONFIG)
+    assert result.outcome is Outcome.HIT
+    assert result.time_to_hit == pytest.approx(9.0 - 0.375, abs=0.15)  # 1.5 m before contact
+    assert result.lock_on  # in view, confirmed, within 20 m for 3 s
+
+
+def test_frame_records_give_his_detection_metrics():
+    truth, records, _ = flight()
+    scenario = make_detect_scenario(0, DCONFIG, ARC)
+    records_ = frame_records(truth, records, scenario, 0.0, 10.0, HFOV)
+    assert len(records_) == 101
+    result = score_detect(records_, scenario, DCONFIG)
+    assert not result.missed and result.first_detection_time == pytest.approx(1.0)
+    assert result.first_detection_range == pytest.approx(36.0, abs=0.5)
+
+
+def test_a_confirmed_track_on_empty_sky_is_a_false_alarm_and_a_defender_is_not():
+    me, other = (150.0, 0.0, -30.0), (170.0, 0.0, -30.0)
+    truth = [TruthPoint(0.0, {1: me, 2: other}, {1: camera_north(me)}, (0.0, 0.0, -30.0))]
+    record = {'stamp': 0.0, 'width': 1280, 'height': 720, 'boxes': [],
+              'confirmed': [[100.0, 100.0, 4, 4, 1]]}
+    scenario = make_detect_scenario(0, DCONFIG, ARC)
+    (r,) = frame_records(truth, {1: [record]}, scenario, 0.0, 1.0, HFOV)
+    assert [o.id for o in r.frame.objects] == ['defender2']  # the hostile is behind it
+    alone = [TruthPoint(0.0, {1: me}, {1: camera_north(me)}, (0.0, 0.0, -30.0))]
+    (r,) = frame_records(alone, {1: [record]}, scenario, 0.0, 1.0, HFOV)
+    assert r.frame.objects == () and len(r.detections) == 1  # counted as a false alarm
+    assert score_detect([r], scenario, DCONFIG).background_false_alarms == 1
+
+
+def test_missing_truth_is_skipped():
+    truth, records, statuses = flight()
+    late = [p for p in truth if p.stamp > 5.0]
+    assert intercept_samples(late, records, statuses, 1, 0.0, 10.0, HFOV, 0.5,
+                             25.0)[0].t == pytest.approx(4.9, abs=0.15)
+    assert arc_eval.nearest([], [], 1.0) == (None, math.inf)
+
+
+def test_saved_runs_load_back_and_summarize(tmp_path):
+    from baseline_eval_test import as_detect, as_intercept, load_runs, save_run, summary_text
+
+    from swarm_backend.config import load_config
+
+    truth, records, statuses = flight()
+    scenario, _ = make_intercept_scenario(0.0, 4.0, 3, ICONFIG, ARC)
+    metrics = score_run(intercept_samples(truth, records, statuses, 1, 0.0, 10.0, HFOV, 0.5,
+                                          25.0), scenario, ICONFIG)
+    save_run(tmp_path / 'intercept.jsonl', metrics, {'killer': 2})
+    dscenario = make_detect_scenario(0, DCONFIG, ARC)
+    dmetrics = score_detect(frame_records(truth, records, dscenario, 0.0, 10.0, HFOV),
+                            dscenario, DCONFIG)
+    save_run(tmp_path / 'detect.jsonl', dmetrics, {})
+    (row,) = load_runs(tmp_path / 'intercept.jsonl')
+    assert as_intercept(row) == metrics and row['killer'] == 2
+    assert as_detect(load_runs(tmp_path / 'detect.jsonl')[0]) == dmetrics
+    text = summary_text(tmp_path, load_config('scenarios/surveillance.yaml'))
+    assert 'hit=1' in text and 'missed drones' in text and '3 defenders' in text

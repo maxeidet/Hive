@@ -296,6 +296,21 @@ class LiveDetector:
             self.on_result(result)
 
 
+def result_record(result: Result) -> dict:
+    """One image as a JSON-able dict, for --record (the baseline evaluation scores these
+    against Gazebo's truth): every candidate box, and the confirmed tracks seen in it."""
+    def box(d):
+        return [round(d.u, 1), round(d.v, 1), d.width, d.height]
+    return {
+        'stamp': result.stamp, 'width': result.width, 'height': result.height,
+        'boxes': [box(b) + [round(float(b.score), 3)] for b in result.boxes],
+        'confirmed': [box(t.detection) + [t.id] for t in result.tracks
+                      if t.confirmed and t.detection is not None],
+        'target': None if result.target is None else result.target.id,
+        'oriented': result.axes is not None,
+    }
+
+
 def describe(track: Track) -> str:
     d = track.detection
     return f'T{track.id} at ({d.u:.0f}, {d.v:.0f}) {d.width}x{d.height}px score {d.score:.0f}'
@@ -320,6 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--save', type=Path, default=None, help='folder for raw + annotated PNGs')
     parser.add_argument('--save-every', type=float, default=1.0,
                         help='seconds (sim time) between saves')
+    parser.add_argument('--record', type=Path, default=None,
+                        help='append one JSON line per processed image to this file (boxes, '
+                             'confirmed tracks; used by the baseline evaluation)')
     detectors.add_options(parser)
     args = parser.parse_args(argv)
     try:
@@ -333,8 +351,15 @@ def main(argv: list[str] | None = None) -> int:
     rclpy.init()
     node = rclpy.create_node(f'detect_{args.id}')
     stats = {'last_log': 0.0, 'frames': 0, 'ms': 0.0}
+    record = None
+    if args.record:
+        import json
+        args.record.parent.mkdir(parents=True, exist_ok=True)
+        record = open(args.record, 'a', buffering=1)
 
     def log(result: Result) -> None:
+        if record is not None:
+            record.write(json.dumps(result_record(result)) + '\n')
         stats['frames'] += 1
         stats['ms'] += result.ms
         now = time.monotonic()

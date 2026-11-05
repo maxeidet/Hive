@@ -120,9 +120,11 @@ def look_angles(target: Vector3) -> tuple[float, float]:
 class AttackAction:
 
     def __init__(self, drone: Drone, inbox: DetectionInbox, config: AttackConfig,
-                 clock: Callable[[], float | None]):
+                 clock: Callable[[], float | None], guard: Vector3 | None = None):
         """`clock` gives seconds on the clock the inbox's `received` times use (None while
-        it is not known yet)."""
+        it is not known yet). `guard` is where the drone hovers while searching, a world
+        position; the default is above its start point."""
+        self._guard = guard
         self.drone = drone
         self.inbox = inbox
         self.config = config
@@ -150,6 +152,8 @@ class AttackAction:
     @property
     def guard(self) -> Vector3:
         """Where the drone hovers while searching: above its start point."""
+        if self._guard is not None:
+            return self._guard
         x, y, z = self.drone.home
         return (x, y, z - self.config.guard_altitude)
 
