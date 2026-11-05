@@ -192,12 +192,16 @@ def add_tracker_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument('--new', type=float, help='ByteTrack: lowest score that starts a track')
     group.add_argument('--max-lost', type=int, default=30,
                        help='ByteTrack: images a lost track is kept (default %(default)s)')
-    group.add_argument('--gate-sigma', type=float, default=3.0,
+    group.add_argument('--gate-sigma', type=float, default=Settings.gate,
                        help='ByteTrack: largest distance from the prediction, in standard '
                             'deviations (default %(default)s)')
-    group.add_argument('--min-px', type=float, default=2.0,
+    group.add_argument('--min-px', type=float, default=Noise.min_px,
                        help="ByteTrack: floor of the Kalman filter's noise, px (default "
                             '%(default)s; covers the camera orientation error)')
+    group.add_argument('--recover-low', action=argparse.BooleanOptionalAction,
+                       default=Settings.recover_low,
+                       help='ByteTrack: lost tracks may come back on a low-score detection '
+                            '(default %(default)s)')
 
 
 def make_tracker(args: argparse.Namespace, argv: list[str] | None = None
@@ -216,6 +220,7 @@ def make_tracker(args: argparse.Namespace, argv: list[str] | None = None
         args.contrast = min(args.contrast, low)
     return ByteTracker(Settings(high=high, low=low, new=new, k=args.k, max_lost=args.max_lost,
                                 gate=args.gate_sigma, gate_low=args.gate_sigma,
+                                recover_low=args.recover_low,
                                 noise=Noise(min_px=args.min_px)))
 
 

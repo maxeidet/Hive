@@ -49,7 +49,9 @@ class Noise:
     measurement: float = 1 / 20  # how far a detection's box is from the true box
     position: float = 1 / 20  # how much the box can move other than with its velocity, per image
     velocity: float = 1 / 160  # how much the velocity can change, per image
-    min_px: float = 1.0  # floor for the three above
+    min_px: float = 3.0  # floor for the three above: covers a noisy detector and the
+    # camera orientation error (0.35 degrees ~ 2.5 px); below the real noise, tracks break
+    # (track_eval: 3 px noise with a 1 px floor, MOTA 0.76 instead of 0.89)
     initial_velocity_px: float = 10.0  # velocity std of a new track: not seen yet
 
 

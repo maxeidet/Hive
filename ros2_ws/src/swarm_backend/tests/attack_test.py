@@ -48,6 +48,7 @@ import dataclasses
 import datetime
 import math
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -88,11 +89,22 @@ SETTLE_ON_GROUND_S = 2.0  # simulation seconds after moving the hostile model, b
 GRAVEYARD_ENU = (450.0, -450.0)
 POLL_S = 0.05
 DEFAULT_CSV = Path('/workspace/data/surveillance_attack_runs.csv')  # /workspace = the repo
+# --tracker bytetrack writes to its own file, so its rows are never mixed up with the
+# Confirmer's (the tracker column only exists in files started after it was added).
+BYTETRACK_CSV = Path('/workspace/data/surveillance_attack_runs_bytetrack.csv')
+TRACKERS = ('confirmer', 'bytetrack')  # detect/live.py --tracker
 DEFAULT_DETECT_RATE = 20.0
 FIELDS = ['time', 'run', 'bearing_deg', 'start_m', 'hostile_speed', 'height', 'detector',
           'gimbal_gain', 'max_speed', 'seed', 'defenders', 'result', 'hit', 'killer',
           'first_sighting_s', 'first_sighting_by', 'engaged_s', 'engaged_by', 'time_to_hit_s',
-          'closest_m', 'closest_defender', 'kill_from_base_m', 'return_s']
+          'closest_m', 'closest_defender', 'kill_from_base_m', 'return_s', 'tracker']
+
+
+def detector_args(args) -> list[str]:
+    """The tracker options for every real detector (detect/live.py): --tracker and whatever
+    --detect-args adds, e.g. "--gate-sigma 5 --no-recover-low"."""
+    return (['--tracker', getattr(args, 'tracker', 'confirmer')]
+            + shlex.split(getattr(args, 'detect_args', '') or ''))
 
 
 # --- Gazebo and PX4 processes (this runs in the container) -------------------------
@@ -212,6 +224,8 @@ class AttackTest:
                                'scenarios/surveillance.yaml)')
         self.detector = (('fake-realistic' if args.realistic else 'fake')
                          if args.fake_detector else 'real')
+        # the fake detector publishes the target directly, with no tracker in between
+        self.tracker = '' if args.fake_detector else getattr(args, 'tracker', 'confirmer')
         self.heading = math.radians(s.threat_heading_deg)
 
         self.world, self.names, cameras = find_scene(self.ids, self.hostile_id)
@@ -354,10 +368,10 @@ class AttackTest:
                 extra = ['--record', str(path)]
             self.detect_procs.append(subprocess.Popen(
                 [sys.executable, '-m', 'swarm_backend.detect.live', '--id', str(i),
-                 '--rate', str(self.args.detect_rate)] + extra,
+                 '--rate', str(self.args.detect_rate)] + detector_args(self.args) + extra,
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                 start_new_session=True))
-        self.log.info(f'Real detectors started for drones {list(self.ids)}, logs '
+        self.log.info(f'Real detectors ({self.tracker}) started for drones {list(self.ids)}, logs '
                       f'/tmp/detect_<id>.log')
 
     @staticmethod
@@ -483,7 +497,8 @@ class AttackTest:
             'time': datetime.datetime.now().isoformat(timespec='seconds'), 'run': index + 1,
             'bearing_deg': scenario.bearing_deg, 'start_m': scenario.start_m,
             'hostile_speed': scenario.speed, 'height': scenario.height_m,
-            'detector': self.detector, 'gimbal_gain': self.attack_config.gimbal_gain,
+            'detector': self.detector, 'tracker': self.tracker,
+            'gimbal_gain': self.attack_config.gimbal_gain,
             'max_speed': self.attack_config.max_speed, 'seed': self.attack_config.seed,
             'defenders': len(alive), 'result': result, 'hit': int(killer is not None),
             'killer': '' if killer is None else killer,
@@ -518,8 +533,12 @@ class AttackTest:
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             new = not path.exists() or path.stat().st_size == 0
+            fields = FIELDS
+            if not new:  # keep an older file's columns (it may have no tracker column)
+                with open(path, newline='') as f:
+                    fields = next(csv.reader(f), None) or FIELDS
             with open(path, 'a', newline='') as f:
-                writer = csv.DictWriter(f, fieldnames=FIELDS)
+                writer = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore')
                 if new:
                     writer.writeheader()
                 writer.writerow(row)
@@ -570,7 +589,9 @@ class AttackTest:
             return 'No runs finished.'
         hits = [r for r in rows if r['hit']]
         lines = [f'{len(hits)}/{len(rows)} hits (inbound at {self.args.speed} m/s, '
-                 f'detector {self.detector}, gimbal gain {self.attack_config.gimbal_gain})']
+                 f'detector {self.detector}'
+                 + (f', tracker {self.tracker}' if self.tracker else '')
+                 + f', gimbal gain {self.attack_config.gimbal_gain})']
         for r in rows:
             what = (f'hit by drone {r["killer"]} {r["kill_from_base_m"]} m from the base'
                     if r['hit'] else f'{r["result"]}, closest {r["closest_m"]} m')
@@ -604,10 +625,23 @@ def main():
     parser.add_argument('--gain', type=float, default=None, help='gimbal gain (attack config)')
     parser.add_argument('--max-speed', type=float, default=None, help='m/s (attack config)')
     parser.add_argument('--seed', type=int, default=None, help='fake detector noise')
-    parser.add_argument('--csv', default=str(DEFAULT_CSV), help='append one row per run here')
+    parser.add_argument('--tracker', choices=TRACKERS, default='confirmer',
+                        help='tracker of the real detectors (detect/live.py --tracker); '
+                             'default %(default)s')
+    parser.add_argument('--detect-args', default='',
+                        help='more options for every real detector, in quotes, e.g. '
+                             '"--gate-sigma 5 --no-recover-low"')
+    parser.add_argument('--csv', default=None,
+                        help=f'append one row per run here (default {DEFAULT_CSV}, with '
+                             f'--tracker bytetrack {BYTETRACK_CSV})')
     args = parser.parse_args()
     if args.realistic and not args.fake_detector:
         parser.error('--realistic only applies to --fake-detector')
+    if args.fake_detector and (args.tracker != 'confirmer' or args.detect_args):
+        parser.error('--tracker and --detect-args only apply to the real detector '
+                     '(not --fake-detector)')
+    if args.csv is None:
+        args.csv = str(BYTETRACK_CSV if args.tracker == 'bytetrack' else DEFAULT_CSV)
 
     swarm_config = load_config(args.config or default_config_path())
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)

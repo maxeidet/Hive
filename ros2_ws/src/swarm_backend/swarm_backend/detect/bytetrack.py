@@ -12,7 +12,8 @@ tracks that already exist, where a track's Kalman filter (kalman.py) predicts it
     1. split the detections: high (score >= high), low (low <= score < high);
        the rest are dropped
     2. match the high ones to the tracks being followed and to the lost ones
-    3. match the low ones to the followed tracks still without a detection;
+    3. match the low ones to the followed tracks still without a detection (with
+       recover_low also to the lost ones, which the paper does not do);
        low detections left over are dropped, they never start a track
     4. match the high ones left to the tentative tracks (seen in the last image only);
        a tentative track that is not matched is deleted (it was probably clutter)
@@ -24,7 +25,7 @@ tracks that already exist, where a track's Kalman filter (kalman.py) predicts it
 Matching: the paper uses the overlap (IoU) of the predicted box and the detection. The
 drones here are a few px across and move more than their own size between images, so the
 boxes often do not overlap at all; the default is therefore the distance between the centres
-measured in the filter's own uncertainty (Mahalanobis distance; 3 = three standard
+measured in the filter's own uncertainty (Mahalanobis distance; 4 = four standard
 deviations), cost='iou' gives the paper's. Each step picks the matching with the lowest
 total cost (Hungarian method, scipy; greedy nearest-first if scipy is missing). No ROS here.
 """
@@ -56,12 +57,14 @@ class Settings:
     k: int = 3  # images in a row before a track is confirmed
     max_lost: int = 30  # images a lost track is kept
     cost: str = 'distance'  # 'distance' (centre, in standard deviations) or 'iou'
-    gate: float = 3.0  # largest cost of a match: standard deviations ('distance') ...
-    gate_low: float = 3.0  # ... for the low detections (step 3)
+    gate: float = 4.0  # largest cost of a match: standard deviations ('distance') ...
+    gate_low: float = 4.0  # ... for the low detections (step 3); 4 beat 3 in track_eval
     min_iou: float = 0.2  # ... or the smallest overlap ('iou'); the paper's 1 - 0.8
     min_iou_low: float = 0.5  # the paper's 1 - 0.5 for the low ones
     noise: Noise = field(default_factory=Noise)
     hungarian: bool = True  # False: greedy nearest-first (as the old Confirmer)
+    recover_low: bool = True  # lost tracks may come back on a low detection too (not in
+    # the paper; better in track_eval, most with a poor detector)
 
 
 @dataclass
@@ -128,7 +131,8 @@ class ByteTracker:
             matched.add(t.id)
 
         # 3. low detections to followed tracks that are still unmatched
-        waiting = [t for t in tracked if t.id not in matched]
+        waiting = [t for t in (tracked + lost if s.recover_low else tracked)
+                   if t.id not in matched]
         pairs, _ = self._match(waiting, low, low_step=True)  # leftover low ones: dropped
         for t, d in pairs:
             self._hit(t, d)

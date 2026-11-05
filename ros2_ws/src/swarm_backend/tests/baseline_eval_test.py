@@ -63,6 +63,9 @@ from swarm_backend.intercept.paths import Path as Track
 
 REPO = Path(__file__).resolve().parents[4]  # /workspace in the container
 DEFAULT_OUT = REPO / 'data' / 'baseline_eval'
+# --tracker bytetrack saves to its own folder, so the report's Confirmer runs stay as they are
+# and `summary --tracker bytetrack` shows only ByteTrack's
+BYTETRACK_OUT = REPO / 'data' / 'baseline_eval_bytetrack'
 DEFAULT_DETECT_RATE = 20.0
 TRUTH_PERIOD_S = 0.02  # simulation seconds between recorded truth points
 HOSTILE_SPEED_MARGIN = 3.0  # m/s above the scenario speed for the hostile's PX4 limit
@@ -92,6 +95,12 @@ def load_runs(path: Path) -> list[dict]:
         return []
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def other_trackers(rows: list[dict], tracker: str) -> set[str]:
+    """Trackers other than `tracker` in saved runs (runs from before the tracker was saved
+    were all the Confirmer's)."""
+    return {r.get('tracker', 'confirmer') for r in rows} - {tracker}
 
 
 def as_intercept(row: dict) -> RunMetrics:
@@ -170,6 +179,7 @@ def make_runner(node, swarm_config, args):
                     config.surveillance, reserve=len(ids), close_radius_m=-1.0))
             runner_args = argparse.Namespace(
                 realistic=False, gain=None, seed=None, fake_detector=False, record=True,
+                tracker=args.tracker, detect_args=args.detect_args,
                 max_speed=config.intercept.interceptor_max_speed,
                 detect_rate=args.detect_rate, hit_radius=config.intercept.hit_radius,
                 runs=0, bearing=[0.0], speed=1.0, start=0.0, height=0.0, csv='')
@@ -346,9 +356,18 @@ def main():
     parser.add_argument('--rerun', action='store_true', help='fly runs that are already saved')
     parser.add_argument('--detect-rate', type=float, default=DEFAULT_DETECT_RATE,
                         help='images per second for each real detector')
-    parser.add_argument('--out', type=Path, default=DEFAULT_OUT,
-                        help='folder for intercept.jsonl, detect.jsonl and summary.txt')
+    parser.add_argument('--tracker', choices=('confirmer', 'bytetrack'), default='confirmer',
+                        help='tracker of the real detectors (detect/live.py --tracker); '
+                             'default %(default)s')
+    parser.add_argument('--detect-args', default='',
+                        help='more options for every detector, in quotes, e.g. '
+                             '"--gate-sigma 5 --no-recover-low"')
+    parser.add_argument('--out', type=Path, default=None,
+                        help=f'folder for intercept.jsonl, detect.jsonl and summary.txt '
+                             f'(default {DEFAULT_OUT}, with --tracker bytetrack {BYTETRACK_OUT})')
     args = parser.parse_args()
+    if args.out is None:
+        args.out = BYTETRACK_OUT if args.tracker == 'bytetrack' else DEFAULT_OUT
     config = load_config(args.config or default_config_path())
 
     if args.mode == 'summary':
@@ -371,11 +390,17 @@ def main():
         done = {r['seed'] for r in load_runs(out_file)}
         jobs = [arc_eval.make_detect_scenario(s, config.detect, config.surveillance)
                 for s in seeds if args.rerun or s not in done]
+    mixed = other_trackers(load_runs(out_file), args.tracker)
+    if mixed:
+        print(f'{out_file} has runs with another tracker ({", ".join(sorted(mixed))}); give '
+              f'--tracker to match, or another --out, so the summary does not mix them.')
+        return 1
     if not jobs:
         print(f'Every requested run is already in {out_file} (--rerun flies them again).')
         print(summary_text(args.out, config))
         return 0
-    print(f'{len(jobs)} {args.mode} runs to fly; results go to {out_file}', flush=True)
+    print(f'{len(jobs)} {args.mode} runs to fly with the {args.tracker} tracker; results go '
+          f'to {out_file}', flush=True)
 
     import rclpy
     from rclpy.signals import SignalHandlerOptions
@@ -400,7 +425,8 @@ def main():
                     test.log.error('No defenders left')
                     break
                 common = {'time': datetime.datetime.now().isoformat(timespec='seconds'),
-                          'detector': 'real (detect/live.py)', 'defenders': len(test.alive()),
+                          'detector': 'real (detect/live.py)', 'tracker': args.tracker,
+                          'defenders': len(test.alive()),
                           'arc_radius': config.surveillance.arc_radius}
                 if args.mode == 'intercept':
                     scenario, designated = job
