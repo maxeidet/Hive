@@ -255,3 +255,19 @@ Thumbs.db
 
 # Test run output (hive-vault/Testing.md)
 runs/
+
+# 3D mapping: DAEP (LiU LRS2) is cloned next to our own packages and must not
+# be committed here. Our own code lives in hive_mapping / hive_mapping_msgs.
+ros2_ws/src/daep/
+ros2_ws/src/daep_msgs/
+ros2_ws/src/lrs_*/
+
+# DAEP run output (rpl_exploration writes ./data/*.csv in its working directory)
+ros2_ws/data/
+
+# Saved maps (octomap_saver)
+*.ot
+*.bt
+
+# Course material with credentials, never commit
+README_emil.md
