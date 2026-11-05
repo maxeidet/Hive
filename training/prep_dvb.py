@@ -3,6 +3,7 @@
     python prep_dvb.py                         download (~1 GB) + convert -> dvb_ours/data.yaml
     python prep_dvb.py --zip dvb.zip           use a zip you already downloaded
     python prep_dvb.py --limit 300             only 300 train images (quick test on a slow computer)
+    python prep_dvb.py --resplit 0.2           plain val/test images mostly into train (see below)
 
 The same steps as cells 2-3 of colab_dvb_then_gazebo.ipynb, as a plain script that works on
 Windows, Linux and macOS (no wget/unzip needed). Data: Drone vs Bird, Mendeley
@@ -11,12 +12,18 @@ Windows, Linux and macOS (no wget/unzip needed). Data: Drone vs Bird, Mendeley
 The class is taken from the file name: bird images are called "BTR (...)", "BVA (...)" etc.
 and drone images "DTR (...)", "DVA (...)". The class numbers inside the label files can't be
 trusted (on 18 Oct they all came out as one class, so every bird was trained as a drone).
+The set's train split is all Roboflow-augmented 2x2 mosaics, its val and test splits plain
+video frames (5 Nov: val mAP stayed flat while train improved). --resplit pools the plain
+val/test images, cuts them into blocks of consecutive frame numbers (one scene each), and
+shares the blocks out, so train also has plain images and no scene is in two splits.
+
 Then train with:
 
     python train_yolo.py --data dvb_ours/data.yaml --imgsz 640 --no-score --mosaic 0 ...
 """
 import argparse
 import random
+import re
 import shutil
 import sys
 import urllib.request
@@ -78,13 +85,46 @@ def put_file(src: Path, dst: Path) -> None:
         shutil.copy2(src, dst)
 
 
-def convert(raw: Path, out: Path, limit: int | None, seed: int = 0) -> Counter:
+def scene_block(name: str, block: int) -> tuple[str, int]:
+    """("DV", 7) for "DV (362).txt" with block 50: the images of the val/test sets are video
+    frames numbered in order, so nearby numbers are the same scene."""
+    m = re.match(r'\s*(.*?)\s*\((\d+)\)', Path(name).stem)
+    return (m.group(1), int(m.group(2)) // block) if m else (Path(name).stem, 0)
+
+
+def assign(raw: Path, resplit: float | None, block: int, seed: int
+           ) -> dict[str, list[Path]]:
+    """Label files per split of ours. Without resplit: the set's own split. With it, the
+    plain (non-mosaic) val and test images are pooled, cut into blocks of consecutive frame
+    numbers, and the blocks shared out: `resplit` of them to val, half that to test, the
+    rest to train, so one scene never lands in two splits."""
+    found: dict[str, list[Path]] = {'train': [], 'val': [], 'test': []}
+    for split, ours in SPLITS:
+        dirs = [d for d in raw.rglob('labels') if d.is_dir() and d.parent.name == split]
+        found[ours] += sorted(p for d in dirs for p in d.glob('*.txt'))
+    if not resplit:
+        return found
+    pool = found['val'] + found['test']
+    blocks = sorted({scene_block(p.name, block) for p in pool})
+    random.Random(seed).shuffle(blocks)
+    n_val = max(1, round(len(blocks) * resplit))
+    n_test = max(1, round(len(blocks) * resplit / 2))
+    where = {b: 'val' if i < n_val else 'test' if i < n_val + n_test else 'train'
+             for i, b in enumerate(blocks)}
+    out = {'train': list(found['train']), 'val': [], 'test': []}
+    for p in pool:
+        out[where[scene_block(p.name, block)]].append(p)
+    print(f'resplit: {len(pool)} plain val/test images in {len(blocks)} scene blocks of '
+          f'{block} frames -> {n_val} blocks val, {n_test} test, the rest train')
+    return out
+
+
+def convert(raw: Path, out: Path, limit: int | None, seed: int = 0,
+            resplit: float | None = None, block: int = 50) -> Counter:
     if out.exists():
         shutil.rmtree(out)
     counts, classes, skipped = Counter(), Counter(), Counter()
-    for split, ours in SPLITS:
-        labels_dirs = [d for d in raw.rglob('labels') if d.is_dir() and d.parent.name == split]
-        files = sorted(p for d in labels_dirs for p in d.glob('*.txt'))
+    for ours, files in assign(raw, resplit, block, seed).items():
         if limit and ours == 'train':
             files = random.Random(seed).sample(files, min(limit, len(files)))
         elif limit:
@@ -132,6 +172,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--limit', type=int,
                         help='only this many train images (val/test a fifth, at least 50), '
                              'for a quick test')
+    parser.add_argument('--resplit', type=float, metavar='FRACTION',
+                        help='move the plain (non-mosaic) val/test images into the split, '
+                             'keeping this fraction of their scenes as val (half of it as '
+                             'test), e.g. 0.2; without it the set\'s own split is used')
+    parser.add_argument('--block', type=int, default=50,
+                        help='frames per scene block for --resplit (default %(default)s)')
     args = parser.parse_args(argv)
     if not args.raw.exists():
         if not args.zip.exists():
@@ -139,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         unpack(args.zip, args.raw)
     else:
         print(f'{args.raw} already unpacked (delete it to unpack again)')
-    convert(args.raw, args.out, args.limit)
+    convert(args.raw, args.out, args.limit, resplit=args.resplit, block=args.block)
     return 0
 
 
