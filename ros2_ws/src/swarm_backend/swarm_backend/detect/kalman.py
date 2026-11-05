@@ -120,6 +120,16 @@ class BoxKalman:
         """How fast the centre moves, px per image (du, dv)."""
         return (float(self.mean[4]), float(self.mean[5]))
 
+    def centre_distance(self, u: float, v: float) -> float:
+        """How far the centre (u, v) of a detection is from the predicted centre, in standard
+        deviations (Mahalanobis distance): the prediction's uncertainty plus a detection's
+        own error, so the same px count is far for a sure track and near for an unsure one."""
+        box = self.box
+        r = np.diag([self._std(self.noise.measurement, box)] * 2) ** 2
+        s = self.cov[:2, :2] + r
+        d = np.array([u, v]) - self.mean[:2]
+        return float(np.sqrt(d @ np.linalg.solve(s, d)))
+
     @property
     def centre_std(self) -> float:
         """How uncertain the centre is, px (the larger of u's and v's std)."""
