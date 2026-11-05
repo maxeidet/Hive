@@ -27,6 +27,21 @@ RUN apt-get update && apt-get install -y \
     python3-opencv \
     && rm -rf /var/lib/apt/lists/*
 
+# 3D mapping (hive-vault/mapping/3D mapping plan.md): public ROS packages the DAEP
+# exploration planner needs to build and run. DAEP itself is not part of this repo.
+# octomap* = the 3D voxel map, octomap_server = builds it from the point cloud,
+# irobot_create_msgs = a message DAEP is compiled against, tf_transformations and
+# python3-rtree = used by DAEP's Python nodes.
+RUN apt-get update && apt-get install -y \
+    ros-jazzy-octomap \
+    ros-jazzy-octomap-msgs \
+    ros-jazzy-octomap-ros \
+    ros-jazzy-octomap-server \
+    ros-jazzy-irobot-create-msgs \
+    ros-jazzy-tf-transformations \
+    python3-rtree \
+    && rm -rf /var/lib/apt/lists/*
+
 # ros_gz_bridge pulls in ROS's own gz-transport/gz-msgs "vendor" packages. Sourcing ROS then
 # points GZ_CONFIG_PATH at only those, which hides the system Gazebo's `gz sim` command, so
 # PX4 (whose entrypoint sources ROS) cannot start Gazebo. ROS prepends to this value, so
