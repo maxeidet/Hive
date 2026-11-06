@@ -94,8 +94,8 @@ def score(model, image_dirs: list[Path], imgsz: int, device) -> list[dict]:
     if not images:
         raise SystemExit(f'No test images in {", ".join(map(str, image_dirs))}')
     counts = {t: {'images': 0, 'false_alarms': 0, 'bins': {}} for t in THRESHOLDS}
-    for result in model.predict([str(p) for p in images], imgsz=imgsz, conf=min(THRESHOLDS),
-                                device=device, stream=True, verbose=False):
+    for result in (r for p in images for r in model.predict(str(p), imgsz=imgsz, conf=min(THRESHOLDS),
+                                device=device, verbose=False)):  # one at a time: a list is loaded as ONE batch
         path = Path(result.path)
         height, width = result.orig_shape
         truth = read_labels(path.parent.parent / 'labels' / f'{path.stem}.txt', width, height)

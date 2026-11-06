@@ -52,14 +52,10 @@ class CameraModel:
         """Distance at which an object `size` metres across is `pixels` wide: r = f*s/p."""
         return self.f * size / pixels
 
-    def range_from_box(self, width: float, height: float, size: float = BOX_SIZE_M) -> float:
-        """Distance of a detector's box (px), from its geometric-mean side: r = f*s/sqrt(w*h)."""
-        return self.f * size / math.sqrt(max(width, 1.0) * max(height, 1.0))
-
     def box_scale(self, detector: str, width: float, height: float) -> tuple[float, float]:
         """(box size px, object size m) to estimate a detection's distance from, r = f*s/p.
         The baseline keeps its old rule (longer side, 0.5 m); every other detector uses
-        sqrt(w*h) and BOX_SIZE_M (range_from_box)."""
+        the geometric-mean side sqrt(w*h) and BOX_SIZE_M."""
         if detector == 'baseline':
             return max(width, height), TARGET_SIZE_M
         return math.sqrt(max(width, 1.0) * max(height, 1.0)), BOX_SIZE_M

@@ -8,6 +8,12 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 ## To do
 
+- [ ] **YOLO (gazebo-only) and the new range rule in a live chase** (added 6 Nov; range rule fitted offline, see `training/fit_range.py`)
+  1. Container and drone 0 up. In `ros2_ws/src/swarm_backend/`: `scenarios/scenario1.sh --duration 120`.
+  2. Second terminal: `./mount-backend.sh detect 2 --detector yolo --weights /workspace/models/yolo26n-gazebo-only-1280.onnx --conf 0.25 --save /workspace/detect_frames`. Then the same with `detect 2` (baseline) on another flight to compare.
+
+  **Pass:** it prints the model load line, finds drone 1 in most frames, and the estimated distance on the debug image (`/px4_2/detection/debug`) is within about 40 % of the real one (YOLO now uses 0.8 m / sqrt(w*h), the baseline still 0.5 m / longer side). **Note here:** seconds per frame, how many frames it found the drone in, and the worst range error you see.
+
 - [ ] **New birds look right** (added 18 Oct)
   1. Gazebo with `hive_base`. `./mount-backend.sh boxtest --bird eagle --out /workspace/data/box_test_eagle`, then the same with `--bird seagull` and `--bird soaring_bird`.
   2. Open `003m_boxes.png` and `010m_boxes.png` of each.
