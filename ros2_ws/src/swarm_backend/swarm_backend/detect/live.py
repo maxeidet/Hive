@@ -10,7 +10,8 @@ agreed with the attack node (vault: detection/Baseline attack work plan):
     /<ns>/detection/target_position geometry_msgs/PointStamped: where the target is relative
                                     to the drone (its camera), world NED, metres: direction
                                     from the pixel and PX4's camera orientation, times the
-                                    distance from the box size (a 0.5 m drone)
+                                    distance from the box size (baseline: a 0.5 m drone, longer side;
+                                    others: 0.8 m / sqrt(w*h), see camera.box_scale)
 
 stamped with the image's time, frame_id = the drone's Gazebo name. Nothing is published
 while there is no confirmed target. The angles are corrected for the camera's roll, which
@@ -165,7 +166,8 @@ class LiveDetector:
                  on_result: Callable[[Result], None] | None = None,
                  save: Path | None = None, save_every: float = 1.0,
                  use_px4: bool = True, hfov: float = GIMBAL_HFOV,
-                 direction_confirmer: Confirmer | None = None):
+                 direction_confirmer: Confirmer | None = None,
+                 detector_name: str = 'baseline'):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -183,6 +185,7 @@ class LiveDetector:
         self.offset_topic = offset_topic(drone_id, 'target_offset')
         self.position_topic = offset_topic(drone_id, 'target_position')
         self.detector = detector
+        self.detector_name = detector_name  # picks the range rule (camera.box_scale)
         self.px4 = None
         if use_px4:
             from swarm_backend.detect.px4_camera import PX4Camera
@@ -270,7 +273,8 @@ class LiveDetector:
             self._offset_pub.publish(out_msg)
             if axes is not None:  # the direction needs the camera's orientation
                 d = target.detection
-                position = camera.position(d.u, d.v, d.size, *axes)
+                px, size = camera.box_scale(self.detector_name, d.width, d.height)
+                position = camera.position(d.u, d.v, px, *axes, size=size)
                 pos_msg = self._PointStamped()
                 pos_msg.header = out_msg.header  # same image, same stamp
                 pos_msg.point.x, pos_msg.point.y, pos_msg.point.z = position
@@ -384,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         live = LiveDetector(node, args.id, detector, Confirmer(k=args.k, gate=args.gate),
                             args.rate, lambda: args.horizon, log, args.save, args.save_every,
                             use_px4=not args.no_px4,
-                            direction_confirmer=world_confirmer(args.k, args.gate_deg))
+                            direction_confirmer=world_confirmer(args.k, args.gate_deg),
+                            detector_name=args.detector)
     except RuntimeError as e:
         print(e)
         return 1
