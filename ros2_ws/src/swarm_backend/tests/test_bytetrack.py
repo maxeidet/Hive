@@ -93,3 +93,40 @@ def test_iou():
     assert iou((0, 0, 10, 10), (0, 0, 10, 10)) == 1.0
     assert iou((0, 0, 10, 10), (20, 0, 10, 10)) == 0.0
     assert abs(iou((0, 0, 10, 10), (5, 0, 10, 10)) - 1 / 3) < 1e-9
+
+
+# --- real time between images ---------------------------------------------------------
+
+def _gap_run(use_stamps: bool) -> list[int]:
+    """A target at 100 px/s; images every 0.1 s for 1 s, then none for 1 s (a slow
+    simulation): 100 px further, where one assumed step would put it 10 px further."""
+    tracker = ByteTracker(Settings(k=2, rate_hz=10.0))
+    ids = []
+    for t in [i / 10 for i in range(10)] + [1.9, 2.0, 2.1]:
+        tracker.update([box(100 + 100 * t, 100, 0.9)], stamp=t if use_stamps else None)
+        ids += [tr.id for tr in tracker.confirmed]
+    return ids
+
+
+def test_with_time_stamps_a_gap_between_images_keeps_the_track():
+    assert set(_gap_run(use_stamps=True)) == {1}
+    assert len(set(_gap_run(use_stamps=False))) > 1  # one step assumed: 90 px off, new track
+
+
+def test_lost_tracks_are_kept_for_max_lost_steps_of_real_time():
+    tracker = ByteTracker(Settings(k=2, max_lost=30, rate_hz=10.0))  # 3 s
+    for i in range(3):
+        tracker.update([box(100, 100, 0.9)], stamp=0.1 * i)
+    tracker.update([], stamp=2.0)  # 1.8 s without the target: lost, kept
+    assert len(tracker.tracks) == 1 and tracker.tracks[0].state == State.LOST
+    tracker.update([], stamp=3.5)  # 3.3 s: gone, however few images came
+    assert tracker.tracks == []
+
+
+def test_a_clock_going_back_starts_over():
+    tracker = ByteTracker(Settings(k=2))
+    for i in range(3):
+        tracker.update([box(100, 100, 0.9)], stamp=50.0 + 0.1 * i)
+    assert tracker.confirmed
+    tracker.update([box(100, 100, 0.9)], stamp=1.0)  # Gazebo restarted
+    assert [t.id for t in tracker.tracks] == [2] and not tracker.confirmed

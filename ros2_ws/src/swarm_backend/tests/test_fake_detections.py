@@ -49,3 +49,14 @@ def test_targets_from_saved_truth():
     [box] = targets_from_truth(truth)
     assert (box.id, box.u, box.v) == (0, 640.0, 360.0)
     assert 10 < box.width < 15  # 0.5 m at 50 m with a ~1170 px focal length
+
+
+def test_uneven_rate_skips_images_and_stamps_the_rest():
+    from swarm_backend.detect.fake_detections import panning_camera, uneven_rate
+
+    frames, axes = panning_camera(crossing_targets())
+    kept, kept_axes, stamps = uneven_rate(frames, axes, drop=0.5, rate_hz=10.0, seed=1)
+    assert 0.3 * len(frames) < len(kept) < 0.7 * len(frames)
+    assert stamps[0] == 0.0 and stamps == sorted(stamps) and len(stamps) == len(kept_axes)
+    i = round(stamps[-1] * 10)
+    assert kept[-1] == frames[i] and kept_axes[-1] == axes[i]

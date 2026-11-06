@@ -65,3 +65,5 @@ def test_the_command_line_runs(capsys):
     assert main(['--seeds', '2', '--sweep', 'recover_low', 'false', 'true']) == 0
     out = capsys.readouterr().out
     assert 'Confirmer' in out and 'recover_low=true' in out
+    assert main(['--seeds', '2', '--drop', '0.5']) == 0
+    assert 'without time stamps' in capsys.readouterr().out

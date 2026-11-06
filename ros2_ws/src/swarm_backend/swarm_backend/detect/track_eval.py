@@ -7,6 +7,7 @@ Gazebo; a run of 50 seeds takes seconds.
     python3 -m swarm_backend.detect.track_eval --scenario crossing     the camera stays still
     python3 -m swarm_backend.detect.track_eval --miss 0.2 --weak 0.3   a worse detector
     python3 -m swarm_backend.detect.track_eval --sweep new 0.5 0.6 0.7 one ByteTrack setting
+    python3 -m swarm_backend.detect.track_eval --drop 0.5              half the images skipped
 
 Scoring, per image: each target in view is paired with at most one confirmed track whose
 detection is within --match-px of it (a pair from the last image is kept while it still
@@ -199,18 +200,21 @@ def _greedy_max(counts: np.ndarray):
 # --- running the trackers ---------------------------------------------------------------
 
 class ByteTrackRunner:
-    """ByteTrack as live.py runs it: compensated for the camera when the orientation is known."""
+    """ByteTrack as live.py runs it: compensated for the camera when the orientation is known,
+    and moved on by the real time between images (use_stamps=False: one step per image)."""
 
-    def __init__(self, settings: Settings, camera: CameraModel):
+    def __init__(self, settings: Settings, camera: CameraModel, use_stamps: bool = True):
         self.tracker, self.camera = ByteTracker(settings), camera
         self.last_axes: Axes | None = None
+        self.use_stamps = use_stamps
 
-    def step(self, detections: list[Detection], axes: Axes | None) -> list[Output]:
+    def step(self, detections: list[Detection], axes: Axes | None,
+             stamp: float | None = None) -> list[Output]:
         h = None
         if axes is not None and self.last_axes is not None:
             h = rotation_homography(self.camera, self.last_axes, axes)
         self.last_axes = axes
-        self.tracker.update(detections, h)
+        self.tracker.update(detections, h, stamp if self.use_stamps else None)
         return [(t.id, t.detection.u, t.detection.v) for t in self.tracker.confirmed]
 
 
@@ -223,7 +227,8 @@ class ConfirmerRunner:
         self.world = Confirmer(k=k, gate=math.radians(gate_deg), distance=angle_between)
         self.camera = camera
 
-    def step(self, detections: list[Detection], axes: Axes | None) -> list[Output]:
+    def step(self, detections: list[Detection], axes: Axes | None,
+             stamp: float | None = None) -> list[Output]:  # the Confirmer has no time
         if axes is None:
             self.pixels.update([(d.u, d.v) for d in detections], detections)
             confirmed = self.pixels.confirmed
@@ -235,9 +240,10 @@ class ConfirmerRunner:
 
 
 def run(make_runner, images: list[fake.FakeImage], axes: list[Axes] | None,
-        match_px: float) -> Metrics:
+        match_px: float, stamps: list[float] | None = None) -> Metrics:
     runner = make_runner()
-    outputs = [runner.step(im.detections, axes[i] if axes else None)
+    outputs = [runner.step(im.detections, axes[i] if axes else None,
+                           stamps[i] if stamps else None)
                for i, im in enumerate(images)]
     return score([im.truth for im in images], outputs, match_px)
 
@@ -300,6 +306,9 @@ def main(argv: list[str] | None = None) -> int:
     errors.add_argument('--weak', type=float, default=defaults.weak)
     errors.add_argument('--false', type=float, default=defaults.false_per_image,
                         help='false detections per image (mean)')
+    parser.add_argument('--drop', type=float, default=0.0,
+                        help='chance each image is skipped (uneven image rate, as in a slow '
+                             'simulation); ByteTrack is also run without time stamps to compare')
     parser.add_argument('--k', type=int, default=3, help='images to confirm, both trackers')
     parser.add_argument('--gate-px', type=float, default=20.0, help='Confirmer, pixels')
     parser.add_argument('--gate-deg', type=float, default=10.0, help='Confirmer, world')
@@ -310,6 +319,9 @@ def main(argv: list[str] | None = None) -> int:
 
     camera = CameraModel(width=GIMBAL_SIZE[0], height=GIMBAL_SIZE[1])
     frames, axes = scenario(args.scenario, camera)
+    stamps = None
+    if args.drop > 0:
+        frames, axes, stamps = fake.uneven_rate(frames, axes, args.drop)
     if args.no_axes:
         axes = None
     errs = fake.Errors(centre_std_px=args.centre_std, miss=args.miss, weak=args.weak,
@@ -320,12 +332,14 @@ def main(argv: list[str] | None = None) -> int:
     def total(make_runner) -> Metrics:
         result = Metrics()
         for images in runs:
-            result = result + run(make_runner, images, axes, args.match_px)
+            result = result + run(make_runner, images, axes, args.match_px, stamps)
         return result
 
     base = Settings(k=args.k)
     print(f'{args.scenario}, {args.seeds} seeds, camera orientation '
-          f'{"not given" if axes is None else "given"}; detector: centre std '
+          f'{"not given" if axes is None else "given"}'
+          + (f', {100 * args.drop:.0f} % of images skipped' if stamps else '')
+          + '; detector: centre std '
           f'{errs.centre_std_px} px, miss {errs.miss}, weak {errs.weak}, '
           f'{errs.false_per_image} false/image\n')
     print(HEADER)
@@ -340,6 +354,9 @@ def main(argv: list[str] | None = None) -> int:
             print(row(f'ByteTrack {name}={value}', total(lambda: ByteTrackRunner(s, camera))))
     else:
         print(row('ByteTrack (defaults)', total(lambda: ByteTrackRunner(base, camera))))
+        if stamps:
+            print(row('ByteTrack without time stamps',
+                      total(lambda: ByteTrackRunner(base, camera, use_stamps=False))))
     return 0
 
 

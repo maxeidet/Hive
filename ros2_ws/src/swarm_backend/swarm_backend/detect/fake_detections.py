@@ -149,6 +149,19 @@ def panning_camera(frames: list[list[TruthBox]], camera: CameraModel = CameraMod
     return seen, all_axes
 
 
+def uneven_rate(frames: list[list[TruthBox]], axes: list[Axes] | None = None,
+                drop: float = 0.5, rate_hz: float = 10.0, seed: int = 0
+                ) -> tuple[list[list[TruthBox]], list[Axes] | None, list[float]]:
+    """The same scenario with images skipped at random (each with chance `drop`), as when
+    the simulation is slow or the detector busy: `frames` are taken at rate_hz, and what is
+    left comes with its time stamp (seconds). The targets then jump further between some
+    images than between others. Returns (frames, axes, stamps)."""
+    rng = random.Random(seed)
+    keep = [i for i in range(len(frames)) if i == 0 or rng.random() >= drop]
+    return ([frames[i] for i in keep], None if axes is None else [axes[i] for i in keep],
+            [i / rate_hz for i in keep])
+
+
 def targets_from_truth(truth: dict, drone_size_m: float = 0.5) -> list[TruthBox]:
     """The truth boxes in an image from what ground_truth.truth saved with it: every drone
     in view, with a box as big as a drone `drone_size_m` across shows at its distance."""

@@ -8,7 +8,8 @@ tracks that already exist, where a track's Kalman filter (kalman.py) predicts it
 
   each image
     0. compensate every track for the camera turning (if the orientation is known)
-       and predict where it is now (kalman.py)
+       and predict where it is now (kalman.py), by the real time since the last image
+       when the image's time stamp is given
     1. split the detections: high (score >= high), low (low <= score < high);
        the rest are dropped
     2. match the high ones to the tracks being followed and to the lost ones
@@ -18,6 +19,7 @@ tracks that already exist, where a track's Kalman filter (kalman.py) predicts it
     4. match the high ones left to the tentative tracks (seen in the last image only);
        a tentative track that is not matched is deleted (it was probably clutter)
     5. followed tracks still without a detection become lost; lost tracks are kept
+       (predicted on) for max_lost steps (images at the nominal rate: 30 = 3 s at 10 Hz)
        (predicted on) for max_lost images and can come back in step 2
     6. high detections left with score >= new start new tentative tracks;
        a tentative track becomes confirmed after k images in a row
@@ -55,7 +57,8 @@ class Settings:
     low: float = 0.1  # below this a detection is dropped
     new: float = 0.6  # lowest score that starts a track
     k: int = 3  # images in a row before a track is confirmed
-    max_lost: int = 30  # images a lost track is kept
+    max_lost: float = 30  # steps (images at rate_hz) a lost track is kept: 3 s at 10 Hz
+    rate_hz: float = 10.0  # nominal image rate: a step is 1 / rate_hz s (time stamps only)
     cost: str = 'distance'  # 'distance' (centre, in standard deviations) or 'iou'
     gate: float = 4.0  # largest cost of a match: standard deviations ('distance') ...
     gate_low: float = 4.0  # ... for the low detections (step 3); 4 beat 3 in track_eval
@@ -75,6 +78,7 @@ class Track:
     state: State = State.TENTATIVE
     streak: int = 1  # images in a row with a detection
     misses: int = 0  # images in a row without one
+    lost_for: float = 0.0  # steps since the last detection (real time with time stamps)
     age: int = 1  # images since the track started
     score: float = 0.0  # of the latest matched detection
 
@@ -100,18 +104,23 @@ class ByteTracker:
         self.settings = settings or Settings()
         self.tracks: list[Track] = []  # tentative, tracked and lost
         self._next_id = 1
+        self._last_stamp: float | None = None
 
-    def update(self, detections: list[Detection],
-               homography: np.ndarray | None = None) -> list[Track]:
+    def update(self, detections: list[Detection], homography: np.ndarray | None = None,
+               stamp: float | None = None) -> list[Track]:
         """Feeds one image's detections; `homography` moves the tracks from the last image's
         pixels to this one's when the camera turned (kalman.rotation_homography), None when
-        the camera's orientation is unknown. Returns the live tracks (not the lost ones)."""
+        the camera's orientation is unknown. `stamp` is when the image was taken (seconds):
+        the tracks are then moved on by the real time since the last image; without it, by
+        one step. A stamp earlier than the last one (the simulation restarted) starts over.
+        Returns the live tracks (not the lost ones)."""
         s = self.settings
+        dt = self._steps(stamp)
         # 0. camera motion, then the filter's prediction
         if homography is not None:
             self.tracks = [t for t in self.tracks if t.kalman.compensate(homography)]
         for t in self.tracks:
-            t.kalman.predict()
+            t.kalman.predict(dt)
             t.age += 1
             t.detection = None
 
@@ -150,7 +159,8 @@ class ByteTracker:
             if t.id not in matched:
                 t.streak = 0
                 t.misses += 1
-                if t.state == State.TENTATIVE or t.misses > s.max_lost:
+                t.lost_for += dt
+                if t.state == State.TENTATIVE or t.lost_for > s.max_lost:
                     continue
                 t.state = State.LOST
             kept.append(t)
@@ -173,6 +183,19 @@ class ByteTracker:
 
     def reset(self) -> None:
         self.tracks.clear()
+        self._last_stamp = None
+
+    def _steps(self, stamp: float | None) -> float:
+        """Steps since the last image: real time * rate_hz with stamps, else 1."""
+        if stamp is None:
+            return 1.0
+        last, self._last_stamp = self._last_stamp, stamp
+        if last is None:
+            return 1.0
+        if stamp < last:  # the clock went back: a restarted simulation, nothing carries over
+            self.tracks.clear()
+            return 1.0
+        return (stamp - last) * self.settings.rate_hz
 
     # --- matching ---------------------------------------------------------------------
 
@@ -181,6 +204,7 @@ class ByteTracker:
         track.detection, track.score = detection, detection.score
         track.streak += 1
         track.misses = 0
+        track.lost_for = 0.0
         if track.state == State.LOST:
             track.state = State.TRACKED  # back; it was confirmed before
 

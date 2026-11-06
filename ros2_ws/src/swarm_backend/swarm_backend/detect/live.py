@@ -190,8 +190,9 @@ def add_tracker_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument('--low', type=float,
                        help='ByteTrack: lowest score used at all, to continue tracks')
     group.add_argument('--new', type=float, help='ByteTrack: lowest score that starts a track')
-    group.add_argument('--max-lost', type=int, default=30,
-                       help='ByteTrack: images a lost track is kept (default %(default)s)')
+    group.add_argument('--max-lost', type=float, default=Settings.max_lost,
+                       help='ByteTrack: how long a lost track is kept, in images at --rate '
+                            '(default %(default)s = 3 s at 10 per second), real time')
     group.add_argument('--gate-sigma', type=float, default=Settings.gate,
                        help='ByteTrack: largest distance from the prediction, in standard '
                             'deviations (default %(default)s)')
@@ -219,6 +220,7 @@ def make_tracker(args: argparse.Namespace, argv: list[str] | None = None
     if args.detector == 'baseline' and not any(a.startswith('--contrast') for a in given):
         args.contrast = min(args.contrast, low)
     return ByteTracker(Settings(high=high, low=low, new=new, k=args.k, max_lost=args.max_lost,
+                                rate_hz=getattr(args, 'rate', Settings.rate_hz),
                                 gate=args.gate_sigma, gate_low=args.gate_sigma,
                                 recover_low=args.recover_low,
                                 noise=Noise(min_px=args.min_px)))
@@ -337,7 +339,7 @@ class LiveDetector:
         roll = None if axes is None else camera_roll(axes[0], axes[1])
         camera = CameraModel(self.hfov, msg.width, msg.height)
         if self.tracker is not None:
-            tracks, matching = self._byte_track(boxes, camera, axes)
+            tracks, matching = self._byte_track(boxes, camera, axes, stamp)
         else:
             matching = 'pixels' if axes is None else 'world'
             if matching != self._matching:  # positions of the two kinds can't be compared
@@ -384,15 +386,17 @@ class LiveDetector:
         if self.on_result is not None:
             self.on_result(result)
 
-    def _byte_track(self, boxes: list[Detection], camera: CameraModel, axes: Axes | None):
+    def _byte_track(self, boxes: list[Detection], camera: CameraModel, axes: Axes | None,
+                    stamp: float | None = None):
         """ByteTrack on this image; the tracks are moved along for the camera's turning since
-        the last image when the orientation is known in both. Returns all tracks (lost ones
-        too, to draw them) and how they were matched."""
+        the last image when the orientation is known in both, and by the real time since
+        then (`stamp`, the image's sim time). Returns all tracks (lost ones too, to draw
+        them) and how they were matched."""
         homography = None
         if axes is not None and self._last_axes is not None:
             homography = rotation_homography(camera, self._last_axes, axes)
         self._last_axes = axes
-        self.tracker.update(boxes, homography)
+        self.tracker.update(boxes, homography, stamp)
         return list(self.tracker.tracks), 'pixels' if homography is None else 'pixels+gimbal'
 
 

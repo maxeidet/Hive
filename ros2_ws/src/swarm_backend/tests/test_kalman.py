@@ -126,3 +126,21 @@ def test_a_swinging_gimbal_breaks_the_prediction_unless_compensated():
     with_ = _prediction_errors(images, axes, compensated=True)
     mean = lambda e: sum(e) / len(e)
     assert mean(with_) < 4 < 10 < mean(without)
+
+
+# --- real time between images ---------------------------------------------------------
+
+def test_predict_moves_on_by_dt_steps_and_grows_more_uncertain():
+    def learnt():
+        kf = BoxKalman((0.0, 0.0, 10.0, 10.0))
+        for i in range(1, 15):
+            kf.predict()
+            kf.update((10.0 * i, 0.0, 10.0, 10.0))
+        return kf
+    one, three, none = learnt(), learnt(), learnt()
+    u1, u3 = one.predict(1.0)[0], three.predict(3.0)[0]
+    assert abs((u3 - 140) - 3 * (u1 - 140)) < 0.5  # three times as far
+    assert three.centre_std > one.centre_std
+    before = (none.box, none.centre_std)
+    none.predict(0.0)
+    assert (none.box, none.centre_std) == before

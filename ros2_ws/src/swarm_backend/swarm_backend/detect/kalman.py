@@ -2,12 +2,19 @@
 box in pixels, one per track, as in ByteTrack.
 
 State (8 numbers): the box centre u, v, its width w and height h, and how fast each of
-them changes, du, dv, dw, dh, in px per image. A detection measures u, v, w, h; the
+them changes, du, dv, dw, dh, in px per step. A detection measures u, v, w, h; the
 velocities are never measured, the filter works them out from how the box moves.
 
+Time is counted in steps: one step is one image at the camera's nominal rate (bytetrack's
+Settings.rate_hz, 10 per second by default), so all the settings mean the same whatever
+rate the images really come at. When images come unevenly (a slow simulation, images
+skipped while the last one was processed), the tracker passes the real time between them
+as dt = seconds * rate_hz: 0.3 s at 10 Hz is dt = 3, and the box moves on three steps.
+
 Each image the tracker calls
-  predict()   before matching: moves the box on by its velocity and grows the
-              uncertainty (the target may have turned or sped up since),
+  predict(dt) before matching: moves the box on by its velocity times dt and grows the
+              uncertainty in proportion to dt (the longer, the more the target may have
+              turned or sped up since),
   update(box) after matching, when a detection was matched to this track: pulls the
               state towards the detection, by how much the filter trusts it compared
               with its own prediction (the Kalman gain).
@@ -16,7 +23,7 @@ and can be found again a few images later.
 
 The noise is a fraction of the box size, as in ByteTrack (a big box near the camera moves
 more px than a small one far away), with a floor in px so that the tiny boxes of far
-drones still get a sensible uncertainty. dt = 1 image.
+drones still get a sensible uncertainty, per step.
 
 When the camera turns (the gimbal, or the drone under it), every target jumps across the
 image although it hardly moved in the world. That is not the target's motion, so it must
@@ -36,9 +43,13 @@ from swarm_backend.detect.orientation import Axes
 
 Box = tuple[float, float, float, float]  # u, v (centre), w, h; px
 
-# state = F @ state: position += velocity (one image later); velocity stays
-F = np.eye(8)
-F[:4, 4:] = np.eye(4)
+
+def transition(dt: float) -> np.ndarray:
+    """state = F @ state, dt steps later: position += velocity * dt; velocity stays."""
+    f = np.eye(8)
+    f[:4, 4:] = dt * np.eye(4)
+    return f
+
 # measurement = H @ state: a detection sees the box, not its velocity
 H = np.eye(4, 8)
 
@@ -47,12 +58,12 @@ H = np.eye(4, 8)
 class Noise:
     """Standard deviations, as a fraction of the box's longer side, with a floor in px."""
     measurement: float = 1 / 20  # how far a detection's box is from the true box
-    position: float = 1 / 20  # how much the box can move other than with its velocity, per image
-    velocity: float = 1 / 160  # how much the velocity can change, per image
+    position: float = 1 / 20  # how much the box can move other than with its velocity, per step
+    velocity: float = 1 / 160  # how much the velocity can change, per step
     min_px: float = 3.0  # floor for the three above: covers a noisy detector and the
     # camera orientation error (0.35 degrees ~ 2.5 px); below the real noise, tracks break
     # (track_eval: 3 px noise with a 1 px floor, MOTA 0.76 instead of 0.89)
-    initial_velocity_px: float = 10.0  # velocity std of a new track: not seen yet
+    initial_velocity_px: float = 10.0  # velocity std of a new track (px per step): not seen yet
 
 
 class BoxKalman:
@@ -68,13 +79,15 @@ class BoxKalman:
 
     # --- the two steps --------------------------------------------------------------
 
-    def predict(self) -> Box:
-        """Moves on one image; returns the predicted box."""
+    def predict(self, dt: float = 1.0) -> Box:
+        """Moves on dt steps (1 = one image at the nominal rate); returns the predicted box.
+        The added uncertainty (variance) grows in proportion to dt: a random walk."""
         box = self.box
         q = np.diag([self._std(self.noise.position, box)] * 4
-                    + [self._std(self.noise.velocity, box)] * 4) ** 2
-        self.mean = F @ self.mean
-        self.cov = F @ self.cov @ F.T + q
+                    + [self._std(self.noise.velocity, box)] * 4) ** 2 * dt
+        f = transition(dt)
+        self.mean = f @ self.mean
+        self.cov = f @ self.cov @ f.T + q
         return self.box
 
     def update(self, box: Box) -> Box:
@@ -119,7 +132,7 @@ class BoxKalman:
 
     @property
     def velocity(self) -> tuple[float, float]:
-        """How fast the centre moves, px per image (du, dv)."""
+        """How fast the centre moves, px per step (du, dv)."""
         return (float(self.mean[4]), float(self.mean[5]))
 
     def centre_distance(self, u: float, v: float) -> float:
