@@ -50,6 +50,7 @@ Setup docs that live in the repo, outside the vault:
 - `docker/README.md`: the dev container, the `start-dev.sh` flags, worlds and drone sensor variants
 - `docker/README-stellar.md`: running on the Stellar lab computers (rules, `start-stellar.sh`, cleanup)
 - `ros2_ws/src/swarm_backend/README.md`: the backend, `mount-backend.sh` commands, intercept
+- **YOLO models** are not in git. Download the `.onnx` files from the repo's GitHub Releases (`github.com/maxeidet/Hive/releases`: `model-gazebo-only`, `model-dvb-gazebo-v1`, `model-dvb-v1`; the repo is private, so log in) and put them in `models/` in the repo root. The detector uses the newest file in `models/` (by modification time, any subfolder) unless `--weights` names one, so the model you downloaded or copied last is the active one.
 
 ## Research
 
