@@ -28,7 +28,7 @@ is a least-squares problem with the closed-form minimum
 
     U* = (G' Q G + R)^-1 G' Q E.
 
-The matrix in front of E only depends on dt, K, Q and R, so it is computed once per K
+The matrix in front of E only depends on dt, K, Q and R, so it can be computed once
 and cached; a step is then one matrix product. The three axes are independent and use
 the same matrix. Unlike Zheng et al., who keep an offset around the target to fire a
 net, the offset is zero: we aim at the target itself.
@@ -43,6 +43,12 @@ Two choices decide whether it catches a target faster than itself (v_h > v_i):
   K   With a fixed horizon the plan ends at the target's position horizon_s ahead,
       even when the two will meet much sooner, so close in it aims far behind the
       target and misses. With `time_to_go` the horizon ends where they meet.
+
+The time to go can be a minute, 600 steps of 0.1 s, which is too much to solve every
+step. So with `time_to_go` the plan has at most `plan_steps` steps, stretched to cover
+the whole time to go: coarse while the target is far, where precision does not matter,
+and back to dt per step in the last plan_steps x dt seconds, where it does. Only the
+first acceleration is flown anyway, for one control step, before planning again.
 
 Final step only with the horizon at the time to go is the minimum-effort intercept,
 which is known to be proportional navigation with N = 3 (Zarchan); the defaults use
@@ -66,19 +72,21 @@ class MpcWeights:
     `tracking` (Q) is the cost per square metre of missing a predicted position, at
     every step; `terminal` is added at the last step only. `effort` (R) is the cost per
     (m/s^2)^2 of acceleration: higher is smoother but slower to react. With
-    `time_to_go` the horizon is the time until the meeting, at most `horizon_s`;
-    without, it is always `horizon_s`.
+    `time_to_go` the horizon is the time until the meeting, planned in at most
+    `plan_steps` steps; without, it is `horizon_s` in steps of dt.
     """
-    dt: float = 0.1  # seconds per step: the harness steps at 10 Hz
-    horizon_s: float = 15.0
+    dt: float = 0.1  # seconds per control step: the harness steps at 10 Hz
+    horizon_s: float = 8.0  # fixed horizon (time_to_go = False)
     tracking: float = 0.0
     terminal: float = 1000.0
     effort: float = 1.0
     time_to_go: bool = True
+    plan_steps: int = 50  # time_to_go: steps in the plan, at most
+    max_time_to_go: float = 300.0  # seconds: never plan further ahead than this
 
     @property
-    def max_steps(self) -> int:
-        """The longest horizon, in steps."""
+    def fixed_steps(self) -> int:
+        """The fixed horizon, in steps of dt."""
         return max(1, round(self.horizon_s / self.dt))
 
 
@@ -133,6 +141,13 @@ def closest_approach_time(position: Vector3, target: Vector3,
     return 0.0 if speed2 == 0.0 else max(0.0, -(r @ w) / speed2)
 
 
+@dataclass(frozen=True)
+class Plan:
+    """The optimal accelerations from here, (K, 3) NED m/s^2, each held for `dt`."""
+    accelerations: np.ndarray
+    dt: float
+
+
 class Mpc:
     """The controller. Build it once, then call first_acceleration() every step."""
 
@@ -140,24 +155,27 @@ class Mpc:
         """`max_speed` is what the interceptor can fly, for the time to go."""
         self.weights = weights
         self.max_speed = max_speed
-        self._first_rows: dict[int, np.ndarray] = {}  # K -> first row of the gain
+        self._first_rows: dict[int, np.ndarray] = {}  # K -> first gain row, for steps of dt
 
-    def horizon_steps(self, position: Vector3, target: Vector3,
-                      target_velocity: Vector3) -> int:
-        """K for this step: the time to go (or, if the target gets away, the time it is
-        closest), in steps, within 1..max_steps; max_steps with a fixed horizon."""
+    def horizon(self, position: Vector3, target: Vector3,
+                target_velocity: Vector3) -> tuple[int, float]:
+        """(K, seconds per step) for this step. With time_to_go the plan ends at the
+        meeting (or, if the target gets away, where it is closest)."""
         w = self.weights
         if not w.time_to_go:
-            return w.max_steps
+            return w.fixed_steps, w.dt
         t = time_to_go(position, target, target_velocity, self.max_speed)
         if t is None:
             t = closest_approach_time(position, target, target_velocity)
-        return max(1, min(w.max_steps, round(t / w.dt)))
+        t = min(max(t, w.dt), w.max_time_to_go)
+        if t <= w.plan_steps * w.dt:
+            return max(1, round(t / w.dt)), w.dt
+        return w.plan_steps, t / w.plan_steps
 
-    def gain(self, steps: int) -> np.ndarray:
-        """(K, K): U* = gain @ E. Not cached; first_acceleration only needs row 0."""
+    def gain(self, steps: int, dt: float) -> np.ndarray:
+        """(K, K): U* = gain @ E."""
         w = self.weights
-        G = prediction_matrix(steps, w.dt)
+        G = prediction_matrix(steps, dt)
         q = np.full(steps, w.tracking)
         q[-1] += w.terminal
         # Solving instead of inverting is the numerically safe way to get the same
@@ -166,33 +184,37 @@ class Mpc:
                                G.T * q[None, :])
 
     def plan(self, position: Vector3, velocity: Vector3, target: Vector3,
-             target_velocity: Vector3) -> np.ndarray:
-        """(K, 3) accelerations, NED m/s^2: the whole optimal plan from here, unlimited.
-        Only row 0 is flown; the rest shows what the controller intends."""
-        k = self.horizon_steps(position, target, target_velocity)
-        return self.gain(k) @ self._error(position, velocity, target, target_velocity, k)
+             target_velocity: Vector3) -> Plan:
+        """The whole optimal plan from here, unlimited. Only its first acceleration is
+        flown; the rest shows what the controller intends."""
+        k, dt = self.horizon(position, target, target_velocity)
+        error = self._error(position, velocity, target, target_velocity, k, dt)
+        return Plan(self.gain(k, dt) @ error, dt)
 
     def first_acceleration(self, position: Vector3, velocity: Vector3, target: Vector3,
                            target_velocity: Vector3) -> Vector3:
         """u(1), the only acceleration that is flown, unlimited."""
-        k = self.horizon_steps(position, target, target_velocity)
-        row = self._first_rows.get(k)
-        if row is None:
-            row = self._first_rows[k] = self.gain(k)[0]
-        u = row @ self._error(position, velocity, target, target_velocity, k)
+        k, dt = self.horizon(position, target, target_velocity)
+        if dt == self.weights.dt:  # the gain only depends on K: cache it
+            row = self._first_rows.get(k)
+            if row is None:
+                row = self._first_rows[k] = self.gain(k, dt)[0]
+        else:  # stretched steps: K <= plan_steps, cheap to solve every time
+            row = self.gain(k, dt)[0]
+        u = row @ self._error(position, velocity, target, target_velocity, k, dt)
         return tuple(float(a) for a in u)
 
-    def trajectory(self, position: Vector3, velocity: Vector3,
-                   accelerations: np.ndarray) -> np.ndarray:
-        """(K, 3) positions the interceptor flies through with these accelerations (e.g.
-        plan()'s), for plotting or logging."""
-        k = len(accelerations)
-        return (free_positions(position, velocity, k, self.weights.dt)
-                + prediction_matrix(k, self.weights.dt) @ accelerations)
+    @staticmethod
+    def trajectory(position: Vector3, velocity: Vector3, plan: Plan) -> np.ndarray:
+        """(K, 3) positions the interceptor flies through with `plan`, for plotting or
+        logging."""
+        k = len(plan.accelerations)
+        return (free_positions(position, velocity, k, plan.dt)
+                + prediction_matrix(k, plan.dt) @ plan.accelerations)
 
-    def _error(self, position, velocity, target, target_velocity, steps) -> np.ndarray:
+    @staticmethod
+    def _error(position, velocity, target, target_velocity, steps, dt) -> np.ndarray:
         """E = P_target - P_free, (K, 3)."""
-        dt = self.weights.dt
         return (free_positions(target, target_velocity, steps, dt)
                 - free_positions(position, velocity, steps, dt))
 

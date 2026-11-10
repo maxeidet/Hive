@@ -50,8 +50,19 @@ def test_plan_ends_at_the_predicted_meeting_point():
     me, v, tgt, tv = (0.0, 0.0, ALT), (0.0, 0.0, 0.0), (-200.0, 150.0, ALT), (10.0, -14.0, 0.0)
     plan = mpc.plan(me, v, tgt, tv)
     end = mpc.trajectory(me, v, plan)[-1]
-    met = free_positions(tgt, tv, len(plan), DT)[-1]
+    met = free_positions(tgt, tv, len(plan.accelerations), plan.dt)[-1]
     assert np.linalg.norm(end - met) < 0.1
+
+
+def test_a_long_time_to_go_is_planned_in_stretched_steps():
+    w = MpcWeights()
+    mpc = Mpc(w, max_speed=V_I)
+    # Still target 600 m away: 50 s to go, more than plan_steps x dt.
+    k, dt = mpc.horizon((0.0, 0.0, ALT), (600.0, 0.0, ALT), (0.0, 0.0, 0.0))
+    assert k == w.plan_steps and abs(k * dt - 50.0) < 1e-9
+    # 3 s to go: back to steps of dt.
+    k, dt = mpc.horizon((0.0, 0.0, ALT), (36.0, 0.0, ALT), (0.0, 0.0, 0.0))
+    assert (k, dt) == (30, w.dt)
 
 
 def test_time_to_go():
