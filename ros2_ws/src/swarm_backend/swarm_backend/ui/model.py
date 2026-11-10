@@ -7,6 +7,7 @@ base station), not the operator.
 Angles are degrees clockwise from north, positions world NED (north, east) in metres,
 the same frame as the rest of the backend.
 """
+import json
 import math
 from dataclasses import asdict, dataclass
 
@@ -93,3 +94,70 @@ def drone_view(drone_id: int, position, velocity, attitude, gimbal_q, gimbal_ear
         view['gimbal_pitch_deg'] = round(pitch, 1)
         view['gimbal_heading_deg'] = None if yaw is None else round(yaw % 360.0, 1)
     return view
+
+
+# What the attack node's states mean to the operator.
+ATTACK_STATUS = {'search': 'searching', 'attack': 'intercept', 'coast': 'intercept',
+                 'lost': 'target lost', 'hit': 'hit'}
+# PX4 flight modes worth naming; any other mode while armed is just 'flying'.
+NAV_STATUS = {'AUTO_TAKEOFF': 'taking off', 'AUTO_LAND': 'landing', 'AUTO_RTL': 'returning'}
+
+
+def drone_status(attack_state: str | None, armed: bool | None, nav_state: str | None,
+                 age_s: float | None, stale_s: float) -> str:
+    """The one word the operator needs: what the drone is doing right now.
+
+    The attack node's state wins while it has one (it says 'idle' between attacks); without
+    it, the status comes from PX4.
+    """
+    if age_s is None or age_s > stale_s:
+        return 'no link'
+    if attack_state in ATTACK_STATUS:
+        return ATTACK_STATUS[attack_state]
+    if not armed:
+        return 'landed'
+    return NAV_STATUS.get(nav_state, 'flying')
+
+
+def attack_view(raw: str) -> dict | None:
+    """The attack node's status (JSON of intercept.attack.attack_status) as the UI shows it,
+    or None if it is not valid JSON. The target becomes north/east/altitude like a drone."""
+    try:
+        status = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(status, dict):
+        return None
+    target = status.get('target')
+    if isinstance(target, list) and len(target) == 3:
+        status['target'] = {'north': target[0], 'east': target[1], 'altitude': -target[2]}
+    else:
+        status['target'] = None
+    velocity = status.get('velocity')
+    if isinstance(velocity, list) and len(velocity) == 3:
+        status['velocity'] = {'north': velocity[0], 'east': velocity[1], 'up': -velocity[2]}
+    else:
+        status['velocity'] = None
+    return status
+
+
+MAP_KEYS = ('north_min', 'north_max', 'east_min', 'east_max')
+
+
+def load_map(folder) -> dict | None:
+    """The background map's extent (map.json from map_snapshot.py) if folder has map.png
+    and a valid map.json, else None. Adds 'version' (the PNG's mtime) so the page reloads
+    the picture when it changes."""
+    from pathlib import Path
+    folder = Path(folder)
+    png, meta = folder / 'map.png', folder / 'map.json'
+    if not png.is_file() or not meta.is_file():
+        return None
+    try:
+        info = json.loads(meta.read_text())
+        extent = {k: float(info[k]) for k in MAP_KEYS}
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not (extent['north_max'] > extent['north_min'] and extent['east_max'] > extent['east_min']):
+        return None
+    return {**extent, 'world': info.get('world'), 'version': int(png.stat().st_mtime)}

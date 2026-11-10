@@ -32,10 +32,15 @@ from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 # Where the attack node reports its state (std_msgs/String, the label of state_label()),
 # under the drone's namespace like the detection topics: /px4_2/attack/state.
 STATE_TOPIC = 'attack/state'
+# What the attack is doing in numbers, for the operator UI (std_msgs/String, JSON of
+# attack_status()), on the same namespace.
+STATUS_TOPIC = 'attack/status'
 
 MAX_GIMBAL_PITCH = 90.0  # degrees either way from the horizon
 MIN_DIRECTION_M = 1e-3  # a target_position shorter than this has no direction
 SLOW_ZONE_M = 3.0  # descent slows down over this many metres above min_altitude
+CLOSING_SMOOTHING = 0.3  # weight of the newest range rate in the closing speed average
+MIN_CLOSING_MPS = 0.5  # closing slower than this: no time to impact
 
 
 class State(Enum):
@@ -129,6 +134,37 @@ def state_label(attack: 'AttackAction') -> str:
     return 'idle'
 
 
+def attack_status(attack: 'AttackAction', now: float | None) -> dict:
+    """What the operator UI shows about the attack: the state, the target as last seen,
+    how fast we close on it and when the state times out. World NED, metres, seconds."""
+    running = attack.running and now is not None
+    status = {'state': state_label(attack), 'target': None, 'seen_s_ago': None,
+              'range_m': None, 'closing_mps': None, 'impact_s': None, 'velocity': None,
+              'engaged_s': None, 'timeout': None}
+    if not running:
+        return status
+    if attack.target_world is not None:
+        status['target'] = [round(v, 2) for v in attack.target_world]
+        status['seen_s_ago'] = round(max(0.0, now - attack._last_message), 2)
+        status['range_m'] = round(attack.target_range, 2)
+    if attack.closing_speed is not None:
+        status['closing_mps'] = round(attack.closing_speed, 2)
+        if attack.closing_speed >= MIN_CLOSING_MPS and attack.state == State.ATTACK:
+            status['impact_s'] = round(attack.target_range / attack.closing_speed, 1)
+    if attack.state in (State.ATTACK, State.COAST) and attack.commanded is not None:
+        status['velocity'] = [round(v, 2) for v in attack.commanded]
+    if attack.engaged_since is not None:
+        status['engaged_s'] = round(now - attack.engaged_since, 1)
+    c = attack.config
+    if attack.state == State.COAST:
+        left = c.coast_after + c.lost_after - (now - attack._last_message)
+        status['timeout'] = {'to': State.LOST.value, 'in_s': round(max(0.0, left), 1)}
+    elif attack.state == State.LOST:
+        left = c.lost_hold - (now - attack._lost_since)
+        status['timeout'] = {'to': State.SEARCH.value, 'in_s': round(max(0.0, left), 1)}
+    return status
+
+
 class AttackAction:
 
     def __init__(self, drone: Drone, inbox: DetectionInbox, config: AttackConfig,
@@ -158,6 +194,12 @@ class AttackAction:
         self._started: float | None = None
         self._last_step: float | None = None
         self._gimbal = True
+        # For attack_status: what the attack knows about the target, not used to steer.
+        self.target_world: Vector3 | None = None  # last seen, world NED (drone + target_position)
+        self.target_range: float | None = None  # metres, at the last message
+        self.closing_speed: float | None = None  # m/s, range shrinking (smoothed)
+        self.engaged_since: float | None = None  # clock time this target was first seen
+        self._range_stamp: float | None = None  # image time of target_range
 
     @property
     def guard(self) -> Vector3:
@@ -209,6 +251,7 @@ class AttackAction:
             if self.state != State.ATTACK:
                 self._enter(State.ATTACK, now)
             self._pursue(position.value)
+            self._observe(position)
         elif self.state == State.ATTACK and now - self._last_message > self.config.coast_after:
             self._enter(State.COAST, now)
         elif self.state == State.COAST and (
@@ -231,8 +274,12 @@ class AttackAction:
     def _enter(self, state: State, now: float) -> None:
         self.state = state
         self.transitions.append((now, state))
+        if state == State.ATTACK and self.engaged_since is None:
+            self.engaged_since = now
         if state == State.SEARCH:
             self.velocity = None
+            self.target_world = self.target_range = self.closing_speed = None
+            self.engaged_since = self._range_stamp = None
             self._yaw = math.radians(self.config.search_heading_deg)
             self.drone.set_position(*self.guard, yaw=self._yaw)
             self.gimbal_pitch = self.config.search_pitch_deg
@@ -252,6 +299,21 @@ class AttackAction:
         if math.hypot(target[0], target[1]) > MIN_DIRECTION_M:
             self._yaw = math.atan2(target[1], target[0])  # face the target, gimbal yaw small
         self.velocity = velocity
+
+    def _observe(self, message: Message) -> None:
+        """Where the target is and how fast we close on it, for the operator."""
+        target = message.value
+        me = self.drone.position
+        self.target_world = tuple(m + t for m, t in zip(me, target))
+        distance = math.hypot(*target)
+        if self.target_range is not None and self._range_stamp is not None:
+            dt = message.stamp - self._range_stamp
+            if dt > 0:
+                rate = (self.target_range - distance) / dt
+                self.closing_speed = rate if self.closing_speed is None else (
+                    CLOSING_SMOOTHING * rate + (1 - CLOSING_SMOOTHING) * self.closing_speed)
+        self.target_range = distance
+        self._range_stamp = message.stamp
 
     def _send_velocity(self) -> None:
         self.commanded = limit_velocity(self.velocity, self.drone.altitude, self.config)

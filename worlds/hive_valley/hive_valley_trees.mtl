@@ -1,0 +1,20 @@
+newmtl needles_pine
+Ka 0.16 0.27 0.13
+Kd 0.16 0.27 0.13
+Ks 0 0 0
+newmtl needles_spruce
+Ka 0.08 0.17 0.09
+Kd 0.08 0.17 0.09
+Ks 0 0 0
+newmtl leaves_birch
+Ka 0.35 0.52 0.18
+Kd 0.35 0.52 0.18
+Ks 0 0 0
+newmtl bark_pine
+Ka 0.45 0.30 0.20
+Kd 0.45 0.30 0.20
+Ks 0 0 0
+newmtl bark_birch
+Ka 0.86 0.85 0.80
+Kd 0.86 0.85 0.80
+Ks 0 0 0

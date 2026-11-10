@@ -26,6 +26,9 @@
 #                                      where their gimbals look, and the search area (published
 #                                      on /base/search_area). Read-only towards the drones
 #                                      (swarm_backend/nodes/operator_ui.py --help)
+#   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
+#                                      the operator UI's background map (map_snapshot.py --help,
+#                                      default 800 m across, --half-size 600 for more). Restart `ui`.
 #   ./mount-backend.sh demo [N]        formation demo (swarm_node)
 #   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
@@ -281,6 +284,7 @@ case "$cmd" in
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
   attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
   ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
+  mapsnap) run "python3 -m swarm_backend.map_snapshot $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;

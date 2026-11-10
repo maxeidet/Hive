@@ -2,9 +2,10 @@
 where their gimbal cameras look, and lets the operator set the search area.
 
 It never commands a drone. It only listens to the PX4 topics of every drone in
-swarm.yaml (and their detection and attack state topics), and publishes the search area on
-/base/search_area for whoever plans the search (std_msgs/String, JSON with the fields of
-ui.model.SearchArea, latched: a node that starts later still gets the last one).
+swarm.yaml (and their detection and attack state and status topics), and publishes the
+search area on /base/search_area for whoever plans the search (std_msgs/String, JSON with
+the fields of ui.model.SearchArea, latched: a node that starts later still gets the last
+one).
 
     python3 -m swarm_backend.nodes.operator_ui --config <swarm.yaml> [--port 8090]
 
@@ -19,12 +20,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from swarm_backend.config import DroneConfig, default_config_path, load_config
-from swarm_backend.ui.model import SearchArea, drone_view, update_search_area
+from swarm_backend.ui.model import (SearchArea, attack_view, drone_status, drone_view,
+                                   load_map, update_search_area)
 
 SEARCH_AREA_TOPIC = '/base/search_area'
 STATIC_DIR = Path(__file__).resolve().parent.parent / 'ui' / 'static'
 DETECTION_FRESH_S = 2.0  # a detection older than this is not shown
 ATTACK_STATE_FRESH_S = 3.0  # the attack node repeats its state every second
+STALE_S = 2.0  # no PX4 message for this long: status 'no link' (as STALE_S in index.html)
 
 
 class DroneMonitor:
@@ -35,7 +38,7 @@ class DroneMonitor:
         from std_msgs.msg import String
         from px4_msgs.msg import GimbalDeviceAttitudeStatus, VehicleOdometry, VehicleStatus
 
-        from swarm_backend.intercept.attack import STATE_TOPIC
+        from swarm_backend.intercept.attack import STATE_TOPIC, STATUS_TOPIC
         from swarm_backend.intercept.detection import POSITION_TOPIC, topic
         from swarm_backend.px4.px4_drone import PX4_OUT_QOS
         from swarm_backend.px4.topics import PX4Topics
@@ -54,6 +57,7 @@ class DroneMonitor:
         self.last_heard = None  # time.monotonic() of the last PX4 message
         self.detection = None  # (target relative to the drone, world NED; time.monotonic())
         self.attack_state = None  # (label from the attack node, time.monotonic())
+        self.attack_status = None  # (attack_view of its status, time.monotonic())
 
         topics = PX4Topics(config.namespace)
         node.create_subscription(VehicleOdometry, topics.vehicle_odometry, self._on_odometry,
@@ -65,6 +69,8 @@ class DroneMonitor:
         node.create_subscription(PointStamped, topic(config.id, POSITION_TOPIC),
                                  self._on_detection, 10)
         node.create_subscription(String, topic(config.id, STATE_TOPIC), self._on_attack_state, 10)
+        node.create_subscription(String, topic(config.id, STATUS_TOPIC), self._on_attack_status,
+                                 10)
 
     def _on_odometry(self, msg) -> None:
         local = [float(v) for v in msg.position]
@@ -94,12 +100,20 @@ class DroneMonitor:
     def _on_attack_state(self, msg) -> None:
         self.attack_state = (msg.data, time.monotonic())
 
+    def _on_attack_status(self, msg) -> None:
+        status = attack_view(msg.data)
+        if status is not None:
+            self.attack_status = (status, time.monotonic())
+
     def view(self, now: float) -> dict:
         age = None if self.last_heard is None else now - self.last_heard
         view = drone_view(self.id, self.position, self.velocity, self.attitude, self.gimbal_q,
                           self.gimbal_earth_frame, self.armed, self.nav_state, age)
         view['detection'] = None
         view['attack_state'] = None  # None: no attack node running on this drone
+        view['attack'] = None
+        if self.attack_status is not None and now - self.attack_status[1] < ATTACK_STATE_FRESH_S:
+            view['attack'] = self.attack_status[0]
         if self.attack_state is not None and now - self.attack_state[1] < ATTACK_STATE_FRESH_S:
             view['attack_state'] = self.attack_state[0]
         if self.detection is not None and self.position is not None:
@@ -108,6 +122,8 @@ class DroneMonitor:
                 view['detection'] = {'north': round(self.position[0] + dn, 2),
                                      'east': round(self.position[1] + de, 2),
                                      'altitude': round(-(self.position[2] + dd), 2)}
+        view['status'] = drone_status(view['attack_state'], self.armed, self.nav_state, age,
+                                      STALE_S)
         return view
 
 
@@ -119,12 +135,16 @@ class OperatorUi:
     does, since a change is read-modify-write.
     """
 
-    def __init__(self, node, drones: tuple[DroneConfig, ...], area: SearchArea):
+    def __init__(self, node, drones: tuple[DroneConfig, ...], area: SearchArea,
+                 hostile_id: int | None = None):
+        """`hostile_id`: the drone that plays the target in the simulation (attack.target_id);
+        the page draws it as a hostile."""
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
         from std_msgs.msg import String
 
         self._string = String
         self.monitors = [DroneMonitor(node, d) for d in drones]
+        self.hostile_id = hostile_id
         self._lock = threading.Lock()
         self.area = area
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
@@ -137,7 +157,10 @@ class OperatorUi:
         now = time.monotonic()
         with self._lock:
             area = self.area.to_dict()
-        return {'search_area': area, 'drones': [m.view(now) for m in self.monitors]}
+        views = [m.view(now) for m in self.monitors]
+        for view in views:
+            view['hostile'] = view['id'] == self.hostile_id
+        return {'search_area': area, 'drones': views, 'map': load_map(STATIC_DIR)}
 
     def set_search_area(self, data: dict) -> SearchArea:
         with self._lock:
@@ -159,6 +182,8 @@ def make_handler(ui: OperatorUi):
         def do_GET(self):
             if self.path in ('/', '/index.html'):
                 self._send(200, (STATIC_DIR / 'index.html').read_bytes(), 'text/html')
+            elif self.path.split('?')[0] == '/map.png' and (STATIC_DIR / 'map.png').is_file():
+                self._send(200, (STATIC_DIR / 'map.png').read_bytes(), 'image/png')
             elif self.path == '/api/state':
                 self._json(200, ui.state())
             else:
@@ -217,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rclpy.init()
     node = rclpy.create_node('operator_ui')
-    ui = OperatorUi(node, config.drones, area)
+    ui = OperatorUi(node, config.drones, area, hostile_id=config.attack.target_id)
     server = ThreadingHTTPServer(('0.0.0.0', args.port), make_handler(ui))
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
