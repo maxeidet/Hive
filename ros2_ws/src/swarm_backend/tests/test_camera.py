@@ -13,6 +13,17 @@ def test_focal_length_matches_the_report():
     assert CAMERA.range_from_width(4) == pytest.approx(51, abs=1)  # 0.5 m target at 4 px
 
 
+def test_non_baseline_detectors_use_the_geometric_mean_side():
+    assert CAMERA.range_from_detection('yolo', 20, 20) == pytest.approx(CAMERA.f * 0.8 / 20)
+    assert CAMERA.range_from_detection('yolo', 40, 10) == pytest.approx(
+        CAMERA.range_from_detection('yolo', 20, 20))
+    assert CAMERA.range_from_detection('yolo', 0, 0) == pytest.approx(CAMERA.f * 0.8)  # no division by zero
+
+
+def test_baseline_keeps_the_old_rule():
+    assert CAMERA.range_from_detection('baseline', 40, 10) == pytest.approx(CAMERA.range_from_width(40))
+
+
 def test_image_centre_looks_along_forward():
     assert CAMERA.direction(640, 360, NORTH, EAST, DOWN) == pytest.approx(NORTH)
 

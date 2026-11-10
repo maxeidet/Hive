@@ -35,6 +35,12 @@ RUN apt-get update && apt-get install -y \
 # setting it here keeps the system Gazebo commands available.
 ENV GZ_CONFIG_PATH=/usr/share/gz
 
+# onnxruntime = runs the trained YOLO model (ONNX) for `--detector yolo`; OpenCV 4.6's own
+# ONNX reader cannot run YOLO26. --no-deps so pip leaves the apt numpy and protobuf alone
+# (cv2 and Gazebo's Python bindings are built against those); flatbuffers is the one
+# dependency it needs at run time.
+RUN pip3 install --break-system-packages --no-deps onnxruntime==1.20.1 flatbuffers==24.3.25
+
 # Simulation only: the x500 airframe (and every x500 variant, they all source it) sets
 # NAV_DLL_ACT=2, "return home when the ground-station link is lost". With that on, PX4
 # refuses to arm ("No connection to the GCS") until QGroundControl is connected. Our

@@ -5,7 +5,9 @@ Reads the camera's Gazebo topic directly (no ROS bridge) and writes every image,
 every --every seconds, to --out until --count images are saved or Ctrl-C. The file name
 carries the simulation time of the image. Next to each PNG it writes a .json with the truth
 from Gazebo at that time (ground_truth.py): where the camera drone, its camera and every
-other drone really are, and the distance and direction from the camera to each of them.
+other drone really are, and the distance and direction from the camera to each of them;
+and under `objects` every other drone and every bird with its class and projected box, as
+training labels (yolo_labels.py turns them into YOLO label files).
 It also holds `px4_camera`: the camera orientation PX4 reports for that time, and its error
 against the truth (null if PX4 had not reported yet).
 PNGs are written with the standard library only, so nothing extra is needed in the container.
@@ -89,8 +91,8 @@ class ImageSaver:
             path.with_suffix('.json').write_text(
                 json.dumps({'image': path.name, 'time': round(stamp, 3), **data}, indent=2))
             note = '  ' + ', '.join(
-                f"drone {d['id']}: {d['distance']:.1f} m" + ('' if d['pixel'] else ' (out of view)')
-                for d in data['drones'])
+                f"{o['name']}: {o['distance']:.1f} m" + ('' if o['box'] else ' (out of view)')
+                for o in data['objects'])
         path.write_bytes(png_bytes(rgb, msg.width, msg.height))
         self._last = stamp
         self.saved += 1
@@ -100,9 +102,11 @@ class ImageSaver:
 
 
 class PoseHistory:
-    """Gazebo's recent poses of everything that moves, to look up by simulation time."""
+    """Gazebo's recent poses of everything that moves (`dynamic_pose/info`), or of every
+    model including static ones such as the birds (`pose/info`), to look up by simulation
+    time."""
 
-    def __init__(self, world: str):
+    def __init__(self, world: str, topic: str = 'dynamic_pose/info'):
         from gz.msgs10.pose_v_pb2 import Pose_V
         from gz.transport13 import Node
 
@@ -110,7 +114,7 @@ class PoseHistory:
         self._stamps: list[float] = []
         self._messages: list = []
         self._node = Node()
-        topic = f'/world/{world}/dynamic_pose/info'
+        topic = f'/world/{world}/{topic}'
         if not self._node.subscribe(Pose_V, topic, self._on_poses):
             raise RuntimeError(f'Could not subscribe to {topic}')
 
@@ -179,6 +183,7 @@ def snap(drone_id: int, count: int = 1, every: float = 1.0, label: str = '',
     print(f'Saving {camera.gz_topic}\n  to {out}/{prefix}_<sim time>.png, Ctrl-C to stop')
     world, names = drone_names(gz_topics)
     history = PoseHistory(world)
+    statics = PoseHistory(world, 'pose/info')  # birds are static models: only listed here
     px4 = None
     if node is not None:
         from swarm_backend.detect.px4_camera import PX4Camera
@@ -195,6 +200,11 @@ def snap(drone_id: int, count: int = 1, every: float = 1.0, label: str = '',
         if found is None:
             return None
         pose_time, poses = found
+        # Birds are moved by setting their pose (birds.py), not simulated, so a looser match
+        # in time is fine; without one they are just missing from the .json.
+        found_statics = statics.at(stamp, tolerance=0.25)
+        if found_statics is not None:
+            poses = poses + ground_truth.bird_poses(found_statics[1])
         data = ground_truth.truth(poses, names, drone_id, camera.frame, GIMBAL_HFOV, width, height)
         if data is None:
             return None

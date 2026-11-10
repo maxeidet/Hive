@@ -13,7 +13,12 @@ from dataclasses import dataclass
 # gz_x500_gimbal's camera (PX4 model SDF): horizontal_fov 2.0 rad, 1280x720
 GIMBAL_HFOV = 2.0
 GIMBAL_SIZE = (1280, 720)
-TARGET_SIZE_M = 0.5  # x500 frame across, what range_from_width assumes
+TARGET_SIZE_M = 0.5  # x500 frame across, what range_from_width assumes (true sizes, simulated frames)
+# What a detector's box sees: distance * sqrt(width * height) / f, fitted on gendata (training/
+# fit_range.py, fit b06-b13, tested b14 b15; same for drones and birds, which fit 0.81 m each):
+# median distance error 39 % against 59 % for 0.5 m on the longer side. Thin parts (arms, wings)
+# vanish with distance, so the box sees more than the 0.5 m frame.
+BOX_SIZE_M = 0.8
 
 Vector3 = tuple[float, float, float]
 
@@ -46,6 +51,18 @@ class CameraModel:
     def range_from_width(self, pixels: float, size: float = TARGET_SIZE_M) -> float:
         """Distance at which an object `size` metres across is `pixels` wide: r = f*s/p."""
         return self.f * size / pixels
+
+    def box_scale(self, detector: str, width: float, height: float) -> tuple[float, float]:
+        """(box size px, object size m) to estimate a detection's distance from, r = f*s/p.
+        The baseline keeps its old rule (longer side, 0.5 m); every other detector uses
+        the geometric-mean side sqrt(w*h) and BOX_SIZE_M."""
+        if detector == 'baseline':
+            return max(width, height), TARGET_SIZE_M
+        return math.sqrt(max(width, 1.0) * max(height, 1.0)), BOX_SIZE_M
+
+    def range_from_detection(self, detector: str, width: float, height: float) -> float:
+        px, size = self.box_scale(detector, width, height)
+        return self.range_from_width(px, size)
 
     def width_at(self, distance: float, size: float = TARGET_SIZE_M) -> float:
         """Pixels across of an object `size` metres across at `distance` metres."""

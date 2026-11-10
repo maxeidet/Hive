@@ -40,15 +40,17 @@ Why two topics: `target_position` steers the drone (which way to fly). `target_o
 | 4   | Publish only confirmed tracks, the best one if there are several                                              | No messages while looking at empty sky                                       |
 | 5   | (If time) Faster detection than today's 220 ms per image                                                      | At least 5 images per second                                                 |
 
-**Status (14 Oct):** task 1 is built and unit tested, not yet tried live (Docker was off). `./mount-backend.sh detect 2` publishes `target_offset` for the best confirmed target, stamped with the image time, `frame_id` = the drone's Gazebo name, nothing without a confirmed target. It is **not roll-corrected yet**: the roll needs task 2, and the node says so when it starts. On the three scenario-1 images with a detection, the offset was 2–6° off without roll correction (camera roll 9–30°) and 0.5–0.6° off with the true roll, so the correction formula is right and task 2 is what is missing. The detector is chosen with `--detector baseline|yolo`; everything after it only sees boxes and a score.
+**All five tasks done on 14 Oct**, merged into `dev`. How to run it: [[Tutorial - live detector (detect)]].
 
-**Status (14 Oct, task 2):** built and checked on the running simulation. The camera's orientation is PX4's gimbal status quaternion, which the simulated gimbal reports in the earth frame with roll included; PX4's timestamps count from a different zero than Gazebo's, so they are matched through Gazebo's clock. Against the truth: 0.35° median and 1.6° worst while the chase flew, 0.19° while hovering. `target_offset` is now roll-corrected. `snap` saves PX4's orientation and its error in each `.json` (`px4_camera`), and `predict` prints the error over all images.
+**Status (14 Oct, task 1):** `./mount-backend.sh detect 2` publishes `target_offset` for the best confirmed target, stamped with the image time, `frame_id` = the drone's Gazebo name, nothing without a confirmed target. Roll-corrected since task 2 (on the three scenario-1 images with a detection: 2–6° off without the correction, 0.5–0.6° with it). The detector is chosen with `--detector baseline|yolo`; everything after it only sees boxes and a score.
+
+**Status (14 Oct, task 2):** built and checked on the running simulation. The camera's orientation is PX4's gimbal status quaternion, which the simulated gimbal reports in the earth frame with roll included; PX4's timestamps count from a different zero than Gazebo's, so they are matched through Gazebo's clock. Against the truth: 0.35° median and 1.6° worst while the chase flew, 0.19° while hovering. `snap` saves PX4's orientation and its error in each `.json` (`px4_camera`), and `predict` prints the error over all images.
 
 **Status (14 Oct, task 3):** `target_position` is published with `target_offset` (same stamp and `frame_id`), only when the camera orientation from PX4 is known. Live test, drone 1 hovering 15 m north of and 8 m above drone 2: published N +14.8, E −0.1, D −8.6 m (17.1 m away); truth 17.0 m. Against the truth on 12 saved images: direction 0.3–0.6° off (2.5° once, in a fast turn), position 0.2–3.2 m off, almost all of it in the distance (±25 %). The distance jumps by 1–2 m from image to image at 17 m because the box size changes by a pixel; Max's pure pursuit only uses the direction, so this matters little for the baseline. It is relative to the camera, which sits 0.26 m below the drone's centre.
 
 **Status (14 Oct, task 4):** only confirmed tracks are published, the highest score if there are several. Detections are now matched from image to image by world direction once PX4's camera orientation is known (gate `--gate-deg`, default 10°), so the gimbal turns by Max's node no longer reset the "k in a row" count; until then they are matched in pixels. Unit tested (a 6° gimbal turn that moves the target 30 px keeps one track); the live check is in the manual tests.
 
-If task 2 is not finished, publish `target_position` with the truth orientation for now and say so in the log, so nobody mistakes it for a real result.
+**Status (14 Oct, task 5):** the baseline's black-hat window is now square instead of round (`--round-kernel` brings the old one back): the same detections, about 30 ms per image in the container instead of about 210 ms. The live check is in [[Manual tests to do]].
 
 ## Max: attack tasks
 
@@ -86,7 +88,6 @@ Coasting is needed because the detector cannot see the target closer than about 
 
 **First join done on 14 Oct:** head-on hits on the real detector, crossing misses by about 4 m. See [[Join test results 2026-10-14]].
 
-
 Joining the halves needs no code changes, because both use the same topics.
 
 1. Stop Max's fake detector and start Oskar's node.
@@ -95,25 +96,21 @@ Joining the halves needs no code changes, because both use the same topics.
 
 ## Open questions
 
-From the plan, to settle together:
+From the plan, settled in the code (`scenarios/attack.yaml`, `tests/attack_test.py`):
 
-- [ ] How high the defender hovers, and how far above it the hostile flies, so the target always has sky behind it.
-- [ ] Which direction the gimbal points during SEARCH.
-- [ ] The drone number N in the topic names for the test scenario.
+- [x] How high the defender hovers, and how far above it the hostile flies: the defender guards at 20 m; in `headon` and `crossing` the hostile flies 10 m above it (`offset` is at the same height and only works with the fake detector).
+- [x] Which direction the gimbal points during SEARCH: towards `search_heading_deg` (0 = north), tilted 10° up.
+- [x] The drone number N: the defender is drone 2 (`/px4_2/detection/...`), the hostile drone 0.
 
-Added by Oskar after reading it (14 Oct), worth settling before coding:
+Added by Oskar after reading it (14 Oct):
 
-- [ ] **Drone 0 has no prefix.** PX4 drone 0 publishes on `/fmu/...`, not `/px4_0/...`. Either the defender is never drone 0, or the rule is "the drone's own namespace" (`/detection/...` for drone 0).
-- [ ] **Which clock the timeouts use.** The stamp is Gazebo's camera time, and PX4's clock can differ from it. If the 0.5 s and 1.5 s timeouts compare stamps against the drone's clock they can fire wrongly. Timing on message arrival is safest.
-- [ ] **Turning the gimbal can break the confirmation.** The k-in-a-row check matches detections in pixels with a 20 px gate. When the attack turns the gimbal by half the offset, the target can jump further than that, the count restarts and no messages go out. Perception should match by world direction (or widen the gate) — part of Oskar's task 4.
-- [ ] **`frame_id`.** Not specified. Suggestion: the drone's name, with NED stated here, so nobody reads the numbers as ENU.
-- [ ] **Suggested change: "highest score", not "highest contrast".** The contract says one target per image, "the confirmed track with the highest contrast". Contrast only exists for the baseline detector; YOLO gives a confidence. Since perception will let the detector be swapped with one option (baseline or YOLO), the rule should read "the confirmed track with the highest score", where the score is the baseline's contrast or YOLO's confidence. The topics, types and conventions stay exactly the same. To agree with Max.
-- [ ] **Rate.** The fake detector runs at 4 Hz and the real one at about 4 images a second. Task 5 is cheap (a square black-hat window: 39 ms → 2.5 ms for that step), so Oskar does it early rather than "if time".
+- [x] **Drone 0 has no prefix.** Settled as "the drone's own namespace": `/detection/...` for drone 0, `/px4_N/detection/...` otherwise, on both sides.
+- [x] **Which clock the timeouts use.** Max's attack times the 0.5 s and 1.5 s timeouts on message arrival, not on the stamps, so PX4's clock jumps don't affect it.
+- [x] **Turning the gimbal can break the confirmation.** Fixed in task 4: tracks are matched by world direction.
+- [ ] **`frame_id`.** Not specified in the contract. The real detector sends the drone's Gazebo name (`x500_gimbal_2`), Max's fake sends `world_ned`; the attack does not read it, so nothing breaks. Agree on one with Max.
+- [ ] **Suggested change: "highest score", not "highest contrast".** Contrast only exists for the baseline detector; YOLO gives a confidence. The detector publishes the confirmed track with the highest score (the baseline's contrast or YOLO's confidence). Topics, types and conventions stay the same. Still to agree with Max.
+- [x] **Rate.** Task 5 done: about 30 ms per image, so `--rate` and the camera are now the limit, not the detector.
 
-## Idea, not agreed yet: a thin reader class on Max's side
+## The reader class on Max's side
 
-_Oskar's suggestion (14 Oct), to discuss with Max. Not part of the contract._
-
-The topics stay the contract. Publish/subscribe fits here: the detector runs in its own process, so a slow image, a crash or a restart never stalls the attack node's setpoint stream (PX4 lands the drone below 2 setpoints a second). The fake and the real detector are interchangeable, and `ros2 topic echo` or a bag shows what passes between them. It is the same pattern the code already uses for the radar (`MockRadar` publishes, `RadarTarget` reads).
-
-The idea is to read the two topics through a small class, like `RadarTarget`, with one method such as `latest()` that returns the newest offset and position (or nothing when the last message is too old). The attack logic then works on plain numbers and never touches ROS, so it can be unit tested without the simulation.
+Oskar's suggestion (14 Oct) of a thin class that reads the two topics so the attack logic works on plain numbers without ROS is what Max built: `DetectionInbox` in `intercept/attack.py` keeps the newest message of each topic with its stamp and arrival time, and `nodes/attack_node.py` fills it from the ROS callbacks. The topics stay the contract.

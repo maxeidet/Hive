@@ -18,6 +18,8 @@ Start here, then follow the links.
 | [[px4_ros2_drone_swarm_development_roadmap]]   | Bottom-up build order for `swarm_backend` (one drone → swarm → formations → missions), with current status                                          |
 | [[1octstella]]                                 | Intercept and lock-on design notes (1 Oct 2026): chase algorithm, radar model, sensor ranges, the real scenario                                     |
 | [[Detection implementation plan]]              | How to build the report's detection section: camera math, dark-object baseline, YOLO26 + ByteTrack, Gazebo training data, evaluation, order of work |
+| [[Training data and YOLO training]] | Detection: how training data is collected in Gazebo (placed stills + flown sequences), labels, rendering checks, YOLO26 training and open questions |
+| [[Candidate detector v2 (blob2)]] | Plan (not built): a better first-stage blob detector for YOLO on cut-outs: contrast vs local noise, both polarities, several sizes, top-N, tuned on the labelled generated images |
 | [[Progress 2026-10-13]]                        | Detection, day 1: what was built (image capture with truth, scenario 1, baseline detector, predict), first results and what we learned              |
 | [[Manual - scenario 1, images and prediction]] | Step by step: fly scenario 1, take camera images with the truth saved, run the detector on them                                                     |
 | [[Tutorial - live detector (detect)]]          | How to run `./mount-backend.sh detect`: options, the debug picture, what it publishes (target_offset), known limits. Updated as it grows            |

@@ -21,6 +21,38 @@
 #   ./mount-backend.sh attack [args]   baseline attack: drone 2 takes off, searches and flies into
 #                                      what the detection topics report (pure pursuit), lands on
 #                                      Ctrl-C (swarm_backend/nodes/attack_node.py --help)
+#   ./mount-backend.sh bird spawn|move|wander|remove [args]  birds in the running world
+#                                      (swarm_backend/birds.py --help), e.g. bird spawn dove
+#                                      --at 20 0 30, then bird wander bird_1 --around 20 0 30
+#   ./mount-backend.sh boxtest [args]  try Gazebo's bounding-box camera for training labels: a bare
+#                                      camera, a labelled x500 and dove at 3-150 m, images with the
+#                                      boxes drawn in data/box_test/ (swarm_backend/box_test.py --help)
+#   ./mount-backend.sh gendata --run NAME [--count N] [args]  labelled YOLO training images
+#                                      in data/gen/NAME/ (+ NAME/labels_check.png): random camera, sun and drones in the
+#                                      running world (hive_base); --yaml --val R --test R writes
+#                                      data/gen/data.yaml, split by run (swarm_backend/gen_data.py)
+#   ./mount-backend.sh genlive ID --run NAME [--count N] [args]  the same, but drone ID (spawn
+#                                      gimbal_labels) flies and its own gimbal camera takes the
+#                                      images (swarm_backend/gen_live.py)
+#   ./mount-backend.sh makecrops [args] cut-outs around the baseline's candidates in data/gen/,
+#                                      for YOLO as a second stage, in data/crops/ (same split by
+#                                      run; swarm_backend/make_crops.py)
+#   ./mount-backend.sh showlabels DIR [--n 5] [--out F]  draw the YOLO labels of a run (e.g.
+#                                      data/gen/b05) with zoomed cut-outs, to check them
+#                                      by eye; writes DIR/labels_check.png (training/show_labels.py)
+#   ./mount-backend.sh comparedet DIR [--weights F]  baseline vs YOLO on a labelled run (e.g.
+#                                      data/gen/b14): recall by size and distance, false alarms,
+#                                      ms per frame (training/compare_detectors.py)
+#   ./mount-backend.sh fitrange [--fit R..] [--test R..]  distance from box size: the fixed 0.5 m rule
+#                                      vs sizes fitted on data/gen/ (fit b06-b13, test b14 b15):
+#                                      error by size and distance, plots in data/results/range_fit/
+#                                      (training/fit_range.py; offline, changes no live code)
+#   ./mount-backend.sh yololabels DIR  YOLO label files (labels/*.txt) for the images snap saved in
+#                                      DIR, from the boxes in their .json (swarm_backend/yolo_labels.py)
+#   ./mount-backend.sh attacktest [args] attack flight test: drone 0 flies past above drone 2, which
+#                                      attacks on the fake detector; hits scored from Gazebo, one
+#                                      CSV row per run in data/attack_runs.csv (tests/attack_test.py
+#                                      --help, e.g. --pattern headon --runs 10 --realistic)
 #   ./mount-backend.sh attacktest [args] surveillance attack test: defenders 1-3 patrol the arc,
 #                                      the base station sends one at hostile drone 4 flying in
 #                                      toward the base, real camera detectors (started by the
@@ -65,7 +97,7 @@
 #                                      --help, e.g. --detector baseline --save /workspace/detect_frames)
 #   ./mount-backend.sh detecttest [args] baseline detection flight test: drone 2 watches drone 0
 #                                      fly away from it (tests/detection_test.py --help)
-#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL]  restart Gazebo and the drones without
+#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL] [--headless|--gui]  restart Gazebo and the drones without
 #                                      restarting the container: stops every test, shell, RViz,
 #                                      PX4 and Gazebo, starts Gazebo with drone 0 again (log:
 #                                      /tmp/px4_0.log), then drones 1..N-1 of swarm.yaml if N is
@@ -74,7 +106,8 @@
 #                                      Example: ./mount-backend.sh restart && scenarios/scenario1.sh
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
-#   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, or any PX4_SIM_MODEL
+#   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, gimbal_labels
+#   (gimbal + bounding-box cameras for training labels, our model), or any PX4_SIM_MODEL
 #   such as gz_x500_depth. It takes the lowest instance id that is not running and that id's
 #   swarm.yaml spawn_pose (so the shell can fly it), else a free spot at (4*id, -5, 0).
 #   The shell only flies drones listed in swarm.yaml.
@@ -128,10 +161,11 @@ start_drone() {
   local id="$1" x="$2" y="$3" z="$4" model="$5"
   echo "Starting drone $id ($model) at Gazebo ($x, $y, $z), log: /tmp/px4_$id.log in the container"
   # -dit: detached, but with a terminal so the PX4 shell stays alive.
-  # Models without their own PX4 airframe (our custom ones) fly with the plain x500 airframe.
+  # Models without their own PX4 airframe (our custom ones) fly with the airframe number in
+  # worlds/models/<model>/airframe if there is one, else the plain x500 airframe.
   docker exec -dit "$CONTAINER" bash -c "
     export PX4_SIM_MODEL=$model PX4_GZ_MODEL_POSE='$x,$y,$z,0,0,0'
-    ls /opt/px4-gazebo/etc/init.d-posix/airframes/*_$model >/dev/null 2>&1 || export PX4_SYS_AUTOSTART=4001
+    ls /opt/px4-gazebo/etc/init.d-posix/airframes/*_$model >/dev/null 2>&1 || export PX4_SYS_AUTOSTART=\$(cat /workspace/worlds/models/${model#gz_}/airframe 2>/dev/null || echo 4001)
     /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i $id > /tmp/px4_$id.log 2>&1"
 }
 
@@ -148,6 +182,7 @@ model_for() {
     depth)       echo gz_x500_depth ;;
     flow)        echo gz_x500_flow ;;
     gimbal)      echo gz_x500_gimbal ;;
+    gimbal_labels) echo gz_x500_gimbal_labels ;;
     gz_*)        echo "$1" ;;
     *)           return 1 ;;
   esac
@@ -204,11 +239,13 @@ view() {
 }
 
 restart() {
-  local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings
+  local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings want_headless=""
   while [ $# -gt 0 ]; do
     case "$1" in
       -w|--world) world="$2"; shift 2 ;;
       -m|--model) model="$2"; shift 2 ;;
+      --headless) want_headless=1; shift ;;
+      --gui)      want_headless=0; shift ;;
       [0-9]*)     n="$1"; shift ;;
       *) echo "Unknown restart argument: $1 (see --help)"; exit 1 ;;
     esac
@@ -230,6 +267,9 @@ restart() {
   world="${world:-baylands}" model="${model:-gz_x500}"
   local headless
   headless=$(grep -E '^HEADLESS=' <<< "$settings" || true)
+  # --headless: no Gazebo GUI window (saves a lot of CPU, e.g. for gendata); --gui: back again
+  [ "$want_headless" = 1 ] && headless=HEADLESS=1
+  [ "$want_headless" = 0 ] && headless=""
 
   echo "Stopping tests, shells, RViz, PX4 and Gazebo (the container and MicroXRCE agent keep running)..."
   # Killed ROS/PX4 processes leave Fast DDS shared memory behind, and new drones then never
@@ -298,6 +338,27 @@ case "$cmd" in
   baseline-intercept) run "python3 $PKG/tests/intercept_baseline_test.py --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
+  bird)   run "python3 -m swarm_backend.birds $*" ;;
+  boxtest) run "python3 -m swarm_backend.box_test $*" ;;
+  gendata)
+    # After a run, draw its labels to DIR/labels_check.png to check them by eye.
+    if run "python3 -m swarm_backend.gen_data $*"; then
+      gen_run="" gen_out=/workspace/data/gen
+      while [ $# -gt 0 ]; do
+        case "$1" in --run) gen_run="$2"; shift ;; --out) gen_out="$2"; shift ;; --yaml) gen_run=""; break ;; esac
+        shift
+      done
+      if [ -n "$gen_run" ]; then
+        run "cd /workspace && python3 training/show_labels.py $gen_out/$gen_run --n 10" || true
+      fi
+    fi ;;
+  genlive) run "python3 -m swarm_backend.gen_live $*" ;;
+  makecrops) run "python3 -m swarm_backend.make_crops $*" ;;
+  yololabels) run "cd /workspace && python3 -m swarm_backend.yolo_labels $*" ;;
+  showlabels) run "cd /workspace && python3 training/show_labels.py $*" ;;
+  fitrange) run "cd /workspace && python3 training/fit_range.py $*" ;;
+  comparedet) run "cd /workspace && python3 training/compare_detectors.py $*" ;;
+  attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
   basestation) run "python3 -m swarm_backend.nodes.base_station_node --config $CONFIG $*" ;;
   patrol) run "python3 -m swarm_backend.nodes.patrol_node --config $CONFIG --id $*" ;;
   baseline-eval) run "python3 $PKG/tests/baseline_eval_test.py --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
