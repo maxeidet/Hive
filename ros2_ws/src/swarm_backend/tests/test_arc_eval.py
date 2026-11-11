@@ -113,7 +113,9 @@ def flight(t_end=10.0, hit=True):
 def test_intercept_samples_score_with_his_metrics():
     truth, records, statuses = flight()
     samples = intercept_samples(truth, records, statuses, 1, 0.0, 10.0, HFOV, 0.5, 25.0)
-    assert len(samples) == 101
+    on_grid = [s for s in samples if abs(s.t * 10 - round(s.t * 10)) < 1e-6]
+    assert len(on_grid) == 101  # 10 Hz, plus every truth point of the last 0.2 s
+    assert len(samples) == 101 + 8
     assert samples[0].in_view and not samples[0].detected
     assert samples[20].detected and samples[20].status is Status.TRACKING
     scenario, _ = make_intercept_scenario(0.0, 4.0, 0, ICONFIG, ARC)
@@ -121,6 +123,25 @@ def test_intercept_samples_score_with_his_metrics():
     assert result.outcome is Outcome.HIT
     assert result.time_to_hit == pytest.approx(9.0 - 0.375, abs=0.15)  # 1.5 m before contact
     assert result.lock_on  # in view, confirmed, within 20 m for 3 s
+
+
+def test_a_hit_after_the_last_10_hz_sample_is_scored():
+    """As on gish (seed 1): the run ends at the hit, between two 10 Hz samples. The last
+    one is 1.9 m off; the contact itself, 0.05 s later, must still count."""
+    truth, records, statuses = flight(t_end=9.9, hit=False)
+    me = (150.0, 0.0, -30.0)
+
+    def closing(t):  # 1.9 m at t = 9.9, closing at 20 m/s
+        return (150.0 + 1.9 - 20.0 * (t - 9.9), 0.0, -30.0)
+
+    truth = [TruthPoint(p.stamp, p.bodies, p.cameras, closing(p.stamp)) for p in truth]
+    truth += [TruthPoint(t, {1: me}, {1: camera_north(me)}, closing(t)) for t in (9.92, 9.95)]
+    samples = intercept_samples(truth, records, statuses, 1, 0.0, 9.95, HFOV, 0.5, 25.0)
+    scenario, _ = make_intercept_scenario(0.0, 4.0, 0, ICONFIG, ARC)
+    result = score_run(samples, scenario, ICONFIG)
+    assert result.outcome is Outcome.HIT
+    on_grid = [s for s in samples if abs(s.t * 10 - round(s.t * 10)) < 1e-6]
+    assert score_run(on_grid, scenario, ICONFIG).outcome is not Outcome.HIT  # the old bug
 
 
 def test_frame_records_give_his_detection_metrics():

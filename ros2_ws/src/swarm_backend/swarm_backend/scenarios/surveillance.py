@@ -101,6 +101,7 @@ class SurveillanceWorld:
         self.judges: dict[int, ClosestApproach] | None = None
         self.truth_log: list[TruthPoint] | None = None
         self._last_truth = -math.inf
+        self._previous_truth = None  # (stamp, bodies, hostile, cameras) of the last poses
         self._hostile_truth: Vector3 | None = None
         self._sightings: list[tuple[float, int]] = []
         self._lock = threading.Lock()
@@ -200,13 +201,28 @@ class SurveillanceWorld:
         (only called when they are recorded)."""
         self._hostile_truth = hostile
         judges = self.judges
+        new_hit = False
         if judges is not None and hostile is not None:
             for i, judge in judges.items():
                 if bodies.get(i) is not None:
+                    was_hit = judge.hit
                     judge.update(bodies[i], hostile, stamp)
+                    new_hit = new_hit or (judge.hit and not was_hit)
+        previous, self._previous_truth = self._previous_truth, (stamp, bodies, hostile, cameras)
         log = self.truth_log
-        if log is None or cameras is None or stamp - self._last_truth < TRUTH_PERIOD_S:
+        if log is None or cameras is None:
             return
+        if new_hit:
+            # The referee decided on the segment from the previous poses to these: record
+            # both, so the scoring (arc_eval.intercept_samples) sees the same contact.
+            if previous is not None and previous[3] is not None \
+                    and previous[0] > self._last_truth and previous[2] is not None:
+                self._log_truth(log, *previous)
+        elif stamp - self._last_truth < TRUTH_PERIOD_S:
+            return
+        self._log_truth(log, stamp, bodies, hostile, cameras)
+
+    def _log_truth(self, log: list, stamp: float, bodies: dict, hostile, cameras) -> None:
         self._last_truth = stamp
         poses = cameras()
         log.append(TruthPoint(

@@ -120,6 +120,7 @@ def make_detect_scenario(seed: int, config: DetectConfig, surveillance: Surveill
 
 SAMPLE_DT = 0.1  # 10 Hz, as scenario.STEP_S
 MAX_TRUTH_GAP_S = 0.2  # an image or sample further than this from any truth is skipped
+END_DENSE_S = 2 * SAMPLE_DT  # the end of a run is sampled at every truth point
 MAX_IMAGE_AGE_S = 0.3  # a sample uses its defender's latest image at most this old
 
 
@@ -196,10 +197,16 @@ def intercept_samples(truth: list[TruthPoint], records: dict, statuses: list, dr
     rec_stamps = [r['stamp'] for r in recs]
     status_stamps = [s for s, _ in statuses]
     samples = []
+    times = []
     k = 0
     while t0 + k * SAMPLE_DT <= t_end + 1e-9:
-        t = t0 + k * SAMPLE_DT
+        times.append(t0 + k * SAMPLE_DT)
         k += 1
+    # A run ends at the hit, usually between two 10 Hz samples: every truth point of the
+    # last END_DENSE_S too, so the contact the referee saw is scored (it was dropped
+    # before, and a hit at 1.2 m was saved as a miss at 1.9 m).
+    times += [s for s in stamps if t_end - END_DENSE_S <= s <= t_end + 1e-9]
+    for t in sorted(set(times)):
         point, gap = nearest(truth, stamps, t)
         if point is None or gap > MAX_TRUTH_GAP_S or point.hostile is None \
                 or drone not in point.bodies:
