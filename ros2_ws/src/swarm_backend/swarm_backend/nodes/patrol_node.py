@@ -22,7 +22,8 @@ from swarm_backend.intercept.attack import DetectionInbox
 from swarm_backend.intercept.detection import OFFSET_TOPIC, POSITION_TOPIC, topic
 from swarm_backend.intercept.patrol import PatrolAction
 from swarm_backend.nodes.attack_node import (
-    ALTITUDE_TOLERANCE_M, CLIMB_TIMEOUT_S, POLL_S, RETURN_TIMEOUT_S, stamp_seconds)
+    ALTITUDE_TOLERANCE_M, CLIMB_TIMEOUT_S, POLL_S, RETURN_TIMEOUT_S, AttackReporter,
+    stamp_seconds)
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm.manager import SwarmManager
@@ -64,11 +65,14 @@ class PatrolNode:
         self._sightings = node.create_publisher(String, msgs.SIGHTING_TOPIC, 10)
         self._status = node.create_publisher(String, msgs.STATUS_TOPIC, 10)
         self._events = node.create_publisher(String, msgs.EVENT_TOPIC, 10)
+        self._reporter = AttackReporter(node, drone_id, self.clock)  # for the operator UI
         node.create_timer(1.0 / swarm_config.rate_hz, self._step)
         node.create_timer(1.0 / self.config.status_hz, self._send_status)
 
     def _step(self) -> None:
         self.patrol.step()
+        if self.patrol.running:
+            self._reporter.publish(self.patrol.attack)
         for s in self.patrol.take_sightings():
             self._sightings.publish(String(data=msgs.encode_sighting(s)))
         for e in self.patrol.take_events():

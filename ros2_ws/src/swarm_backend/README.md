@@ -154,7 +154,7 @@ How tests and evaluations are written, and what a run should save: `hive-vault/T
 
 ### Operator UI
 
-A web page for the operator: a top-down map of the base, the search area, every drone in swarm.yaml with its gimbal camera's view and the last 15 s of where the gimbal pointed (so a search sweep is visible), and detections. Next to it is a card per drone (armed, mode, altitude, speed, gimbal heading and pitch, time since PX4 last spoke) with a gimbal compass. A drone running the attack node also gets its attack state (IDLE, SEARCH, ATTACK, COAST, LOST, HIT) on its card and next to it on the map, from `/<ns>/attack/state` (`std_msgs/String`). The attack node publishes it on every change and once a second; the UI hides it after 3 s without a message.
+A web page for the operator: a top-down map of the base, the search area, every drone in swarm.yaml with its gimbal camera's view and the last 15 s of where the gimbal pointed (so a search sweep is visible), and detections. Next to it is a card per drone (armed, mode, altitude, speed, gimbal heading and pitch, time since PX4 last spoke) with a gimbal compass. A drone running the attack node, or a defender running the patrol (`patrol`, and the `attacktest`/`baseline-eval` scenarios in Gazebo), also gets its attack state (IDLE, SEARCH, ATTACK, COAST, LOST, HIT) on its card and next to it on the map, from `/<ns>/attack/state` (`std_msgs/String`). Both publish it (`nodes/attack_node.py` `AttackReporter`) on every change and once a second; the UI hides it after 3 s without a message.
 
 ```bash
 ./mount-backend.sh ui        # then open http://localhost:8090 on the host
