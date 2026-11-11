@@ -67,7 +67,7 @@ surveillance:
   arc_radius: 150.0         # m from the base to the defenders: outside the evaluation's
                             # goal radius (intercept.goal_radius, 100 m) and just outside
                             # hive_base's forest (trees up to 120 m from the base)
-  altitude: 30.0            # m above each defender's start point (trees reach 20 m)
+  altitude: 40.0            # m above each defender's start point (trees reach 20 m)
   aim_beyond_arc: 30.0      # the camera aims this far beyond the arc
   sweep_deg_s: 30.0         # how fast the aim point crosses the sector, seen from the base
   # The baseline detector sees about 50-70 m, so the distances are small.
@@ -86,8 +86,16 @@ surveillance:
 # Baseline evaluation (`mount-backend.sh scenario baseline_eval`, swarm_backend/scenarios/). The
 # intercept: and detect: sections keep the planning report's values (config.py defaults:
 # 30 seeds, aspects 0/30/60/90, speeds 4-17 m/s, hostile altitudes 20-120 m, goal radius
-# 100 m, interceptor 12 m/s); only what the real detector in Gazebo needs differs.
+# 100 m, interceptor 12 m/s); only what the real detector in Gazebo needs differs, and the
+# hostile drone flies at the defenders' altitude (surveillance.altitude, 40 m) instead of a
+# random 20-120 m. min = max keeps every seed's other draws as they were.
+intercept:
+  hostile_altitude_min: 40.0  # = surveillance.altitude
+  hostile_altitude_max: 40.0
+
 detect:
   match_radius_px: 25.0     # a confirmed track counts as the hostile within this of where the
                             # truth projects it (3 px in the fast sim; in Gazebo the box centre
                             # and PX4's camera orientation put it up to ~2 deg = ~20 px off)
+  hostile_altitude_min: 40.0  # = surveillance.altitude
+  hostile_altitude_max: 40.0

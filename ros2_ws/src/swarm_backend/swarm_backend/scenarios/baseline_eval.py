@@ -18,6 +18,12 @@ detect/scenario.py + metrics.py), placed on the arc by intercept/arc_eval.py:
              hit, closest to base, closest miss, outcome. The interceptor scored is the
              defender that hit, else the first one sent, else the one the scenario was
              built around. Pure pursuit flies at intercept.interceptor_max_speed.
+             --altitudes 30 40 50 flies every seed at each altitude (instead of the
+             drawn one), --altitude-offsets -10 0 10 the same relative to the
+             defenders' (surveillance.altitude); --sector 2 starts the hostile at a seeded bearing inside drone
+             2's sector (the same bearing for a seed at every altitude and path). Each
+             run also saves the first detection: which defender, when, and the true 3-D
+             distance (space diagonal) to the hostile (detect_distance).
   detect     seeds 0..detect.eval_runs-1: the hostile drone flies its seeded track toward
              the base at detect.hostile_speed; the defenders only patrol and report (the
              base station sends nobody). Scored with detect.metrics.score_run: missed
@@ -48,6 +54,7 @@ import dataclasses
 import datetime
 import json
 import math
+import statistics
 import sys
 from pathlib import Path
 
@@ -125,8 +132,27 @@ def summary_text(out: Path, config, where: str = 'Baseline on the arc') -> str:
 
 def _intercept_extras(results, rows) -> str:
     sent = sum(1 for r in rows if r.get('engaged_by') is not None)
-    return (f'  {len(results)} runs; a defender was sent in {sent}; outcomes: '
-            + ', '.join(f'{o.value} {sum(r.outcome == o for r in results)}' for o in Outcome))
+    lines = [f'  {len(results)} runs; a defender was sent in {sent}; outcomes: '
+             + ', '.join(f'{o.value} {sum(r.outcome == o for r in results)}' for o in Outcome)]
+    if any('detect_distance' in r for r in rows):
+        lines += ['', f'  {"altitude":>8} {"runs":>4} {"hits":>4} {"detected":>8} '
+                      f'{"detect 3-D [m]":>14} {"horizontal":>10} {"height":>7}',
+                  '  (first detection by any defender: true distance to the hostile, median)']
+        key = lambda r: r.get('hostile_altitude') or 0.0  # noqa: E731
+        for altitude in sorted({key(r) for r in rows}):
+            group = [r for r in rows if key(r) == altitude]
+            seen = [r for r in group if r.get('detect_distance') is not None]
+            lines.append(
+                f'  {altitude:>6.0f} m {len(group):>4} '
+                f'{sum(r["outcome"] == "hit" for r in group):>4} {len(seen):>4}/{len(group):<3} '
+                f'{_median_of(seen, "detect_distance"):>14} '
+                f'{_median_of(seen, "detect_horizontal"):>10} '
+                f'{_median_of(seen, "detect_height"):>7}')
+    return '\n'.join(lines)
+
+
+def _median_of(rows, field) -> str:
+    return f'{statistics.median(r[field] for r in rows):.1f}' if rows else '-'
 
 
 def parse_seeds(text: str) -> list[int]:
@@ -164,10 +190,26 @@ def run_intercept(world: SurveillanceWorld, config, scenario, designated: int,
         flight.t_end, GIMBAL_HFOV, config.detect.target_size, config.detect.match_radius_px)
     if len(samples) < 2:
         raise RuntimeError('Too few samples recorded (is Gazebo publishing poses?)')
+    first = arc_eval.first_detection(
+        flight.truth, flight.records, flight.t0, flight.t_end, GIMBAL_HFOV,
+        config.detect.target_size, config.detect.match_radius_px)
     return score_run(samples, scenario, config.intercept), {
         'designated': world.ids[designated], 'scored_defender': scored,
         'engaged_by': engaged, 'killer': flight.killer,
-        'images': sum(map(len, flight.records.values()))}
+        'images': sum(map(len, flight.records.values())),
+        'hostile_altitude': -scenario.target_start[2],
+        **detection_fields(first, world.ids)}
+
+
+def detection_fields(first, ids) -> dict:
+    """The first detection (arc_eval.first_detection) as saved fields; None when missed."""
+    if first is None:
+        return {'detected_by': None, 'detect_t': None, 'detect_distance': None,
+                'detect_horizontal': None, 'detect_height': None}
+    return {'detected_by': ids[first.defender], 'detect_t': round(first.t, 2),
+            'detect_distance': round(first.distance, 2),
+            'detect_horizontal': round(first.horizontal, 2),
+            'detect_height': round(first.height, 2)}
 
 
 def run_detect(world: SurveillanceWorld, config, scenario, way=None) -> tuple:
@@ -192,16 +234,44 @@ def jobs(args, config, out_file: Path) -> list:
         aspects = args.aspects or config.intercept.eval_aspects
         speeds = args.speeds or config.intercept.eval_speeds
         seeds = args.seeds if args.seeds is not None else range(config.intercept.eval_runs)
-        todo = [arc_eval.make_intercept_scenario(a, v, s, config.intercept, config.surveillance)
-                for a in aspects for v in speeds for s in seeds]
-        done = {(r['aspect_deg'], r['speed'], r['seed']) for r in load_runs(out_file)
-                if r.get('path', 'straight') == args.path}
-        return [(sc, i) for sc, i in todo
-                if args.rerun or (sc.aspect_deg, sc.speed, sc.seed) not in done]
+        altitudes = hostile_altitudes(args, config) or [None]
+        sector = sector_index(args, config)
+        todo = [arc_eval.make_intercept_scenario(a, v, s, config.intercept, config.surveillance,
+                                                 altitude=h, sector=sector)
+                for h in altitudes for a in aspects for v in speeds for s in seeds]
+
+        def key(aspect, speed, seed, altitude, start_sector):
+            return aspect, speed, seed, round(altitude, 1), start_sector
+
+        done = {key(r['aspect_deg'], r['speed'], r['seed'], r.get('hostile_altitude', -1.0),
+                    r.get('start_sector'))
+                for r in load_runs(out_file) if r.get('path', 'straight') == args.path}
+        return [(sc, i) for sc, i in todo if args.rerun or key(
+            sc.aspect_deg, sc.speed, sc.seed, -sc.target_start[2], args.sector) not in done]
     seeds = args.seeds if args.seeds is not None else range(config.detect.eval_runs)
     done = {r['seed'] for r in load_runs(out_file) if r.get('path', 'straight') == args.path}
     return [arc_eval.make_detect_scenario(s, config.detect, config.surveillance)
             for s in seeds if args.rerun or s not in done]
+
+
+def hostile_altitudes(args, config) -> list[float] | None:
+    """--altitudes, then --altitude-offsets from the defenders' altitude; None: the drawn."""
+    altitudes = list(args.altitudes or [])
+    altitudes += [config.surveillance.altitude + d for d in args.altitude_offsets or []]
+    if any(a <= 0 for a in altitudes):
+        raise SystemExit(f'Hostile altitudes must be above the ground, got {altitudes}')
+    return sorted(set(altitudes)) or None
+
+
+def sector_index(args, config) -> int | None:
+    """--sector's defender id as its index on the arc (left to right), or None."""
+    if args.sector is None:
+        return None
+    ids = list(config.surveillance.drone_ids)
+    if args.sector not in ids:
+        raise SystemExit(f'--sector {args.sector}: not a defender (surveillance.drone_ids '
+                         f'{ids})')
+    return ids.index(args.sector)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -217,6 +287,15 @@ def parser() -> argparse.ArgumentParser:
                    help='intercept: hostile m/s (default intercept.eval_speeds)')
     p.add_argument('--seeds', type=parse_seeds, default=None,
                    help='e.g. 0-29 or 0,4,7 (default 0..eval_runs-1)')
+    p.add_argument('--altitudes', type=float, nargs='+', default=None,
+                   help='intercept: fly every seed at each of these hostile altitudes (m '
+                        'above the ground, e.g. 30 40 50) instead of the drawn one')
+    p.add_argument('--altitude-offsets', type=float, nargs='+', default=None,
+                   help='intercept: the same, in m relative to the defenders\' altitude '
+                        '(surveillance.altitude), e.g. -10 0 10')
+    p.add_argument('--sector', type=int, default=None, metavar='DRONE_ID',
+                   help='intercept: start the hostile at a seeded random bearing inside this '
+                        'defender\'s sector (2: the middle 30 degrees), straight at the base')
     p.add_argument('--rerun', action='store_true', help='fly runs that are already saved')
     p.add_argument('--detect-rate', type=float, default=DEFAULT_DETECT_RATE,
                    help='images per second for each detector')
@@ -278,7 +357,14 @@ def main(argv: list[str] | None = None) -> int:
                 'detector': ('real (detect/live.py)' if world.backend == 'gazebo'
                              else world.detector),
                 'defenders': len(world.alive()), 'arc_radius': config.surveillance.arc_radius,
-                'path': args.path}
+                'path': args.path, 'defender_altitude': config.surveillance.altitude}
+            if args.mode == 'intercept' and args.sector is not None:
+                scenario, _ = job
+                bx, by, _ = scenario.base
+                sx, sy, _ = scenario.target_start
+                common_fields.update(start_sector=args.sector, start_bearing_deg=round(
+                    math.degrees(math.atan2(sy - by, sx - bx))
+                    - config.surveillance.threat_heading_deg, 2))
             if args.path != 'straight':
                 common_fields.update(path_amplitude=args.path_amplitude,
                                      path_wavelength=args.path_wavelength)
@@ -286,11 +372,15 @@ def main(argv: list[str] | None = None) -> int:
                 scenario, designated = job
                 world.log.info(f'Run {k + 1}/{len(todo)}: aspect {scenario.aspect_deg:.0f} deg, '
                                f'{scenario.speed} m/s, seed {scenario.seed}, around drone '
-                               f'{world.ids[designated]}')
+                               f'{world.ids[designated]}, altitude '
+                               f'{-scenario.target_start[2]:.0f} m')
                 metrics, extra = run_intercept(world, flown, scenario, designated, way)
                 world.log.info(f'  {metrics.outcome.value}, closest {metrics.closest_miss:.1f} m'
                                + (f', hit {metrics.base_distance_at_hit:.0f} m from the base'
-                                  if metrics.base_distance_at_hit is not None else ''))
+                                  if metrics.base_distance_at_hit is not None else '')
+                               + (f', first seen by drone {extra["detected_by"]} at '
+                                  f'{extra["detect_distance"]:.1f} m (3-D)'
+                                  if extra['detected_by'] is not None else ', never seen'))
             else:
                 scenario = job
                 world.log.info(f'Run {k + 1}/{len(todo)}: detection, seed {scenario.seed}')
