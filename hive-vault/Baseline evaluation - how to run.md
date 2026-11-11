@@ -27,6 +27,10 @@ export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.
 
 Or in one command, without the `export` and `spawn`: `scenarios/baseline_eval.sh` takes the same arguments (`intercept`, `detect`, `summary`), starts the drones that are not running and waits for them. It also runs without a terminal, so `nohup` works as well as `tmux`.
 
+A short trial instead: `scenarios/trial.sh` flies 3 head-on runs at 4 m/s (`scenarios/trial.sh 5` for 5; baseline_eval's arguments after the number change the settings), lands the defenders and prints the metrics of just those runs. Each trial is saved in its own folder, `data/trials/<date-time>/`.
+
+Drone 4 flies straight in by default, as in the planning report. `--path weave` (a sine side to side, `--path-amplitude` m either way, default 15, over `--path-wavelength` m, default 60) or `--path zigzag` (the same in straight legs with sharp turns) makes it fly a curved way in; both `baseline_eval.sh` and `trial.sh` take them. It starts along the straight line and ends at the base, so the scenario's aspect still holds at the start, but not after the first swing. Runs that are not straight save to their own default folder (`data/baseline_eval_weave/`) and record `path`, `path_amplitude` and `path_wavelength`. In the fast simulation, weave and zigzag took the hit rate at 4 m/s head-on from 3/3 to 0/3: the defender loses the target from its camera at each swing, gives up and returns.
+
 Each run is appended to `data/baseline_eval/intercept.jsonl` or `detect.jsonl`, and runs already there are skipped. So Ctrl-C (the defenders land) and starting again picks up where it stopped. `--rerun` flies saved runs again. After a batch the tables are printed and written to `data/baseline_eval/summary.txt`. Don't run `detect`, `attacktest` or the patrol and base-station commands alongside it.
 
 ## What it does
@@ -73,4 +77,5 @@ Everything else is the harness's: seeds, aspects, speeds, altitudes, goal radius
 | `swarm_backend/intercept/arc_eval.py` | The harness's scenarios placed on the arc; recordings → the harness's `Sample`s and `FrameRecord`s |
 | `swarm_backend/detect/live.py --record` | One JSON line per processed image (boxes, confirmed tracks) |
 | `scenarios/surveillance.yaml` | The arc, and the `detect:` setting above |
+| `scenarios/trial.sh` | A few runs, then land and print their metrics (own folder per trial) |
 | `scenarios/baseline_eval.sh`, `scenarios/lib.sh` | The one-command launcher, and what launchers share: checks, waiting for the drones, running in the container |
