@@ -8,6 +8,7 @@ setup(
     name=package_name,
     version='0.0.1',
     packages=find_packages(exclude=['test', 'tests']),
+    package_data={'swarm_backend.ui': ['static/*']},
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -33,6 +34,7 @@ setup(
             'attack_node = swarm_backend.nodes.attack_node:main',
             'base_station_node = swarm_backend.nodes.base_station_node:main',
             'patrol_node = swarm_backend.nodes.patrol_node:main',
+            'operator_ui = swarm_backend.nodes.operator_ui:main',
         ],
     },
 )

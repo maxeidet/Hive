@@ -10,6 +10,7 @@ flies back above its start point and lands. It does not score hits; the attack t
 """
 import argparse
 import dataclasses
+import json
 import sys
 import time
 
@@ -17,7 +18,8 @@ import rclpy
 from rclpy.signals import SignalHandlerOptions
 
 from swarm_backend.config import default_config_path, load_config
-from swarm_backend.intercept.attack import AttackAction, DetectionInbox
+from swarm_backend.intercept.attack import (STATE_TOPIC, STATUS_TOPIC, AttackAction,
+                                            DetectionInbox, attack_status, state_label)
 from swarm_backend.intercept.detection import OFFSET_TOPIC, POSITION_TOPIC, topic
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
@@ -28,6 +30,8 @@ ALTITUDE_TOLERANCE_M = 1.0
 CLIMB_TIMEOUT_S = 240.0  # slow when Gazebo runs below real time
 RETURN_TIMEOUT_S = 180.0
 POLL_S = 0.1
+STATE_REPEAT_S = 1.0  # the state is published on every change and at least this often
+STATUS_PERIOD_S = 0.2  # attack/status for the operator UI, which polls at 5 Hz
 
 
 def stamp_seconds(header) -> float:
@@ -41,6 +45,7 @@ class AttackNode:
         """`clock` gives the time the attack runs on (seconds); default the drone's PX4
         clock. The attack test passes Gazebo's simulation clock, which never jumps."""
         from geometry_msgs.msg import PointStamped, Vector3Stamped
+        from std_msgs.msg import String
 
         self.config = config
         self.log = node.get_logger()
@@ -54,6 +59,12 @@ class AttackNode:
         self.offset_topic = topic(config.attacker_id, OFFSET_TOPIC)
         node.create_subscription(PointStamped, self.position_topic, self._on_position, 10)
         node.create_subscription(Vector3Stamped, self.offset_topic, self._on_offset, 10)
+        self._string = String
+        self._state_pub = node.create_publisher(String, topic(config.attacker_id, STATE_TOPIC), 10)
+        self._state_sent: tuple[str, float] | None = None  # (label, time.monotonic())
+        self._status_pub = node.create_publisher(String, topic(config.attacker_id, STATUS_TOPIC),
+                                                 10)
+        self._status_sent = -float('inf')  # time.monotonic()
         node.create_timer(1.0 / swarm_config.rate_hz, self._step)
 
     def new_attack(self) -> AttackAction:
@@ -63,6 +74,18 @@ class AttackNode:
 
     def _step(self) -> None:
         self.attack.step()
+        self._publish_state()
+
+    def _publish_state(self) -> None:
+        label, now = state_label(self.attack), time.monotonic()
+        if self._state_sent is None or self._state_sent[0] != label \
+                or now - self._state_sent[1] >= STATE_REPEAT_S:
+            self._state_pub.publish(self._string(data=label))
+            self._state_sent = (label, now)
+        if now - self._status_sent >= STATUS_PERIOD_S:
+            status = attack_status(self.attack, self.clock())
+            self._status_pub.publish(self._string(data=json.dumps(status)))
+            self._status_sent = now
 
     def _on_position(self, msg) -> None:
         now = self.clock()

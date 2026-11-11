@@ -165,6 +165,7 @@ docker run --rm -it \
     --name px4-gazebo-vnc \
     -p 6080:6080 \
     -p 5900:5900 \
+    -p 127.0.0.1:8090:8090 \
     -v "$(pwd)/..":/workspace \
     hive-px4-vnc \
     MicroXRCEAgent udp4 -p 8888

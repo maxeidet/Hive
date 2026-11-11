@@ -34,6 +34,8 @@ The `-w`/`--world` flag sets which Gazebo world gets loaded — any value from t
 | `rover`                         | Rover-oriented terrain                                                                                                                                                                  |
 | `kthspacelab`, `kth_marinarium` | KTH-specific scenario worlds                                                                                                                                                            |
 | `moving_platform`               | Includes a moving landing platform                                                                                                                                                      |
+| `hive_base`                     | Ours (`worlds/`): the field camp in a 240 m forest. Slow to load (thousands of separate trees and parts); raise `WORLD_TIMEOUT`.                                                        |
+| `hive_valley`                   | Ours (`worlds/`): 4 km valley with hills, a river, a bridge and the camp at the origin; trees thin out from the centre. Baked into a few meshes, so it loads fast. Run `python3 worlds/generate_hive_valley.py` once first (~75 s). |
 
 **What the script actually starts:**
 

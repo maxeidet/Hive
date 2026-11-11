@@ -7,7 +7,8 @@ import pytest
 
 from swarm_backend.config import AttackConfig
 from swarm_backend.intercept.attack import (
-    AttackAction, DetectionInbox, State, limit_velocity, look_angles, pursuit_velocity)
+    AttackAction, DetectionInbox, State, attack_status, limit_velocity, look_angles,
+    pursuit_velocity, state_label)
 from swarm_backend.intercept.detection import FakeDetector
 from swarm_backend.px4.drone import Drone
 
@@ -261,6 +262,69 @@ def test_hit_stops_the_attack_and_counts_the_time_in_each_state():
     # The step that reads the first message still counts as searching.
     assert action.state_time[State.SEARCH] == pytest.approx(1.1)
     assert action.state_time[State.ATTACK] == pytest.approx(1.9)
+
+
+
+def test_state_label_is_idle_unless_running_but_keeps_a_hit():
+    action, drone, inbox, clock = make_action()
+    assert state_label(action) == 'idle'  # before start: taking off
+    action.start()
+    assert state_label(action) == 'search'
+    run_for(action, clock, 1.0, inbox, (20.0, 0.0, 0.0))
+    assert state_label(action) == 'attack'
+    action.hit()
+    assert state_label(action) == 'hit'
+    action, *_ = make_action()
+    action.start()
+    action.stop()
+    assert state_label(action) == 'idle'  # stopped without a hit: landing
+
+def test_status_is_empty_until_the_attack_runs():
+    action, *_ = make_action()
+    status = attack_status(action, 0.0)
+    assert status['state'] == 'idle' and status['target'] is None and status['timeout'] is None
+
+
+def test_status_tracks_the_target_and_the_closing_speed():
+    action, drone, inbox, clock = make_action()
+    action.start()
+    run_for(action, clock, 0.5)
+    for i in range(10):  # the target 40 m north, coming 2 m closer each 0.1 s: 20 m/s
+        clock[0] = round(clock[0] + STEP, 6)
+        inbox.put_position((40.0 - 2.0 * i, 0.0, 0.0), clock[0], clock[0])
+        action.step()
+    status = attack_status(action, clock[0])
+    assert status['state'] == 'attack'
+    assert status['range_m'] == pytest.approx(22.0)
+    assert status['closing_mps'] == pytest.approx(20.0, abs=0.5)
+    assert status['impact_s'] == pytest.approx(1.1, abs=0.1)
+    me = drone.position
+    assert status['target'] == pytest.approx([me[0] + 22.0, me[1], me[2]], abs=0.01)
+    assert status['velocity'] == pytest.approx(list(drone.command))
+    assert status['engaged_s'] == pytest.approx(0.9)
+    assert status['seen_s_ago'] == 0.0 and status['timeout'] is None
+
+
+def test_status_counts_down_to_lost_then_to_search():
+    action, drone, inbox, clock = make_action()
+    action.start()
+    run_for(action, clock, 1.0, inbox, (20.0, 0.0, 0.0))  # still: no closing speed
+    status = attack_status(action, clock[0])
+    assert status['closing_mps'] == pytest.approx(0.0) and status['impact_s'] is None
+    run_for(action, clock, 1.0)  # coasting since 0.5 s after the last message
+    status = attack_status(action, clock[0])
+    assert status['state'] == 'coast'
+    assert status['timeout'] == {'to': 'lost', 'in_s': pytest.approx(1.0)}
+    assert status['seen_s_ago'] == pytest.approx(1.0)
+    run_for(action, clock, 2.0)
+    status = attack_status(action, clock[0])
+    assert status['state'] == 'lost' and status['velocity'] is None
+    assert status['timeout']['to'] == 'search'
+    assert status['target'] is not None  # where it was last seen, kept while lost
+    run_for(action, clock, 3.0)
+    status = attack_status(action, clock[0])
+    assert status['state'] == 'search' and status['target'] is None
+    assert status['engaged_s'] is None
 
 
 # --- closed loop --------------------------------------------------------------

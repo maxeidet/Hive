@@ -28,6 +28,7 @@ MODEL="gz_x500"
 WORLD="baylands"
 HOST_NOVNC_PORT="${HOST_NOVNC_PORT:-6080}"
 HOST_VNC_PORT="${HOST_VNC_PORT:-5900}"
+HOST_UI_PORT="${HOST_UI_PORT:-8090}"  # operator UI (mount-backend.sh ui)
 WORLD_TIMEOUT="${WORLD_TIMEOUT:-180}"
 HEADLESS_ENV=""
 
@@ -87,10 +88,12 @@ echo ""
 echo "  noVNC (browser):  http://localhost:${HOST_NOVNC_PORT}/vnc.html"
 echo "  VNC client:       vnc://127.0.0.1:${HOST_VNC_PORT}"
 echo "  VNC password:     ${VNC_PASSWORD}"
+echo "  Operator UI:      http://localhost:${HOST_UI_PORT} (after mount-backend.sh ui)"
 echo ""
 echo "Starting the container (Ctrl+C here shuts everything down)..."
 docker run --rm -it --name px4-gazebo-vnc \
   -p "127.0.0.1:${HOST_NOVNC_PORT}:6080" -p "127.0.0.1:${HOST_VNC_PORT}:5900" \
+  -p "127.0.0.1:${HOST_UI_PORT}:8090" \
   -e VNC_PASSWORD \
   -v "$(pwd)/..":/workspace \
   hive-px4-vnc MicroXRCEAgent udp4 -p 8888
