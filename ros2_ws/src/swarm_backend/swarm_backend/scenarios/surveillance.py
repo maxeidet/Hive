@@ -28,6 +28,7 @@ from swarm_backend.intercept.detection import fake_config
 from swarm_backend.intercept.interceptor import Status
 from swarm_backend.intercept.mock import HostileFlight
 from swarm_backend.intercept.paths import Path as Track
+from swarm_backend.intercept.paths import polyline_length
 
 SLOT_TOLERANCE_M = 2.0
 SETUP_TIMEOUT_S = 900.0  # climbs and repositioning, slow when Gazebo is
@@ -230,15 +231,17 @@ class SurveillanceWorld:
             {self.index[i]: p for i, p in poses.items() if p is not None}, hostile))
 
     def fly(self, start: Vector3, goal: Vector3, speed: float, timeout: float = math.inf,
-            end=None) -> Flight:
-        """One run: the hostile drone flies straight from `start` to `goal` (world NED) at
-        `speed`. `end(t, hostile position)` ends it early."""
+            end=None, path: list[Vector3] | None = None) -> Flight:
+        """One run: the hostile drone flies from `start` to `goal` (world NED) at `speed`,
+        straight, or along `path` (an open polyline from start to goal, paths.inbound).
+        `end(t, hostile position)` ends it early."""
+        points = [tuple(start), tuple(goal)] if path is None else [tuple(p) for p in path]
         self.read_records()  # skip what came before this run
-        self.place_hostile(start, goal, speed)
+        self.place_hostile(start, points[1], speed)  # facing along its first leg
         self.wait_patrol()
         self.wait_sim(SETTLE_S)
 
-        track = Track([tuple(start), tuple(goal)], speed)
+        track = Track(points, speed)  # closed, but the run ends at the goal
         alive = self.alive()
         judges = {d: ClosestApproach(self.options.hit_radius) for d in alive}
         with self._lock:
@@ -246,7 +249,7 @@ class SurveillanceWorld:
         modes = {d: self.patrols[d].patrol.mode for d in alive}
         statuses = []
         self.truth_log, self._last_truth = [], -math.inf
-        flight = Flight(t0=0.0, t_end=0.0, track_time=math.dist(start, goal) / speed,
+        flight = Flight(t0=0.0, t_end=0.0, track_time=polyline_length(points) / speed,
                         judges=judges, statuses=statuses)
         self.flight = HostileFlight(self.hostile, track, self.clock)
         self.judges = judges

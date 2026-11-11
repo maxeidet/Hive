@@ -58,6 +58,7 @@ from swarm_backend.detect.metrics import score_run as score_detect
 from swarm_backend.detect.metrics import summarize as summarize_detect
 from swarm_backend.intercept import arc_eval
 from swarm_backend.intercept.metrics import Outcome, RunMetrics, score_run, summarize
+from swarm_backend.intercept.paths import INBOUND_PATHS, inbound
 from swarm_backend.scenarios import common
 from swarm_backend.scenarios.surveillance import Options, SurveillanceWorld
 
@@ -150,9 +151,12 @@ def eval_config(config, mode: str):
         config.surveillance, reserve=len(ids), close_radius_m=-1.0))
 
 
-def run_intercept(world: SurveillanceWorld, config, scenario, designated: int) -> tuple:
-    flight = world.fly(scenario.target_start, scenario.target_goal, scenario.speed,
-                       timeout=config.intercept.eval_timeout)
+def run_intercept(world: SurveillanceWorld, config, scenario, designated: int,
+                  way=None) -> tuple:
+    """`way(start, goal)`: the hostile's path (paths.inbound); None flies straight."""
+    start, goal = scenario.target_start, scenario.target_goal
+    flight = world.fly(start, goal, scenario.speed, timeout=config.intercept.eval_timeout,
+                       path=None if way is None else way(start, goal))
     engaged = None if flight.engaged is None else flight.engaged[1]
     scored = flight.killer or engaged or world.ids[designated]
     samples = arc_eval.intercept_samples(
@@ -166,15 +170,16 @@ def run_intercept(world: SurveillanceWorld, config, scenario, designated: int) -
         'images': sum(map(len, flight.records.values()))}
 
 
-def run_detect(world: SurveillanceWorld, config, scenario) -> tuple:
+def run_detect(world: SurveillanceWorld, config, scenario, way=None) -> tuple:
     bx, by, _ = scenario.base
     ring = scenario.perimeter_radius
 
     def at_ring(t, hostile):
         return hostile is not None and math.hypot(hostile[0] - bx, hostile[1] - by) <= ring
 
-    flight = world.fly(scenario.hostile.start, scenario.hostile.goal, scenario.hostile.speed,
-                       timeout=config.detect.eval_timeout, end=at_ring)
+    start, goal = scenario.hostile.start, scenario.hostile.goal
+    flight = world.fly(start, goal, scenario.hostile.speed, timeout=config.detect.eval_timeout,
+                       end=at_ring, path=None if way is None else way(start, goal))
     frames = arc_eval.frame_records(flight.truth, flight.records, scenario, flight.t0,
                                     flight.t_end, GIMBAL_HFOV)
     return score_detect(frames, scenario, config.detect), {
@@ -189,11 +194,12 @@ def jobs(args, config, out_file: Path) -> list:
         seeds = args.seeds if args.seeds is not None else range(config.intercept.eval_runs)
         todo = [arc_eval.make_intercept_scenario(a, v, s, config.intercept, config.surveillance)
                 for a in aspects for v in speeds for s in seeds]
-        done = {(r['aspect_deg'], r['speed'], r['seed']) for r in load_runs(out_file)}
+        done = {(r['aspect_deg'], r['speed'], r['seed']) for r in load_runs(out_file)
+                if r.get('path', 'straight') == args.path}
         return [(sc, i) for sc, i in todo
                 if args.rerun or (sc.aspect_deg, sc.speed, sc.seed) not in done]
     seeds = args.seeds if args.seeds is not None else range(config.detect.eval_runs)
-    done = {r['seed'] for r in load_runs(out_file)}
+    done = {r['seed'] for r in load_runs(out_file) if r.get('path', 'straight') == args.path}
     return [arc_eval.make_detect_scenario(s, config.detect, config.surveillance)
             for s in seeds if args.rerun or s not in done]
 
@@ -214,6 +220,14 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument('--rerun', action='store_true', help='fly runs that are already saved')
     p.add_argument('--detect-rate', type=float, default=DEFAULT_DETECT_RATE,
                    help='images per second for each detector')
+    p.add_argument('--path', choices=INBOUND_PATHS, default='straight',
+                   help='how the hostile drone flies in: straight (the report\'s), weave (a '
+                        'sine side to side) or zigzag (straight legs, sharp turns); not '
+                        'straight saves to its own default folder, e.g. baseline_eval_weave')
+    p.add_argument('--path-amplitude', type=float, default=15.0,
+                   help='weave/zigzag: metres to either side of the straight line')
+    p.add_argument('--path-wavelength', type=float, default=60.0,
+                   help='weave/zigzag: metres along the line for one full swing')
     p.add_argument('--out', type=Path, default=None,
                    help=f'folder for intercept.jsonl, detect.jsonl and summary.txt (default '
                         f'{DEFAULT_OUT}, with --sim {DEFAULT_SIM_OUT})')
@@ -224,7 +238,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.out is None:
         args.out = DEFAULT_SIM_OUT if args.sim else DEFAULT_OUT
+        if args.path != 'straight':  # never mixed with the report's straight runs
+            args.out = args.out.with_name(f'{args.out.name}_{args.path}')
     where = 'Baseline on the arc' + (' (fast simulation)' if args.sim else '')
+    way = None
+    if args.path != 'straight':
+        where += (f', {args.path} path (±{args.path_amplitude:g} m, '
+                  f'{args.path_wavelength:g} m)')
+
+        def way(start, goal):
+            return inbound(start, goal, args.path, args.path_amplitude, args.path_wavelength)
     config = load_config(common.config_path(args.config, common.SURVEILLANCE_CONFIG))
 
     if args.mode == 'summary':
@@ -254,20 +277,24 @@ def main(argv: list[str] | None = None) -> int:
                 'backend': world.backend,
                 'detector': ('real (detect/live.py)' if world.backend == 'gazebo'
                              else world.detector),
-                'defenders': len(world.alive()), 'arc_radius': config.surveillance.arc_radius}
+                'defenders': len(world.alive()), 'arc_radius': config.surveillance.arc_radius,
+                'path': args.path}
+            if args.path != 'straight':
+                common_fields.update(path_amplitude=args.path_amplitude,
+                                     path_wavelength=args.path_wavelength)
             if args.mode == 'intercept':
                 scenario, designated = job
                 world.log.info(f'Run {k + 1}/{len(todo)}: aspect {scenario.aspect_deg:.0f} deg, '
                                f'{scenario.speed} m/s, seed {scenario.seed}, around drone '
                                f'{world.ids[designated]}')
-                metrics, extra = run_intercept(world, flown, scenario, designated)
+                metrics, extra = run_intercept(world, flown, scenario, designated, way)
                 world.log.info(f'  {metrics.outcome.value}, closest {metrics.closest_miss:.1f} m'
                                + (f', hit {metrics.base_distance_at_hit:.0f} m from the base'
                                   if metrics.base_distance_at_hit is not None else ''))
             else:
                 scenario = job
                 world.log.info(f'Run {k + 1}/{len(todo)}: detection, seed {scenario.seed}')
-                metrics, extra = run_detect(world, flown, scenario)
+                metrics, extra = run_detect(world, flown, scenario, way)
                 world.log.info('  missed' if metrics.missed else
                                f'  detected at {metrics.first_detection_range:.0f} m')
             save_run(out_file, metrics, {**extra, **common_fields})
