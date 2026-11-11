@@ -55,7 +55,16 @@ class BaseStationNode:
         return self.dispatcher.orders
 
     def _log(self, level: str, text: str) -> None:
-        getattr(self.log, level)(text)
+        # One call per level: rclpy raises 'Logger severity cannot be changed between
+        # calls' when one line of code logs at two levels.
+        if level == 'error':
+            self.log.error(text)
+        elif level == 'warning':
+            self.log.warning(text)
+        elif level == 'debug':
+            self.log.debug(text)
+        else:
+            self.log.info(text)
 
     def now(self) -> float:
         """The clock's time; while it does not know the time yet, the last time it gave."""
