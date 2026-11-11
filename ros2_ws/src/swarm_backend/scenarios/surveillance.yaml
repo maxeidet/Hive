@@ -40,10 +40,12 @@ drones:
     spawn_pose: [4.0, -4.0, 0.0]
     model: gz_x500_gimbal
 
-  # The hostile drone: 150 m north, past the forest, where the attack test's first run
-  # starts it anyway.
+  # The hostile drone: parked in the camp, 5 m west of drone 0, between runs and at the end
+  # (each run moves it to its own start point). Not 150 m north as before: that is drone 2's
+  # slot on the arc, so drone 2 landed on it at the end of a scenario and knocked it over,
+  # and the defenders' cameras looking north saw it parked there.
   - id: 4
-    spawn_pose: [0.0, 150.0, 0.0]
+    spawn_pose: [-5.0, 0.0, 0.0]
     model: gz_x500
 
 # The defenders attack with the baseline attack (see attack: in config/swarm.yaml).

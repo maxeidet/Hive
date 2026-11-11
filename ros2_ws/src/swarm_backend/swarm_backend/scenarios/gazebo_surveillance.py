@@ -51,6 +51,9 @@ TOLERANCE_M = 1.5
 CONNECT_TIMEOUT_S = 180.0  # freshly spawned drones take a while to reach ROS
 RESPAWN_TIMEOUT_S = 180.0
 SETTLE_ON_GROUND_S = 2.0  # simulation seconds after moving the hostile model, before its PX4
+UPRIGHT_MAX_TILT_DEG = 10.0  # the hostile must stand this level before its PX4 starts
+STILL_M = 0.05  # ... and move less than this over SETTLE_ON_GROUND_S
+PLACE_ATTEMPTS = 3
 # Where a shot-down hostile drone goes (Gazebo ENU x, y): on the ground at the far corner of
 # the 1000 x 1000 m ground plane, far outside the forest and every camera's range.
 GRAVEYARD_ENU = (450.0, -450.0)
@@ -145,6 +148,25 @@ def set_model_pose(world: str, name: str, east: float, north: float, up: float =
     return 'data: true' in result.stdout
 
 
+def stop_motors(model_name: str, motors: int = 4) -> bool:
+    """Zero motor speed for a model whose PX4 was stopped. Gazebo's motor plugin keeps the
+    last speed it was sent, so a drone whose PX4 stops in flight flies on with nobody
+    controlling it: it tumbles, and lands upside down where it is moved next (PX4 then
+    fails its pre-flight checks with 'Attitude failure (roll)')."""
+    result = subprocess.run(
+        ['gz', 'topic', '-t', f'/{model_name}/command/motor_speed', '-m', 'gz.msgs.Actuators',
+         '-p', f'velocity: [{", ".join(["0"] * motors)}]'],
+        capture_output=True, text=True)
+    return result.returncode == 0
+
+
+def tilt_deg(q) -> float:
+    """How far a body leans from upright (degrees), from its (x, y, z, w) quaternion."""
+    x, y, z, w = q
+    up_z = 1.0 - 2.0 * (x * x + y * y)  # world z of the body's up axis
+    return math.degrees(math.acos(max(-1.0, min(1.0, up_z))))
+
+
 def detector_running(drone_id: int) -> bool:
     return subprocess.run(['pgrep', '-f', f'swarm_backend.detect.live --id {drone_id}( |$)'],
                           capture_output=True).returncode == 0
@@ -173,6 +195,7 @@ class GazeboSurveillance(SurveillanceWorld):
         # runs, unlike PX4's time stamps, which jump when its time sync adjusts.
         self.truth = GazeboTruth(self.world)
         self.truth.listeners.append(self._on_truth)
+        self._hostile_pose = None  # (xyz ENU, quaternion) of the hostile model, from Gazebo
 
         self.patrols = {i: PatrolNode(node, self.swarm_config, i, clock=self.clock)
                         for i in self.ids}
@@ -201,6 +224,10 @@ class GazeboSurveillance(SurveillanceWorld):
             self.flight.step()
 
     def _on_truth(self, stamp: float, poses) -> None:
+        name = self.names[self.hostile_id]
+        model = next((p for p in poses if p[0] == name), None)
+        if model is not None:
+            self._hostile_pose = (model[2], model[3])
         bodies = {i: ground_truth.body_position(poses, self.names[i]) for i in self.ids}
         hostile = ground_truth.body_position(poses, self.names[self.hostile_id])
         self.observe_truth(stamp, bodies, hostile, lambda: {
@@ -233,16 +260,42 @@ class GazeboSurveillance(SurveillanceWorld):
         takes seconds, and a hostile drone falling with its motors off is a target the
         other defenders chase down into the trees."""
         self.move_hostile(*GRAVEYARD_ENU)
+        self.stop_hostile_px4()
+
+    def stop_hostile_px4(self) -> None:
+        """Its PX4 stopped and its motors with it (stop_motors)."""
         self.px4.stop()
+        name = self.names[self.hostile_id]
+        if not stop_motors(name):
+            self.log.warning(f'Could not stop the motors of {name}')
+
+    def set_hostile_down(self, east: float, north: float) -> None:
+        """The hostile model upright and still on the ground at (east, north), Gazebo ENU,
+        its PX4 stopped. Moved again if it does not stand (up to PLACE_ATTEMPTS times)."""
+        for attempt in range(1, PLACE_ATTEMPTS + 1):
+            self.move_hostile(east, north)
+            self.wait_sim(SETTLE_ON_GROUND_S / 2)
+            before = self._hostile_pose
+            self.wait_sim(SETTLE_ON_GROUND_S / 2)
+            after = self._hostile_pose
+            if before is None or after is None:
+                return  # no poses: nothing to check
+            tilt, moved = tilt_deg(after[1]), math.dist(before[0], after[0])
+            if tilt <= UPRIGHT_MAX_TILT_DEG and moved <= STILL_M:
+                return
+            self.log.warning(f'Hostile drone not standing after the move (tilt {tilt:.0f} deg, '
+                             f'moved {moved:.2f} m), attempt {attempt}/{PLACE_ATTEMPTS}')
+            stop_motors(self.names[self.hostile_id])
+        raise RuntimeError(f'The hostile drone does not stand still at E {east:+.0f} '
+                           f'N {north:+.0f} m (see Gazebo)')
 
     def respawn_hostile(self, north: float, east: float) -> None:
         """A fresh hostile drone on the ground at (north, east), connected and ready: the
         same Gazebo model, moved there, with a new PX4 attached to it."""
-        self.px4.stop()
+        self.stop_hostile_px4()
         time.sleep(1.0)  # its last messages
         self.log.info(f'Starting hostile drone {self.hostile_id} at N {north:+.0f} E {east:+.0f} m')
-        self.move_hostile(east, north)
-        self.wait_sim(SETTLE_ON_GROUND_S)
+        self.set_hostile_down(east, north)
         self.hostile.reset((north, east, 0.0))
         self.px4.start(self.names[self.hostile_id])
         log = f'/tmp/px4_{self.hostile_id}.log'
@@ -393,8 +446,11 @@ class GazeboSurveillance(SurveillanceWorld):
         # The hostile drone back where the config (and mount-backend.sh) expects it.
         hx, hy, _ = self.swarm_config.drone(self.hostile_id).spawn_ned
         self.log.info(f'Starting drone {self.hostile_id} again at its spawn point')
-        self.move_hostile(hy, hx)
-        time.sleep(1.0)
+        self.stop_hostile_px4()
+        try:
+            self.set_hostile_down(hy, hx)
+        except (RuntimeError, TimeoutError) as e:
+            self.log.warning(str(e))
         self.hostile.reset((hx, hy, 0.0))
         self.px4.start(self.names[self.hostile_id])
 
