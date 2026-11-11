@@ -2,8 +2,9 @@ import math
 
 import pytest
 
-from swarm_backend.ui.model import (SearchArea, attack_view, drone_status, drone_view,
-                                   load_map, update_search_area)
+from swarm_backend.ui.model import (SearchArea, attack_view, drone_home, drone_status,
+                                   drone_view, latlon_offset_m, load_map, update_search_area,
+                                   world_origin)
 
 
 def yaw_q(deg: float) -> tuple[float, float, float, float]:
@@ -124,3 +125,46 @@ def test_load_map_needs_both_files_and_a_valid_extent(tmp_path):
     assert info['world'] == 'w' and info['east_min'] == -20.0 and 'version' in info
     (tmp_path / 'map.json').write_text('not json')
     assert load_map(tmp_path) is None
+
+
+# PX4's local frame origins as the drones on gish reported them (hive_base, drones 0 and 2).
+WORLD = (47.397971057728974, 8.546163739800146)  # hive_base.sdf spherical_coordinates
+
+
+def ref_at(north, east, origin=WORLD):
+    """The (lat, lon) north/east metres from origin, the inverse of latlon_offset_m."""
+    lat = origin[0] + math.degrees(north / 6371000.0)
+    lon = origin[1] + math.degrees(east / (6371000.0 * math.cos(math.radians(origin[0]))))
+    return lat, lon
+
+
+def test_latlon_offset_matches_px4_on_gish():
+    # Drone 2 spawns at N -4, E +1; its PX4 reported this ref, drone 0 (at the origin) the other.
+    north, east = latlon_offset_m(47.39793503195908, 8.546176965634066,
+                                  47.39797151760928, 8.546163919449194)
+    assert north == pytest.approx(-4.0, abs=0.1)
+    assert east == pytest.approx(1.0, abs=0.1)
+
+
+def test_a_moved_hostile_is_placed_where_its_px4_started():
+    spawns = {0: (0.0, 0.0, 0.0), 2: (-4.0, 1.0, 0.0), 4: (150.0, 0.0, 0.0)}
+    refs = {0: ref_at(0, 0), 2: ref_at(-4, 1), 4: ref_at(210.4, -181.3)}  # 4 was moved
+    origin = world_origin(refs, spawns, skip=(4,))
+    assert latlon_offset_m(*origin, *WORLD) == pytest.approx((0.0, 0.0), abs=1e-6)
+    home = drone_home(spawns[4], refs[4], origin)
+    assert home[:2] == pytest.approx((210.4, -181.3), abs=1e-3)
+    assert drone_home(spawns[2], refs[2], origin) == pytest.approx((-4.0, 1.0, 0.0), abs=1e-3)
+
+
+def test_one_moved_drone_does_not_shift_the_origin():
+    spawns = {i: (float(i), 0.0, 0.0) for i in range(4)}
+    refs = {i: ref_at(i, 0) for i in range(4)}
+    refs[3] = ref_at(500, 500)
+    origin = world_origin(refs, spawns)
+    assert latlon_offset_m(*origin, *WORLD) == pytest.approx((0.0, 0.0), abs=1e-6)
+
+
+def test_spawn_point_until_px4_reports_its_origin():
+    assert drone_home((150.0, 0.0, 0.0), None, WORLD) == (150.0, 0.0, 0.0)
+    assert drone_home((150.0, 0.0, 0.0), ref_at(1, 1), None) == (150.0, 0.0, 0.0)
+    assert world_origin({4: ref_at(0, 0)}, {4: (0.0, 0.0, 0.0)}, skip=(4,)) is None

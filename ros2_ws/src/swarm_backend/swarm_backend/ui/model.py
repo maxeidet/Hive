@@ -67,6 +67,50 @@ def update_search_area(current: SearchArea, data: dict) -> SearchArea:
     return SearchArea(heading, width, radius, current.centre, current.revision + 1)
 
 
+EARTH_RADIUS_M = 6371000.0
+
+
+def latlon_offset_m(lat: float, lon: float, lat0: float, lon0: float) -> tuple[float, float]:
+    """(north, east) metres from (lat0, lon0) to (lat, lon), degrees. Flat earth: good to
+    centimetres over the few km of a Gazebo world."""
+    north = math.radians(lat - lat0) * EARTH_RADIUS_M
+    east = math.radians(lon - lon0) * EARTH_RADIUS_M * math.cos(math.radians(lat0))
+    return north, east
+
+
+def world_origin(refs: dict, spawns: dict, skip=()) -> tuple[float, float] | None:
+    """The (lat, lon) of world NED (0, 0), from the drones' local frame origins.
+
+    `refs`: drone id -> (ref_lat, ref_lon), where each PX4's local frame starts (its
+    VehicleLocalPosition). `spawns`: drone id -> spawn_ned from swarm.yaml. A drone still
+    where it was spawned gives origin = its ref minus its spawn. `skip`: drones that may
+    have been moved and restarted (the hostile drone); the median of the rest, so one
+    that was moved anyway does not shift the others. None while no drone has reported."""
+    candidates = []
+    for drone_id, (lat, lon) in refs.items():
+        if drone_id in skip or drone_id not in spawns:
+            continue
+        north, east = spawns[drone_id][0], spawns[drone_id][1]
+        lat0 = lat - math.degrees(north / EARTH_RADIUS_M)
+        lon0 = lon - math.degrees(east / (EARTH_RADIUS_M * math.cos(math.radians(lat0))))
+        candidates.append((lat0, lon0))
+    if not candidates:
+        return None
+    lats, lons = sorted(c[0] for c in candidates), sorted(c[1] for c in candidates)
+    middle = len(candidates) // 2
+    return lats[middle], lons[middle]
+
+
+def drone_home(spawn_ned, ref, origin) -> tuple[float, float, float]:
+    """Where this drone's PX4 local frame starts, world NED: from its ref (lat, lon) when
+    it and the world origin are known, so a drone that was moved and restarted (the
+    scenarios do this with the hostile drone every run) is placed right; else its spawn."""
+    if ref is None or origin is None:
+        return tuple(spawn_ned)
+    north, east = latlon_offset_m(ref[0], ref[1], origin[0], origin[1])
+    return (north, east, spawn_ned[2])
+
+
 def drone_view(drone_id: int, position, velocity, attitude, gimbal_q, gimbal_earth_frame: bool,
                armed: bool | None, nav_state: str | None, age_s: float | None) -> dict:
     """One drone as the UI shows it. Any input may be None while PX4 has not sent it yet.

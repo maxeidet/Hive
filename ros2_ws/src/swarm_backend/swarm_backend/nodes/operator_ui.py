@@ -20,8 +20,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from swarm_backend.config import DroneConfig, default_config_path, load_config
-from swarm_backend.ui.model import (SearchArea, attack_view, drone_status, drone_view,
-                                   load_map, update_search_area)
+from swarm_backend.ui.model import (SearchArea, attack_view, drone_home, drone_status,
+                                   drone_view, load_map, update_search_area, world_origin)
 
 SEARCH_AREA_TOPIC = '/base/search_area'
 STATIC_DIR = Path(__file__).resolve().parent.parent / 'ui' / 'static'
@@ -36,7 +36,8 @@ class DroneMonitor:
     def __init__(self, node, config: DroneConfig):
         from geometry_msgs.msg import PointStamped
         from std_msgs.msg import String
-        from px4_msgs.msg import GimbalDeviceAttitudeStatus, VehicleOdometry, VehicleStatus
+        from px4_msgs.msg import (GimbalDeviceAttitudeStatus, VehicleLocalPosition,
+                                  VehicleOdometry, VehicleStatus)
 
         from swarm_backend.intercept.attack import STATE_TOPIC, STATUS_TOPIC
         from swarm_backend.intercept.detection import POSITION_TOPIC, topic
@@ -44,13 +45,16 @@ class DroneMonitor:
         from swarm_backend.px4.topics import PX4Topics
 
         self.id = config.id
-        self.home = config.spawn_ned
+        self.spawn = config.spawn_ned
+        self.ref = None  # (lat, lon) where PX4's local frame starts, once PX4 knows it
+        self.origin = None  # (lat, lon) of world NED (0, 0), set by OperatorUi
+        self.local = None  # PX4's local position (NED from where it started)
         self._earth_flag = GimbalDeviceAttitudeStatus.DEVICE_FLAGS_YAW_IN_EARTH_FRAME
         self._nav_names = {getattr(VehicleStatus, n): n[len('NAVIGATION_STATE_'):]
                            for n in dir(VehicleStatus) if n.startswith('NAVIGATION_STATE_')
                            and n != 'NAVIGATION_STATE_MAX'}
         self._armed_value = VehicleStatus.ARMING_STATE_ARMED
-        self.position = self.velocity = self.attitude = None
+        self.velocity = self.attitude = None
         self.gimbal_q = None
         self.gimbal_earth_frame = False
         self.armed = self.nav_state = None
@@ -64,6 +68,8 @@ class DroneMonitor:
                                  PX4_OUT_QOS)
         node.create_subscription(VehicleStatus, topics.vehicle_status, self._on_status,
                                  PX4_OUT_QOS)
+        node.create_subscription(VehicleLocalPosition, topics.vehicle_local_position,
+                                 self._on_local_position, PX4_OUT_QOS)
         node.create_subscription(GimbalDeviceAttitudeStatus, topics.gimbal_attitude,
                                  self._on_gimbal, PX4_OUT_QOS)
         node.create_subscription(PointStamped, topic(config.id, POSITION_TOPIC),
@@ -76,11 +82,27 @@ class DroneMonitor:
         local = [float(v) for v in msg.position]
         if any(v != v for v in local):  # NaN until PX4 has a position
             return
-        hx, hy, hz = self.home
-        self.position = (local[0] + hx, local[1] + hy, local[2] + hz)
+        self.local = tuple(local)
         self.velocity = tuple(float(v) for v in msg.velocity)
         self.attitude = tuple(float(v) for v in msg.q)
         self.last_heard = time.monotonic()
+
+    def _on_local_position(self, msg) -> None:
+        if msg.xy_global and msg.ref_lat == msg.ref_lat and msg.ref_lon == msg.ref_lon:
+            self.ref = (float(msg.ref_lat), float(msg.ref_lon))
+
+    @property
+    def home(self) -> tuple[float, float, float]:
+        """Where PX4's local frame starts, world NED. Not the spawn point from swarm.yaml
+        alone: the scenarios move the hostile drone and restart its PX4 every run."""
+        return drone_home(self.spawn, self.ref, self.origin)
+
+    @property
+    def position(self):
+        if self.local is None:
+            return None
+        hx, hy, hz = self.home
+        return (self.local[0] + hx, self.local[1] + hy, self.local[2] + hz)
 
     def _on_status(self, msg) -> None:
         self.armed = msg.arming_state == self._armed_value
@@ -155,6 +177,11 @@ class OperatorUi:
 
     def state(self) -> dict:
         now = time.monotonic()
+        refs = {m.id: m.ref for m in self.monitors if m.ref is not None}
+        origin = world_origin(refs, {m.id: m.spawn for m in self.monitors},
+                              skip=(self.hostile_id,))
+        for m in self.monitors:
+            m.origin = origin
         with self._lock:
             area = self.area.to_dict()
         views = [m.view(now) for m in self.monitors]
