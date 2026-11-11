@@ -1,12 +1,14 @@
+import math
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 import pytest
 
 from swarm_backend.mapping import (
-    MapStats, map_stats, mapping_rviz_config, ned_to_enu, octomap_args, point_clouds, reach,
-    saver_args)
+    MapStats, is_depth_camera, map_stats, mapping_rviz_config, ned_to_enu, octomap_args,
+    pixel_scale, point_clouds, reach, saver_args, with_free_rays)
 from swarm_backend.sensor_view import find_sensors
 
 TEMPLATE = yaml.safe_load((Path(__file__).parent.parent / 'config' / 'sensors.rviz').read_text())
@@ -90,3 +92,57 @@ def test_reach_along_a_bearing():
 def test_saver_runs_in_the_servers_namespace():
     assert saver_args('/mapping_test_0/', '/tmp/map.bt') == [
         '--ros-args', '-r', '__ns:=/mapping_test_0', '-p', 'octomap_path:=/tmp/map.bt']
+
+
+def depth_cloud(depth: np.ndarray, scale: float) -> np.ndarray:
+    """The cloud Gazebo's depth camera gives for a depth image (x forward, y left, z up)."""
+    h, w = depth.shape
+    du = (w - 1) / 2.0 - np.arange(w)[None, :]
+    dv = (h - 1) / 2.0 - np.arange(h)[:, None]
+    with np.errstate(invalid='ignore'):  # inf * 0 on the centre lines
+        return np.stack([depth, depth * scale * du, depth * scale * dv], axis=-1).astype(np.float32)
+
+
+SCALE = 2.0 * math.tan(1.274 / 2.0) / 64  # the OakD-Lite's 73 degrees over 64 pixels
+
+
+def test_depth_camera_is_recognised_and_lidar_is_not():
+    depth, = point_clouds(find_sensors(TOPICS, 0))
+    lidar, = point_clouds(find_sensors(TOPICS, 1))
+    assert is_depth_camera(depth) and not is_depth_camera(lidar)
+
+
+def test_pixel_scale_is_fitted_from_the_returns():
+    depth = np.full((48, 64), np.inf)
+    depth[24:, :] = np.linspace(3.0, 12.0, 24)[:, None]  # ground in the lower half
+    assert pixel_scale(depth_cloud(depth, SCALE)) == pytest.approx(SCALE, rel=1e-4)
+
+
+def test_pixel_scale_needs_returns_that_fit_a_camera():
+    assert pixel_scale(depth_cloud(np.full((48, 64), np.inf), SCALE)) is None  # only sky
+    rng = np.random.default_rng(0)
+    assert pixel_scale(rng.uniform(1.0, 5.0, (48, 64, 3)).astype(np.float32)) is None
+
+
+def test_pixels_without_a_return_become_far_points_along_their_ray():
+    depth = np.full((48, 64), np.inf)
+    depth[24:, :] = 5.0
+    depth[47, 0] = -np.inf  # closer than the camera can see
+    out = with_free_rays(depth_cloud(depth, SCALE), SCALE, free_range=9.0)
+    assert out.shape == (48 * 64 - 1, 3) and out.dtype == np.float32
+    assert np.isfinite(out).all()
+    # The returns are unchanged, the others are 9 m out.
+    far = np.linalg.norm(out, axis=1) > 8.0
+    assert far.sum() == 24 * 64
+    assert np.linalg.norm(out[far], axis=1) == pytest.approx(9.0, rel=1e-5)
+    # The top left pixel looks up and to the left (y left, z up).
+    x, y, z = out[0]
+    assert y / x == pytest.approx(SCALE * 31.5, rel=1e-5)
+    assert z / x == pytest.approx(SCALE * 23.5, rel=1e-5)
+
+
+def test_cloud_step_keeps_every_nth_pixel():
+    depth = np.full((48, 64), 5.0)
+    out = with_free_rays(depth_cloud(depth, SCALE), SCALE, free_range=9.0, step=4)
+    assert out.shape == (12 * 16, 3)
+    assert out[1] == pytest.approx(depth_cloud(depth, SCALE)[0, 4])

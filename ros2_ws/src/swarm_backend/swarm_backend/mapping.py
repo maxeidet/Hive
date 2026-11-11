@@ -5,6 +5,10 @@ Bridges the drone's point cloud from Gazebo to ROS 2, publishes TF from Gazebo's
 map comes out in the Gazebo world frame (ENU: x east, y north, z up) on <ns>/octomap_full,
 with the occupied voxels as markers on <ns>/occupied_cells_vis_array for RViz.
 
+A depth camera gives no point where it sees nothing within its range (the sky), so
+octomap_server would leave that space unknown. Its cloud therefore goes through FreeRays
+first, which turns those pixels into far points that clear the space along their rays.
+
 Like `view`, TF and the sim clock go on topics of their own (/mapping_<id>/tf, .../clock),
 because every drone has frames with the same names. Only octomap_server and the optional RViz
 are remapped to them. Plan: hive-vault/mapping/3D mapping plan.md.
@@ -14,18 +18,21 @@ import math
 import signal
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import yaml
 
 from swarm_backend.sensor_view import (
-    BODY_FRAME, QOS, WORLD_FRAME, Sensor, TFPublisher, bridge_config, find_drone, find_sensors,
-    gz_topics, rviz_config)
+    BODY_FRAME, DEPTH_TOPIC, QOS, WORLD_FRAME, Sensor, TFPublisher, bridge_config, find_drone,
+    find_sensors, gz_topics, rviz_config)
 
 DEFAULT_NS = 'mapping'
 DEFAULT_RESOLUTION = 0.1  # metres per voxel
 DEFAULT_MAX_RANGE = 8.0  # metres; points further away are only used to clear free space
+DEFAULT_CLOUD_STEP = 4  # every 4th pixel of the depth image each way: 7 cm apart at 8 m
 
 
 Point = tuple[float, float, float]
@@ -66,6 +73,100 @@ def reach(points: list[Point], origin: Point, bearing_deg: float) -> float | Non
 def point_clouds(sensors: list[Sensor]) -> list[Sensor]:
     """The sensors that give point clouds (lidars and the depth camera), not images."""
     return [s for s in sensors if s.kind == 'points']
+
+
+def is_depth_camera(sensor: Sensor) -> bool:
+    return sensor.gz_topic.startswith(DEPTH_TOPIC)
+
+
+def pixel_scale(points: np.ndarray, min_returns: int = 100) -> float | None:
+    """How far the rays of two neighbouring pixels spread per metre (the tangent of the angle
+    between them), fitted to the returns of a depth camera's cloud: (h, w, 3) with x forward,
+    y left, z up and the optical axis through the image centre, as Gazebo gives it. None when
+    the points do not fit that within 2 pixels (a lidar), or there are too few returns."""
+    h, w, _ = points.shape
+    ok = np.isfinite(points).all(axis=-1) & (points[..., 0] > 0)
+    if ok.sum() < min_returns:
+        return None
+    du = np.broadcast_to((w - 1) / 2.0 - np.arange(w)[None, :], (h, w))[ok]
+    dv = np.broadcast_to((h - 1) / 2.0 - np.arange(h)[:, None], (h, w))[ok]
+    y, z = points[..., 1][ok] / points[..., 0][ok], points[..., 2][ok] / points[..., 0][ok]
+    spread = (du * du + dv * dv).sum()
+    if spread == 0:
+        return None
+    scale = float((du * y + dv * z).sum() / spread)
+    error = max(np.abs(y - scale * du).max(), np.abs(z - scale * dv).max())
+    return scale if scale > 0 and error < 2 * scale else None
+
+
+def with_free_rays(points: np.ndarray, scale: float, free_range: float,
+                   step: int = 1) -> np.ndarray:
+    """Every `step`-th point of a depth camera's cloud (see pixel_scale), as (n, 3) float32.
+    A pixel that saw nothing within the camera's range (+inf) becomes a point `free_range`
+    metres out along its ray. octomap_server marks a ray free up to its max_range when the
+    point is further away than that, so `free_range` must be. Pixels that are too close
+    (-inf) are dropped."""
+    h, w, _ = points.shape
+    p = points[::step, ::step].astype(np.float32)
+    rays = np.empty_like(p)
+    rays[..., 0] = 1.0
+    rays[..., 1] = scale * ((w - 1) / 2.0 - np.arange(0, w, step))[None, :]
+    rays[..., 2] = scale * ((h - 1) / 2.0 - np.arange(0, h, step))[:, None]
+    rays *= free_range / np.linalg.norm(rays, axis=-1, keepdims=True)
+    out = np.where(np.isposinf(p[..., :1]), rays, p)
+    return out[np.isfinite(out).all(axis=-1)]
+
+
+class FreeRays:
+    """Republishes a depth camera's cloud on `out_topic` for octomap_server, through
+    with_free_rays. Until a cloud has enough returns to fit the camera, clouds pass through
+    unchanged. Needs rclpy initialised (TFPublisher does that)."""
+
+    def __init__(self, name: str, in_topic: str, out_topic: str, free_range: float, step: int):
+        import rclpy
+        from rclpy.executors import SingleThreadedExecutor
+        from rclpy.qos import QoSProfile, ReliabilityPolicy
+        from sensor_msgs.msg import PointCloud2
+
+        self._free_range, self._step = free_range, step
+        self._scale: float | None = None
+        self._node = rclpy.create_node(name)
+        self._pub = self._node.create_publisher(PointCloud2, out_topic, 1)
+        # Depth 1 and best effort: clouds that arrive while one is being handled are dropped.
+        self._node.create_subscription(
+            PointCloud2, in_topic, self._on_cloud,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
+        self._executor = SingleThreadedExecutor()
+        self._executor.add_node(self._node)
+        threading.Thread(target=self._executor.spin, daemon=True).start()
+
+    def _on_cloud(self, msg) -> None:
+        from sensor_msgs.msg import PointCloud2, PointField
+
+        offsets = {f.name: f.offset for f in msg.fields}
+        if msg.is_bigendian or msg.row_step != msg.width * msg.point_step:
+            self._pub.publish(msg)
+            return
+        raw = np.frombuffer(msg.data, dtype=np.dtype({
+            'names': ['x', 'y', 'z'], 'formats': ['<f4'] * 3,
+            'offsets': [offsets[n] for n in 'xyz'], 'itemsize': msg.point_step}))
+        points = np.stack([raw['x'], raw['y'], raw['z']], axis=-1).reshape(
+            msg.height, msg.width, 3)
+        if self._scale is None:
+            self._scale = pixel_scale(points)
+            if self._scale is None:
+                self._pub.publish(msg)
+                return
+        out = with_free_rays(points, self._scale, self._free_range, self._step)
+        cloud = PointCloud2(header=msg.header, height=1, width=len(out), is_dense=True,
+                            point_step=12, row_step=12 * len(out), data=out.tobytes())
+        cloud.fields = [PointField(name=n, offset=4 * i, datatype=PointField.FLOAT32, count=1)
+                        for i, n in enumerate('xyz')]
+        self._pub.publish(cloud)
+
+    def close(self) -> None:
+        self._executor.shutdown()
+        self._node.destroy_node()
 
 
 def ros_executable(package: str, executable: str) -> str:
@@ -136,6 +237,9 @@ def main(argv: list[str] | None = None) -> int:
                         help=f'voxel size in metres (default {DEFAULT_RESOLUTION})')
     parser.add_argument('--max-range', type=float, default=DEFAULT_MAX_RANGE,
                         help=f'sensor range used for the map in metres (default {DEFAULT_MAX_RANGE})')
+    parser.add_argument('--cloud-step', type=int, default=DEFAULT_CLOUD_STEP,
+                        help='use every Nth pixel of a depth camera each way '
+                             f'(default {DEFAULT_CLOUD_STEP})')
     parser.add_argument('--rviz', type=Path,
                         help='RViz layout template; opens RViz with the map when given')
     args = parser.parse_args(argv)
@@ -156,9 +260,14 @@ def main(argv: list[str] | None = None) -> int:
     private = f'/mapping_{args.id}'
     tf_topic, clock_topic = f'{private}/tf', f'{private}/clock'
     ns = args.ns.strip('/')
+    # A depth camera's cloud goes to octomap_server through FreeRays, a lidar's directly.
+    map_cloud = f'{private}/cloud' if is_depth_camera(cloud) else cloud.ros_topic
 
     print(f'Drone {args.id} ({drone.name}) maps with {cloud.name}:')
     print(f'  cloud: {cloud.gz_topic} -> {cloud.ros_topic}')
+    if map_cloud != cloud.ros_topic:
+        print(f'         -> {map_cloud} (every {args.cloud_step}. pixel; pixels without a '
+              'return clear free space)')
     print(f'  TF:    {WORLD_FRAME} -> {drone.name} -> {", ".join(frames)} on {tf_topic}')
     print(f'  map:   /{ns}/octomap_full, voxels /{ns}/occupied_cells_vis_array '
           f'({args.resolution} m, range {args.max_range} m)')
@@ -171,6 +280,10 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, stop)
 
     tf = TFPublisher(drone, frames, tf_topic)
+    free_rays = None
+    if map_cloud != cloud.ros_topic:
+        free_rays = FreeRays(f'mapping_free_rays_{args.id}', cloud.ros_topic, map_cloud,
+                             args.max_range + 1.0, args.cloud_step)
     bridge = start_bridge(bridge_config(clouds[:1], clock_topic=clock_topic),
                           f'mapping_bridge_{args.id}')
     log_dir = Path('/tmp')
@@ -178,7 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     with open(log_dir / f'mapping_octomap_{args.id}.log', 'w') as octo_log:
         procs.append(subprocess.Popen(
             [ros_executable('octomap_server', 'octomap_server_node')]
-            + octomap_args(cloud.ros_topic, ns, tf_topic, clock_topic,
+            + octomap_args(map_cloud, ns, tf_topic, clock_topic,
                            args.resolution, args.max_range),
             stdout=octo_log, stderr=subprocess.STDOUT))
         try:
@@ -202,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
                 proc.terminate()
             for proc in procs:
                 proc.wait()
+            if free_rays is not None:
+                free_rays.close()
             tf.close()
     return 0
 
