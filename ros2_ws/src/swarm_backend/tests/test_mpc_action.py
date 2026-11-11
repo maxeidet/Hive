@@ -153,10 +153,12 @@ def test_hits_every_feasible_scenario_with_perfect_detections():
 
 def test_the_report_mpc_all_the_way_misses_a_fast_head_on_target_that_this_one_hits():
     """Zheng et al.'s cost with a fixed horizon from first detection (see
-    intercept/mpc.py). As the terminal controller after the midcourse it does hit."""
-    outcomes = [run(0.0, 17.0, seed, weights=ZHENG, terminal_s=None).outcome for seed in range(5)]
-    assert outcomes.count(Outcome.HIT) < 5
-    assert all(run(0.0, 17.0, seed, weights=ZHENG).outcome == Outcome.HIT for seed in range(5))
+    intercept/mpc.py). As the terminal controller after the midcourse it hits more often
+    (with the PX4-like drone of tests/sim.py: 2 of 5 all the way, 4 of 5 after it)."""
+    alone = [run(0.0, 17.0, seed, weights=ZHENG, terminal_s=None).outcome for seed in range(5)]
+    after = [run(0.0, 17.0, seed, weights=ZHENG).outcome for seed in range(5)]
+    assert alone.count(Outcome.HIT) < after.count(Outcome.HIT)
+    assert after.count(Outcome.HIT) >= 4
 
 
 def test_the_mpc_all_the_way_falls_behind_where_the_midcourse_does_not():
@@ -171,3 +173,44 @@ def test_mostly_hits_with_noisy_detections():
     hits = sum(run(aspect, speed, seed, noise=0.1).outcome == Outcome.HIT
                for aspect, speed in [(0.0, 17.0), (30.0, 12.0), (60.0, 8.0)] for seed in range(3))
     assert hits >= 8
+
+
+def test_accelerates_like_pursuit_on_a_px4_like_drone():
+    """11 Nov 2026 in Gazebo: v + u dt setpoints gave PX4 so little lead that the MPC took
+    5-18 s to reach 4 m/s (pursuit: 1 s). On a drone that follows setpoints like PX4's
+    velocity controller, from hover: the midcourse reaches 4 m/s as fast as pursuit
+    (1.1 s), the MPC phase in 2.8 s (it was 8.1 s, and missed). The MPC stays a little
+    gentler by design: it plans the least acceleration that still meets the target."""
+    from sim import SimDrone
+
+    from swarm_backend.intercept.mpc import PX4_VELOCITY_GAIN
+    from swarm_backend.intercept.target import PositionFix
+
+    class Fixed:  # a detector that always sees a target 60 m north, coming in at 5 m/s
+        def __init__(self, clock):
+            self.clock = clock
+
+        def latest(self):
+            t = self.clock()
+            return PositionFix(time=t, source='test', std=0.5,
+                               position=(60.0 - 5.0 * t, 0.0, -30.0))
+
+    for terminal_s, limit_s in ((5.0, 1.5), (None, 3.5)):  # midcourse / the MPC from the start
+        drone = SimDrone(1, (0.0, 0.0, -30.0), max_speed=5.0, max_accel=4.0,
+                         velocity_gain=PX4_VELOCITY_GAIN)
+        clock = [0.0]
+        config = dataclasses.replace(CONFIG, interceptor_max_speed=5.0)
+        action = MpcIntercept(drone, Fixed(lambda: clock[0]), config, lambda: clock[0],
+                              terminal_s=terminal_s)
+        action.start()
+        reached = None
+        closest = math.inf
+        while clock[0] < 10.0:
+            action.step()
+            drone.advance(0.1)
+            clock[0] += 0.1
+            if reached is None and math.hypot(*drone.velocity[:2]) >= 4.0:
+                reached = clock[0]
+            closest = min(closest, math.dist(drone.position, (60.0 - 5.0 * clock[0], 0.0, -30.0)))
+        assert reached is not None and reached <= limit_s, (terminal_s, reached)
+        assert closest < 1.5, (terminal_s, closest)  # and it gets there

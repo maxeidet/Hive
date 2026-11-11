@@ -1,5 +1,7 @@
+import math
+
 from swarm_backend.detect.detectors import Detection
-from swarm_backend.detect.live import best_target, offset_topic
+from swarm_backend.detect.live import TargetLock, best_target, offset_topic
 from swarm_backend.detect.tracking import Track
 
 
@@ -16,6 +18,84 @@ def test_publishes_the_confirmed_track_with_the_highest_score():
 def test_nothing_without_a_confirmed_track_seen_in_this_image():
     assert best_target([track(1, 80, confirmed=False), track(2, 90, seen=False)]) is None
     assert best_target([]) is None
+
+
+# --- --lock (TargetLock) ------------------------------------------------------------
+
+def bearing(deg):
+    """A world direction `deg` degrees east of north, level."""
+    return (math.cos(math.radians(deg)), math.sin(math.radians(deg)), 0.0)
+
+
+def lock_tracks(*specs):
+    """Tracks from (id, score, bearing deg, seen), and their directions."""
+    tracks, where = [], {}
+    for id_, score, deg, seen in specs:
+        tracks.append(track(id_, score, seen=seen))
+        where[id_] = bearing(deg)
+    return tracks, lambda t, predicted: where[t.id]
+
+
+def test_lock_takes_the_best_target_first():
+    tracks, direction = lock_tracks((1, 80, -20, True), (2, 120, 20, True))
+    lock = TargetLock()
+    assert lock.update(tracks, 0.0, direction).id == 2
+    assert lock.locked_id == 2 and 'T2 locked' in lock.event
+
+
+def test_lock_stays_on_its_drone_when_another_scores_higher():
+    lock = TargetLock()
+    lock.update(*_with(lock_tracks((1, 80, -20, True)), 0.0))
+    tracks, direction = lock_tracks((1, 80, -20, True), (2, 300, 20, True))
+    assert lock.update(tracks, 0.1, direction).id == 1
+    assert lock.event is None
+
+
+def test_lock_hands_over_to_a_new_id_on_the_same_drone():
+    lock = TargetLock()
+    lock.update(*_with(lock_tracks((1, 80, -20, True)), 0.0))
+    # T1 lost (ByteTrack predicts it on at -19 deg), the same drone comes back as T5 at
+    # -18 deg, the other drone T2 scores higher 40 deg away.
+    tracks, direction = lock_tracks((1, 80, -19, False), (5, 70, -18, True), (2, 300, 20, True))
+    assert lock.update(tracks, 0.3, direction).id == 5
+    assert lock.locked_id == 5 and 'handover' in lock.event
+
+
+def test_lock_is_silent_through_a_short_gap_then_moves_on():
+    lock = TargetLock(timeout=1.0)
+    lock.update(*_with(lock_tracks((1, 80, -20, True)), 0.0))
+    tracks, direction = lock_tracks((1, 80, -20, False), (2, 300, 20, True))
+    assert lock.update(tracks, 0.5, direction) is None  # T2 is far from where T1 should be
+    assert lock.locked_id == 1
+    assert lock.update(tracks, 1.2, direction).id == 2  # 1.2 s unseen: released
+    assert 'T1 released' in lock.event and 'T2 locked' in lock.event
+
+
+def test_lock_released_when_the_tracker_drops_it_and_nothing_is_there():
+    lock = TargetLock(timeout=1.0)
+    lock.update(*_with(lock_tracks((1, 80, -20, True)), 0.0))
+    assert lock.update([], 0.5, lambda t, p: None) is None and lock.locked_id == 1
+    assert lock.update([], 2.0, lambda t, p: None) is None and lock.locked_id is None
+
+
+def test_lock_gate_widens_while_unseen_but_never_reaches_the_other_drone():
+    lock = TargetLock()
+    assert lock.gate(0.0) == 4.0
+    assert lock.gate(0.5) == 6.5
+    assert lock.gate(10.0) == 10.0  # capped: scenario 2's hostiles are ~40 deg apart
+
+
+def test_lock_without_directions_still_holds_and_times_out():
+    lock = TargetLock(timeout=1.0)
+    lock.update([track(1, 80)], 0.0, lambda t, p: None)
+    assert lock.update([track(1, 80, seen=False), track(2, 300)], 0.5,
+                       lambda t, p: None) is None
+    assert lock.update([track(2, 300)], 1.5, lambda t, p: None).id == 2
+
+
+def _with(tracks_and_direction, stamp):
+    tracks, direction = tracks_and_direction
+    return tracks, stamp, direction
 
 
 def test_topic_names_follow_the_drones_namespace():
@@ -86,6 +166,22 @@ def test_bytetrack_with_the_baseline_lowers_its_contrast_to_low():
     assert args.contrast == 45 and tracker.settings.high == 70  # given: kept
 
 
+def test_bytetrack_with_yolo_lowers_its_confidence_to_low():
+    from swarm_backend.detect.live import TRACK_SCORES, make_tracker
+
+    argv = ['--detector', 'yolo', '--tracker', 'bytetrack']
+    args = _args(argv)
+    tracker = make_tracker(args, argv)
+    assert args.conf == TRACK_SCORES['yolo'][1] == tracker.settings.low  # 0.1, not 0.25
+    argv = ['--detector', 'yolo', '--tracker', 'bytetrack', '--conf', '0.3']
+    args = _args(argv)
+    make_tracker(args, argv)
+    assert args.conf == 0.3  # given: kept
+    argv = ['--detector', 'yolo']
+    args = _args(argv)
+    assert make_tracker(args, argv) is None and args.conf == 0.25  # the Confirmer: unchanged
+
+
 def test_live_bytetrack_follows_a_target_while_the_gimbal_turns():
     from swarm_backend.detect.bytetrack import ByteTracker, Settings
     from swarm_backend.detect.camera import CameraModel
@@ -120,3 +216,19 @@ def test_annotate_draws_bytetrack_tracks_with_lost_ones():
     img = np.full((240, 320, 3), 200, np.uint8)
     out = annotate(img, Result(0.0, 320, 240, [], list(tracker.tracks), None, 1.0))
     assert out.shape == img.shape and (out != img).any()  # the lost box was drawn
+
+
+def test_birds_are_kept_out_of_tracking_and_drawn_green():
+    import numpy as np
+
+    from swarm_backend.detect.live import BIRD, Result, annotate, result_record, split_birds
+
+    drone = Detection(50, 50, 8, 8, 0.7)
+    bird = Detection(200, 100, 10, 6, 0.6, 'bird')
+    boxes, birds = split_birds([drone, bird])
+    assert boxes == [drone] and birds == [bird]
+    img = np.full((240, 320, 3), 200, np.uint8)
+    out = annotate(img, Result(0.0, 320, 240, boxes, [], None, 1.0, birds=birds))
+    assert (out[bird.y - 6, bird.x:bird.x + 10] == BIRD).all()  # the green frame above it
+    rec = result_record(Result(0.0, 320, 240, boxes, [], None, 1.0, birds=birds))
+    assert len(rec['raw']) == 1 and len(rec['birds']) == 1  # the replay sees drones only

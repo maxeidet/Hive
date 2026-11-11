@@ -6,6 +6,7 @@
     ./mount-backend.sh bird move bird_1 --at 25 5 30
     ./mount-backend.sh bird wander bird_1 --around 20 0 30   fly around randomly, Ctrl-C stops
     ./mount-backend.sh bird remove bird_1
+    python3 -m swarm_backend.birds fly < plan.json            what scenario 2's --birds runs
 
 Positions are the swarm world frame (x north, y east, metres from the Gazebo origin) and
 the height in metres above the ground. The meshes are in worlds/birds/ (see the README there
@@ -18,6 +19,7 @@ through it. Gazebo shows it in a still pose, without the wing animation.
 """
 import argparse
 import math
+import os
 import subprocess
 import sys
 import time
@@ -145,6 +147,19 @@ class Gazebo:
         _fill_pose(request, north, east, up, heading)
         return self._call('set_pose', request, Pose, timeout_ms)
 
+    def move_many(self, poses: dict[str, tuple[float, float, float, float]],
+                  timeout_ms: int = 2000) -> bool:
+        """Move several models in one call (Gazebo's set_pose_vector): {name: (north, east,
+        up, heading)}. One request instead of one per model matters when Gazebo runs slowly,
+        since each answer waits for its next simulation step."""
+        from gz.msgs10.pose_v_pb2 import Pose_V
+        request = Pose_V()
+        for name, (north, east, up, heading) in poses.items():
+            pose = request.pose.add()
+            pose.name = name
+            _fill_pose(pose, north, east, up, heading)
+        return self._call('set_pose_vector', request, Pose_V, timeout_ms)
+
     def set_pose(self, name: str, xyz_enu: tuple[float, float, float],
                  quaternion: tuple[float, float, float, float], timeout_ms: int = 5000,
                  tries: int = 2) -> bool:
@@ -239,6 +254,70 @@ def wander(gazebo: Gazebo, name: str, centre: tuple[float, float, float], speed:
         time.sleep(1.0 / rate_hz)
 
 
+def bird_pose(bird: dict, t: float) -> tuple[float, float, float, float]:
+    """(north, east, up, heading) of a planned bird `t` seconds after it left: straight from
+    its start to its end at its speed (intercept/inbound.py BirdPlan, as a dict)."""
+    from swarm_backend.intercept.inbound import straight_at
+
+    start, end = bird['start'], bird['end']
+    pos, _, _ = straight_at(start, end, bird['speed'], t)
+    return pos[0], pos[1], -pos[2], math.atan2(end[1] - start[1], end[0] - start[0])
+
+
+def fly_plan(plan: dict, step_s: float = 0.1) -> None:
+    """Spawn the planned birds, move them along their lines on Gazebo's simulation clock
+    (t = 0 at plan['t0'], sim seconds) until SIGTERM or Ctrl-C, then remove them.
+
+    Its own process on purpose: a gz-transport request holds Python's interpreter lock
+    while it waits for Gazebo's next step (0.3-0.5 s at a real-time factor of 0.1), which
+    would freeze the scenario's setpoint stream and make PX4 leave offboard (11 Nov 2026).
+    """
+    import signal
+    import threading
+
+    from gz.msgs10.clock_pb2 import Clock
+    from gz.transport13 import Node
+
+    def stop(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
+    gazebo = Gazebo(plan['world'])
+    birds, t0 = plan['birds'], float(plan['t0'])
+    now = {'t': None}
+    ticked = threading.Event()
+
+    def on_clock(msg):
+        now['t'] = msg.sim.sec + msg.sim.nsec * 1e-9
+        ticked.set()
+    clock_node = Node()
+    clock_node.subscribe(Clock, f'/world/{gazebo.world}/clock', on_clock)
+    try:
+        ticked.wait(10.0)
+        # Leftovers of a run that was killed: removed first, and a moment given, because a
+        # remove and a create of the same name in one Gazebo step clash.
+        for b in birds:
+            gazebo.remove(b['name'])
+        time.sleep(1.0)
+        t = 0.0 if now['t'] is None else now['t'] - t0
+        failed = [b['name'] for b in birds
+                  if not gazebo.spawn(b['name'], KINDS[b['kind']], *bird_pose(b, t))]
+        # Gazebo sometimes answers false and creates the model anyway: every bird is moved
+        # and removed whatever it answered.
+        print(f'{len(birds)} birds spawned' + (f' (Gazebo answered false for {failed})'
+                                                if failed else ''), flush=True)
+        while True:
+            if now['t'] is not None:
+                gazebo.move_many({b['name']: bird_pose(b, now['t'] - t0) for b in birds})
+            time.sleep(step_s)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)  # let the clean-up finish
+        for b in birds:
+            gazebo.remove(b['name'])
+        print(f'{len(birds)} birds removed', flush=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest='command', required=True)
@@ -277,7 +356,15 @@ def main(argv: list[str] | None = None) -> int:
 
     remove = sub.add_parser('remove', help='take a bird out of the world')
     remove.add_argument('name')
+    sub.add_parser('fly', help='spawn and fly planned birds, plan as JSON on stdin (world, '
+                               't0, birds); SIGTERM removes them')
     args = parser.parse_args(argv)
+
+    if args.command == 'fly':
+        import json
+        fly_plan(json.load(sys.stdin))
+        sys.stdout.flush()
+        os._exit(0)  # gz-transport's threads abort a normal interpreter exit (core dump)
 
     gazebo = Gazebo()
     if args.command == 'spawn':

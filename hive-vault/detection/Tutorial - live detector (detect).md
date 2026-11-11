@@ -91,6 +91,8 @@ Open RViz on the drone: `./mount-backend.sh view 2`. Click **Add → By topic �
 | Red box with `T<id> <size>px` | Confirmed target |
 | Red text `x … y … deg` | The offset that was published for it |
 | White cross | The image centre |
+| Grey box `T<id> lost <n>` | ByteTrack: a lost track, drawn where its filter predicts it |
+| Green box `bird <score>` | YOLO: a box classed as a bird. Shown only: never tracked, locked or published (added 11 Nov) |
 
 ## Read what it publishes
 

@@ -81,11 +81,16 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 - [ ] **Birds look right in Gazebo** (added 14 Oct)
   1. Gazebo running with drone 2 (the gimbal drone) in the air, e.g. scenario 1, and `./mount-backend.sh view 2`.
-  2. `scenarios/birds.sh` puts all three a few metres around drone 0 (`--remove` takes them out, `--wander` also flies the dove around). Single birds: `./mount-backend.sh bird spawn dove --at 15 5 30`, or `--near 0 --at 3 0 1` for relative to drone 0.
+  2. Put birds near drone 0 one at a time (the old three-bird `scenarios/birds.sh` is now the birds-flying-in-with-the-hostiles scenario, see the next test): `./mount-backend.sh bird spawn dove --at 15 5 30`, or `--near 0 --at 3 0 1` for relative to drone 0.
   3. Look at them in the Gazebo window, next to a drone (0.5 m across).
 
   **Pass:** each bird is about drone-sized (the flock: five birds about that size), upright with its wings level, and facing its heading. **If not:** remove it (`bird remove bird_1`) and spawn again with `--scale`, `--roll 0` (if it stands on its side) or `--yaw 90/180` (if it flies sideways), and note the values that work here, so they can go into `KINDS` in `birds.py`. Then try `bird wander bird_1 --around 15 5 30` and watch whether `detect 2` picks it up.
 
+- [ ] **Birds scenario: birds fly in with the hostiles** (added 11 Nov)
+  1. Gazebo with drone 0 in the hive_base world (`docker/start-stellar.sh`), then `scenarios/birds.sh` (the mpc scenario plus `--birds 10`; `--birds N` for another number, `--bird-seed S` to repeat the start points).
+  2. Expect: the log lists ten birds of all seven kinds 120-175 m out. They start around the two hostiles and fly level over the base at about the hostiles' speed, then on past it.
+  3. Watch the detector picture (`/px4_1/detection/debug`): do birds get boxes, and does the lock stay on a drone? The summary's "reports matching no hostile" counts reports that were not on a drone.
+  4. After the run the birds are gone from Gazebo.
 - [ ] **The join: Max's attack flying on our detector** (first runs on 14 Oct: head-on hit, crossing missed; see [[Join test results 2026-10-14]]) (added 14 Oct, after merging both into `dev`)
 
   This is the most important test now: the "when we meet again" step of [[Baseline attack work plan]]. Run it on `dev`. Use **two terminals**, both in `ros2_ws/src/swarm_backend/`.

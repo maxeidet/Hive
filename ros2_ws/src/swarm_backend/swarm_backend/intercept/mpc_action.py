@@ -8,7 +8,8 @@ it
      camera never measures (TargetTracker3D),
   3. far out, flies at full speed toward the predicted meeting point (midcourse);
      in the last `terminal_s` seconds before the meeting, asks the MPC for u(1),
-  4. sends it as a velocity setpoint, within the drone's limits,
+  4. sends it as a velocity setpoint that makes PX4's velocity controller give that
+     acceleration (mpc.velocity_command), within the drone's limits,
   5. keeps the gimbal on the estimate, and reports LOST when the target has not been
      seen for `track_timeout`.
 
@@ -32,15 +33,16 @@ import numpy as np
 
 from swarm_backend.config import InterceptConfig, Vector3
 from swarm_backend.intercept.interceptor import InterceptAction, Status
-from swarm_backend.intercept.mpc import Mpc, MpcWeights, clip_norm, time_to_go, velocity_command
+from swarm_backend.intercept.mpc import (PX4_VELOCITY_GAIN, Mpc, MpcWeights, time_to_go,
+                                         velocity_command)
 from swarm_backend.intercept.target import PositionFix
 from swarm_backend.intercept.target_detector import Detector
 from swarm_backend.intercept.tracker import ACCEL_NOISE, INITIAL_SPEED_STD, RESET_DISTANCE2
 from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 
-# What the interceptor can do. The fast simulation's drone accelerates at 4 m/s^2;
-# PX4's default horizontal limit (MPC_ACC_HOR) is 3, so in Gazebo the drone simply
-# lags a little, and the MPC re-plans from its measured velocity every step.
+# What the interceptor can do. PX4 takes velocity setpoints only; velocity_command leads
+# the measured velocity by u / PX4's velocity gain, so its controller gives the MPC's
+# acceleration (PX4's own horizontal limit, MPC_ACC_HOR, is 3 m/s^2).
 MAX_ACCEL = 4.0  # m/s^2
 MIN_ALTITUDE = 10.0  # metres above the start point: never descend below this
 MIN_DIRECTION_M = 1e-3  # closer than this the target has no direction to face
@@ -116,18 +118,24 @@ class MpcIntercept(InterceptAction):
     the horizon, degrees from north), as the baseline's SEARCH; once seen and lost, it
     looks where the target was last. `limit` replaces the height check on every
     velocity command, e.g. the baseline's attack.limit_velocity, so both fly within the
-    same limits."""
+    same limits.
+
+    `velocity_gain` is how the drone follows a velocity setpoint (mpc.velocity_command):
+    PX4's velocity-controller gains by default; None for a drone that reaches each
+    setpoint within the step."""
 
     def __init__(self, drone: Drone, detector: Detector, config: InterceptConfig,
                  clock: Callable[[], float | None], weights: MpcWeights = MpcWeights(),
                  terminal_s: float | None = TERMINAL_S,
                  search: tuple[float, float] | None = None,
-                 limit: Callable[[Vector3], Vector3] | None = None):
+                 limit: Callable[[Vector3], Vector3] | None = None,
+                 velocity_gain: Vector3 | None = PX4_VELOCITY_GAIN):
         super().__init__(drone, detector, config, clock)
         self.mpc = Mpc(weights, max_speed=config.interceptor_max_speed)
         self.terminal_s = terminal_s
         self.search = search
         self.limit = limit
+        self.velocity_gain = velocity_gain
         self.phase: str | None = None  # 'midcourse' or 'terminal', for logging
         self.transitions: list[tuple[float, str]] = []  # (time, what it does now)
         self._last_target: Vector3 | None = None  # last estimated target position
@@ -192,15 +200,14 @@ class MpcIntercept(InterceptAction):
         if self.terminal_s is not None and t_go is not None and t_go > self.terminal_s:
             self.phase = 'midcourse'
             meeting = tuple(p + v * t_go for p, v in zip(target, target_velocity))
-            wanted = tuple(speed * c for c in _unit(tuple(m - p for m, p in zip(meeting, me))))
-            change = clip_norm(tuple(w - v for w, v in zip(wanted, self.drone.velocity)),
-                               MAX_ACCEL * self.mpc.weights.dt)
-            velocity = tuple(v + c for v, c in zip(self.drone.velocity, change))
+            # Full speed toward the meeting point, sent as it is (as pure pursuit does):
+            # the drone's own controller accelerates to it as fast as it can.
+            velocity = tuple(speed * c for c in _unit(tuple(m - p for m, p in zip(meeting, me))))
         else:
             self.phase = 'terminal'
             u = self.mpc.first_acceleration(me, self.drone.velocity, target, target_velocity)
             velocity = velocity_command(self.drone.velocity, u, self.mpc.weights.dt,
-                                        MAX_ACCEL, speed)
+                                        MAX_ACCEL, speed, self.velocity_gain)
         self._note(now, self.phase)
         self.commanded = self.limit(velocity) if self.limit else self._keep_height(velocity)
         dx, dy = target[0] - me[0], target[1] - me[1]

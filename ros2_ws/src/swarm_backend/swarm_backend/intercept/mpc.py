@@ -227,10 +227,22 @@ def clip_norm(vector: Vector3, limit: float) -> Vector3:
     return tuple(c * limit / norm for c in vector)
 
 
+# PX4's velocity controller accelerates by gain x (setpoint - velocity): MPC_XY_VEL_P_ACC
+# (north, east) and MPC_Z_VEL_P_ACC (down), the defaults, read from the SITL drones.
+PX4_VELOCITY_GAIN = (1.8, 1.8, 4.0)  # 1/s
+
+
 def velocity_command(velocity: Vector3, acceleration: Vector3, dt: float, max_accel: float,
-                     max_speed: float) -> Vector3:
-    """The velocity setpoint that applies `acceleration` for one step: PX4 (and the fast
-    simulation) follow velocity setpoints, so u(1) is sent as v + u(1) dt. The
-    acceleration is first limited to `max_accel`, the result to `max_speed`."""
+                     max_speed: float, gain: Vector3 | None = PX4_VELOCITY_GAIN) -> Vector3:
+    """The velocity setpoint that makes the drone accelerate by `acceleration` (u(1)),
+    limited to `max_accel`, the setpoint to `max_speed`.
+
+    PX4 only takes velocity setpoints and accelerates by gain x (setpoint - velocity), so
+    the setpoint leads the measured velocity by u / gain on each axis. (Sending v + u dt
+    instead, as before 11 Nov 2026, gave PX4 a lead of at most 0.4 m/s: it accelerated at
+    about 0.7 m/s^2 instead of 4, and the MPC took 5-18 s to reach 4 m/s where pure
+    pursuit took 1 s.) gain=None is a drone that reaches each setpoint within the step
+    (v + u dt), for a model that follows setpoints directly."""
     a = clip_norm(acceleration, max_accel)
-    return clip_norm(tuple(vi + ai * dt for vi, ai in zip(velocity, a)), max_speed)
+    lead = (dt, dt, dt) if gain is None else tuple(1.0 / g for g in gain)
+    return clip_norm(tuple(vi + ai * k for vi, ai, k in zip(velocity, a, lead)), max_speed)

@@ -5,9 +5,9 @@ import math
 
 import numpy as np
 
-from swarm_backend.intercept.mpc import (Mpc, MpcWeights, closest_approach_time,
-                                         free_positions, prediction_matrix, time_to_go,
-                                         velocity_command)
+from swarm_backend.intercept.mpc import (PX4_VELOCITY_GAIN, Mpc, MpcWeights,
+                                         closest_approach_time, free_positions,
+                                         prediction_matrix, time_to_go, velocity_command)
 
 from sim import SimDrone
 
@@ -76,12 +76,21 @@ def test_time_to_go():
 
 
 def test_velocity_command_keeps_the_limits():
-    # A huge request is cut to A_MAX ...
-    v = velocity_command((5.0, 0.0, 0.0), (500.0, 500.0, 0.0), DT, A_MAX, V_I)
+    # A huge request is cut to A_MAX ... (gain=None: a drone that follows directly)
+    v = velocity_command((5.0, 0.0, 0.0), (500.0, 500.0, 0.0), DT, A_MAX, V_I, gain=None)
     assert abs(math.hypot(v[0] - 5.0, v[1]) - A_MAX * DT) < 1e-9
     # ... and the result to V_I.
     v = velocity_command((V_I, 0.0, 0.0), (A_MAX, 0.0, 0.0), DT, A_MAX, V_I)
     assert abs(math.hypot(*v) - V_I) < 1e-9
+
+
+def test_velocity_command_leads_by_what_px4_needs_to_accelerate_by_u():
+    """PX4 accelerates by gain x (setpoint - velocity): the setpoint leads by u / gain,
+    so PX4 gives the MPC's acceleration (not the 0.4 m/s lead of v + u dt)."""
+    u = (2.0, -1.0, 0.5)
+    v = velocity_command((1.0, 0.0, 0.0), u, DT, A_MAX, V_I)
+    achieved = tuple(g * (s - m) for g, s, m in zip(PX4_VELOCITY_GAIN, v, (1.0, 0.0, 0.0)))
+    assert all(abs(a - b) < 1e-9 for a, b in zip(achieved, u))
 
 
 # --- closed loop --------------------------------------------------------------
