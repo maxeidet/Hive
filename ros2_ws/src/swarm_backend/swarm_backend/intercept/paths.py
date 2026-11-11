@@ -109,3 +109,49 @@ def _place(local: list[tuple[float, float]], anchor: Vector3, heading: float) ->
     c, s = math.cos(turn), math.sin(turn)
     ax, ay, az = anchor
     return [(ax + c * x - s * y, ay + s * x + c * y, az) for x, y in local]
+
+
+# --- the hostile drone's way in (the scenarios' evaluation runs) ------------------------
+
+INBOUND_PATHS = ('straight', 'weave', 'zigzag')
+INBOUND_STEP_M = 1.0  # metres between the points of a curved way in
+
+
+def inbound(start: Vector3, goal: Vector3, kind: str = 'straight', amplitude: float = 15.0,
+            wavelength: float = 60.0) -> list[Vector3]:
+    """The hostile drone's way from `start` to `goal` (world NED), an open polyline at the
+    start's altitude for HostileFlight. `straight` is the line; `weave` swings side to
+    side along it, a sine `amplitude` metres either way and `wavelength` metres long;
+    `zigzag` does the same in straight legs with sharp turns. Both leave `start` along the
+    line (no offset there) and fade out over the last wavelength, so they end at `goal`."""
+    if kind == 'straight':
+        return [tuple(start), tuple(goal)]
+    if kind not in INBOUND_PATHS:
+        raise ValueError(f'Unknown path {kind!r}; use one of {", ".join(INBOUND_PATHS)}')
+    if amplitude < 0 or wavelength <= 0:
+        raise ValueError('amplitude must be >= 0 and wavelength > 0')
+    sx, sy, sz = start
+    dx, dy = goal[0] - sx, goal[1] - sy
+    length = math.hypot(dx, dy)
+    if length == 0:
+        raise ValueError('start and goal are the same point')
+    ux, uy = dx / length, dy / length  # along the line
+    rx, ry = -uy, ux  # to its side
+    n = max(2, int(length / INBOUND_STEP_M))
+    points = []
+    for i in range(n + 1):
+        s = length * i / n
+        phase = s / wavelength
+        if kind == 'weave':
+            side = math.sin(2 * math.pi * phase)
+        else:  # zigzag: a triangle wave through 0 at the start, like the sine
+            side = 4 * abs((phase - 0.25) % 1.0 - 0.5) - 1
+        offset = amplitude * side * min(1.0, (length - s) / wavelength)
+        points.append((sx + ux * s + rx * offset, sy + uy * s + ry * offset, sz))
+    points[-1] = (goal[0], goal[1], sz)
+    return points
+
+
+def polyline_length(points: list[Vector3]) -> float:
+    """The length of an open polyline (Path closes it; this does not)."""
+    return sum(math.dist(a, b) for a, b in zip(points, points[1:]))

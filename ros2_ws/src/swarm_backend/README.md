@@ -127,7 +127,7 @@ python3 -m pytest tests/test_intercept_baseline.py -s       # full sweep + table
 ./mount-backend.sh baseline-intercept --aspect 90 --speed 8 --seed 3   # one scenario in Gazebo
 ```
 
-To evaluate another method or detector, pass its classes to `run_scenario` in place of `PurePursuitAction` / `noisy_truth` (see `tests/test_intercept_baseline.py`). The fast sim (`tests/sim.py`) runs the full 600-run grid in about 20 s.
+To evaluate another method or detector, pass its classes to `run_scenario` in place of `PurePursuitAction` / `noisy_truth` (see `tests/test_intercept_baseline.py`). The fast sim (`swarm_backend/fast_sim.py`) runs the full 600-run grid in about 20 s.
 
 ### Detection evaluation
 
@@ -151,5 +151,23 @@ HIVE_DETECT_DATASET=/path/to/images python3 -m pytest tests/test_detect_baseline
 The default sweep (30 runs, 12 defenders) takes under a minute.
 
 How tests and evaluations are written, and what a run should save: `hive-vault/Testing.md`.
+
+### Operator UI
+
+A web page for the operator: a top-down map of the base, the search area, every drone in swarm.yaml with its gimbal camera's view and the last 15 s of where the gimbal pointed (so a search sweep is visible), and detections. Next to it is a card per drone (armed, mode, altitude, speed, gimbal heading and pitch, time since PX4 last spoke) with a gimbal compass. A drone running the attack node, or a defender running the patrol (`patrol`, and the `attacktest`/`baseline-eval` scenarios in Gazebo), also gets its attack state (IDLE, SEARCH, ATTACK, COAST, LOST, HIT) on its card and next to it on the map, from `/<ns>/attack/state` (`std_msgs/String`). Both publish it (`nodes/attack_node.py` `AttackReporter`) on every change and once a second; the UI hides it after 3 s without a message.
+
+```bash
+./mount-backend.sh ui        # then open http://localhost:8090 on the host
+```
+
+The drones are autonomous, so the UI never commands them. It only listens to their PX4 and detection topics. The one thing the operator sets is the **search area**, an arc around the base (heading, width, radius; default the quarter circle toward `attack.search_heading_deg`, 150 m). Drag it on the map or use the fields, then press Apply. It is published on `/base/search_area` (`std_msgs/String`, JSON: `heading_deg`, `width_deg`, `radius_m`, `centre` [north, east], `revision`, latched), for the surveillance planner or base station to follow. Nothing listens to it yet.
+
+The container publishes port 8090 to `127.0.0.1` (`HOST_UI_PORT` changes the host side). A container started before this change has no published port and must be restarted.
+
+| Module | Role |
+|---|---|
+| `ui/model.py` | `SearchArea` and its checks, and what the page shows per drone. No ROS. |
+| `nodes/operator_ui.py` | Subscribes to every drone, publishes the search area, serves the page and `/api/state`. |
+| `ui/static/index.html` | The page: one file, no build step, polls `/api/state` 5 times a second. |
 
 Unit tests for the parts that do not need ROS (config, topics, formations, swarm logic, intercept incl. a closed-loop chase sim): `python3 -m pytest tests/test_*.py`.

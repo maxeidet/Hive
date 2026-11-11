@@ -92,11 +92,18 @@ class YoloOnnx:
             raise FileNotFoundError(self.path)
         try:
             import onnxruntime
-            self._session = onnxruntime.InferenceSession(
-                str(self.path), providers=['CPUExecutionProvider'])
+            providers = ['CPUExecutionProvider']
+            if 'CUDAExecutionProvider' in onnxruntime.get_available_providers():
+                # onnxruntime-gpu (the Docker image on x86): the CUDA and cuDNN libraries
+                # come from the nvidia-* pip packages, which preload_dlls() loads.
+                if hasattr(onnxruntime, 'preload_dlls'):
+                    onnxruntime.preload_dlls()
+                providers.insert(0, 'CUDAExecutionProvider')
+            self._session = onnxruntime.InferenceSession(str(self.path), providers=providers)
             self._input = self._session.get_inputs()[0]
             shape = self._input.shape
-            self.backend = 'onnxruntime'
+            used = self._session.get_providers()[0]  # CPU when CUDA could not start
+            self.backend = 'onnxruntime ' + ('GPU' if used == 'CUDAExecutionProvider' else 'CPU')
         except ImportError:
             self._session = None
             self._net = cv2.dnn.readNetFromONNX(str(self.path))

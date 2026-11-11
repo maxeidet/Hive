@@ -1,4 +1,5 @@
-"""A fast stand-in for PX4 in Gazebo, for closed-loop unit tests. No ROS."""
+"""A fast stand-in for PX4 in Gazebo: for closed-loop unit tests and for running the
+scenarios without Gazebo (`--sim`, swarm_backend/scenarios). No ROS."""
 import math
 
 from swarm_backend.config import DetectConfig
@@ -15,7 +16,8 @@ class SimDrone(Drone):
     feed-forward, which is roughly what PX4 does with our setpoints. A velocity
     setpoint is followed directly, within the same limits, unless `velocity_gain` is
     given: then like PX4's velocity controller, accelerating by velocity_gain x
-    (setpoint - velocity) per axis (mpc.PX4_VELOCITY_GAIN), within max_accel."""
+    (setpoint - velocity) per axis (mpc.PX4_VELOCITY_GAIN), within max_accel. The nose
+    turns to a commanded yaw at once, and the gimbal points where it is aimed at once."""
 
     MAX_SPEED = 12.0
     MAX_ACCEL = 4.0
@@ -32,13 +34,22 @@ class SimDrone(Drone):
         self._feed_forward = (0.0, 0.0, 0.0)
         self._velocity_setpoint = None
         self.gimbal_aim = None
+        self.yaw = 0.0  # radians from north
+        self.attitude = (1.0, 0.0, 0.0, 0.0)
+
+    def _turn(self, yaw):
+        if yaw is not None:
+            self.yaw = yaw
+            self.attitude = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
 
     def set_position(self, x, y, z, yaw=None, velocity=None):
+        self._turn(yaw)
         self.target = (x, y, z)
         self._feed_forward = velocity or (0.0, 0.0, 0.0)
         self._velocity_setpoint = None
 
     def set_velocity(self, vx, vy, vz, yaw=None):
+        self._turn(yaw)
         self.target = None
         self._velocity_setpoint = (vx, vy, vz)
 

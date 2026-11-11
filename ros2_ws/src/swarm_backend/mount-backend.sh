@@ -12,9 +12,16 @@
 #   ./mount-backend.sh intercept [args] chase test: drone 2 chases drone 0 at 50 m using mock
 #                                      radar fixes (tests/intercept_test.py --help, e.g.
 #                                      --pattern figure8 --speed 5 --csv /tmp/run.csv)
-#   ./mount-backend.sh baseline-intercept [args]  one intercept baseline scenario of the
-#                                      report (tests/intercept_baseline_test.py --help,
-#                                      e.g. --aspect 90 --speed 8 --seed 3)
+#   ./mount-backend.sh scenario NAME [--sim] [args]  run a scenario (swarm_backend/scenarios/):
+#                                      in Gazebo, or with --sim in the fast simulation (no
+#                                      Gazebo or PX4 needed, seconds per run). NAME: attack,
+#                                      baseline_eval, intercept_baseline; `scenario --help`
+#                                      lists them, `scenario NAME --help` their arguments.
+#                                      attack and baseline_eval use scenarios/surveillance.yaml
+#                                      unless SWARM_CONFIG is set. Without the container:
+#                                      cd ros2_ws/src/swarm_backend && python3 -m swarm_backend.scenarios NAME --sim
+#   ./mount-backend.sh baseline-intercept [args]  = scenario intercept_baseline: one intercept
+#                                      baseline scenario of the report (e.g. --aspect 90 --speed 8 --seed 3)
 #   ./mount-backend.sh fakedetect [args] fake camera detector: publishes /px4_2/detection/target_position
 #                                      and target_offset from Gazebo's true positions (attack: in
 #                                      swarm.yaml; --realistic for delay, noise and blind zone)
@@ -49,33 +56,33 @@
 #                                      (training/fit_range.py; offline, changes no live code)
 #   ./mount-backend.sh yololabels DIR  YOLO label files (labels/*.txt) for the images snap saved in
 #                                      DIR, from the boxes in their .json (swarm_backend/yolo_labels.py)
-#   ./mount-backend.sh attacktest [args] attack flight test: drone 0 flies past above drone 2, which
-#                                      attacks on the fake detector; hits scored from Gazebo, one
-#                                      CSV row per run in data/attack_runs.csv (tests/attack_test.py
-#                                      --help, e.g. --pattern headon --runs 10 --realistic)
-#   ./mount-backend.sh attacktest [args] surveillance attack test: defenders 1-3 patrol the arc,
+#   ./mount-backend.sh attacktest [args] = scenario attack: defenders 1-3 patrol the arc,
 #                                      the base station sends one at hostile drone 4 flying in
 #                                      toward the base, real camera detectors (started by the
-#                                      test). A hit removes the hostile from Gazebo and the
+#                                      scenario). A hit removes the hostile from Gazebo and the
 #                                      defender flies back to its slot; one CSV row per run in
-#                                      data/surveillance_attack_runs.csv. Uses
-#                                      scenarios/surveillance.yaml unless SWARM_CONFIG is set
-#                                      (tests/attack_test.py --help, e.g. --bearing -30 0 30
-#                                      --runs 3, --fake-detector --realistic)
-#   ./mount-backend.sh baseline-eval intercept|detect|summary [args]  baseline evaluation in
-#                                      Gazebo: the report's 30-seed scenarios flown by the 3
+#                                      data/surveillance_attack_runs.csv (e.g. --bearing -30 0 30
+#                                      --runs 3, --fake-detector --realistic, --sim)
+#   ./mount-backend.sh baseline-eval intercept|detect|summary [args]  = scenario baseline_eval:
+#                                      the report's 30-seed scenarios flown by the 3
 #                                      defenders on the arc with the base station, real
 #                                      detectors and pure pursuit, scored with the report's
 #                                      metrics into data/baseline_eval/ (resumable; summary
-#                                      prints the tables). Uses scenarios/surveillance.yaml
-#                                      unless SWARM_CONFIG is set (tests/baseline_eval_test.py
-#                                      --help, e.g. intercept --aspects 0 --speeds 4 --seeds 0-4)
+#                                      prints the tables; e.g. intercept --aspects 0 --speeds 4
+#                                      --seeds 0-4; --sim: data/baseline_eval_sim/)
 #   ./mount-backend.sh basestation     surveillance base station: reads the defenders' sightings and
 #                                      status and sends orders (nodes/base_station_node.py,
 #                                      surveillance: in swarm.yaml). Use scenarios/surveillance.yaml
 #   ./mount-backend.sh patrol ID [args] one defender on the arc: flies to its slot, sweeps its camera,
 #                                      attacks when told to (nodes/patrol_node.py). One per
 #                                      defender, each with its own detector (`fakedetect --id ID`)
+#   ./mount-backend.sh ui [args]       operator UI on http://localhost:8090: where the drones are,
+#                                      where their gimbals look, and the search area (published
+#                                      on /base/search_area). Read-only towards the drones
+#                                      (swarm_backend/nodes/operator_ui.py --help)
+#   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
+#                                      the operator UI's background map (map_snapshot.py --help,
+#                                      default 800 m across, --half-size 600 for more). Restart `ui`.
 #   ./mount-backend.sh demo [N]        formation demo (swarm_node)
 #   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
@@ -335,7 +342,10 @@ case "$cmd" in
   multi)  run "python3 $PKG/tests/multi_drone_swarm_test.py --config $CONFIG $*" ;;
   intercept) run "python3 $PKG/tests/intercept_test.py --config $CONFIG $*" ;;
   detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
-  baseline-intercept) run "python3 $PKG/tests/intercept_baseline_test.py --config $CONFIG $*" ;;
+  scenario)
+    # --config only when SWARM_CONFIG is set: each scenario has its own default config.
+    run "python3 -m swarm_backend.scenarios $* ${SWARM_CONFIG:+--config $SWARM_CONFIG}" ;;
+  baseline-intercept) run "python3 -m swarm_backend.scenarios intercept_baseline --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
   bird)   run "python3 -m swarm_backend.birds $*" ;;
@@ -358,11 +368,12 @@ case "$cmd" in
   showlabels) run "cd /workspace && python3 training/show_labels.py $*" ;;
   fitrange) run "cd /workspace && python3 training/fit_range.py $*" ;;
   comparedet) run "cd /workspace && python3 training/compare_detectors.py $*" ;;
-  attacktest) run "python3 $PKG/tests/attack_test.py --config $CONFIG $*" ;;
   basestation) run "python3 -m swarm_backend.nodes.base_station_node --config $CONFIG $*" ;;
   patrol) run "python3 -m swarm_backend.nodes.patrol_node --config $CONFIG --id $*" ;;
-  baseline-eval) run "python3 $PKG/tests/baseline_eval_test.py --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
-  attacktest) run "python3 $PKG/tests/attack_test.py --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
+  baseline-eval) run "python3 -m swarm_backend.scenarios baseline_eval --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
+  attacktest) run "python3 -m swarm_backend.scenarios attack --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
+  ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
+  mapsnap) run "python3 -m swarm_backend.map_snapshot $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;

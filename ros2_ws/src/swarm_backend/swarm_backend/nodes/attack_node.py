@@ -14,6 +14,7 @@ flies back above its start point and lands. It does not score hits; the attack t
 """
 import argparse
 import dataclasses
+import json
 import sys
 import time
 
@@ -21,10 +22,11 @@ import rclpy
 from rclpy.signals import SignalHandlerOptions
 
 from swarm_backend.config import default_config_path, load_config
-from swarm_backend.intercept.attack import AttackAction, DetectionInbox, limit_velocity
+from swarm_backend.intercept.attack import (STATE_TOPIC, STATUS_TOPIC, AttackAction,
+                                            DetectionInbox, attack_status, state_label)
 from swarm_backend.intercept.detection import OFFSET_TOPIC, POSITION_TOPIC, topic
 from swarm_backend.intercept.inbox_detector import InboxDetector
-from swarm_backend.intercept.mpc_action import MpcIntercept
+from swarm_backend.intercept.mpc_attack import GUIDANCE, MpcAttack, make_attack
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm.manager import SwarmManager
@@ -34,11 +36,41 @@ ALTITUDE_TOLERANCE_M = 1.0
 CLIMB_TIMEOUT_S = 240.0  # slow when Gazebo runs below real time
 RETURN_TIMEOUT_S = 180.0
 POLL_S = 0.1
-GUIDANCE = ('pursuit', 'mpc')
+STATE_REPEAT_S = 1.0  # the state is published on every change and at least this often
+STATUS_PERIOD_S = 0.2  # attack/status for the operator UI, which polls at 5 Hz
 
 
 def stamp_seconds(header) -> float:
     return header.stamp.sec + header.stamp.nanosec * 1e-9
+
+
+class AttackReporter:
+    """Publishes an attack's state and status for the operator UI, under the drone's
+    namespace: attack/state on every change and at least every STATE_REPEAT_S, attack/status
+    every STATUS_PERIOD_S. Used by the attack node and by each patrol (patrol_node.py)."""
+
+    def __init__(self, node, drone_id: int, clock):
+        from std_msgs.msg import String
+
+        self._string = String
+        self._clock = clock
+        self._state_pub = node.create_publisher(String, topic(drone_id, STATE_TOPIC), 10)
+        self._status_pub = node.create_publisher(String, topic(drone_id, STATUS_TOPIC), 10)
+        self._state_sent: tuple[str, float] | None = None  # (label, time.monotonic())
+        self._status_sent = -float('inf')  # time.monotonic()
+
+    def publish(self, attack: AttackAction | None) -> None:
+        """`attack` None: no attack running (a patrol between attacks), reported as idle."""
+        label = 'idle' if attack is None else state_label(attack)
+        now = time.monotonic()
+        if self._state_sent is None or self._state_sent[0] != label \
+                or now - self._state_sent[1] >= STATE_REPEAT_S:
+            self._state_pub.publish(self._string(data=label))
+            self._state_sent = (label, now)
+        if now - self._status_sent >= STATUS_PERIOD_S:
+            status = {'state': 'idle'} if attack is None else attack_status(attack, self._clock())
+            self._status_pub.publish(self._string(data=json.dumps(status)))
+            self._status_sent = now
 
 
 class AttackNode:
@@ -61,31 +93,28 @@ class AttackNode:
         self.manager = SwarmManager(Swarm([self.drone]), ALTITUDE_TOLERANCE_M)
         self.inbox = DetectionInbox()
         self.clock = clock or (lambda: self.drone.stamp)
-        self.detector = InboxDetector(self.drone, self.inbox, self.clock)
         self.attack = self._make_attack()
         self.position_topic = topic(config.attacker_id, POSITION_TOPIC)
         self.offset_topic = topic(config.attacker_id, OFFSET_TOPIC)
         node.create_subscription(PointStamped, self.position_topic, self._on_position, 10)
         node.create_subscription(Vector3Stamped, self.offset_topic, self._on_offset, 10)
+        self.reporter = AttackReporter(node, config.attacker_id, self.clock)
         node.create_timer(1.0 / swarm_config.rate_hz, self._step)
 
-    def new_attack(self) -> AttackAction | MpcIntercept:
+    def new_attack(self) -> AttackAction | MpcAttack:
         """A fresh attack (state, times) on the same drone and topics, e.g. for each test run."""
-        self.detector = InboxDetector(self.drone, self.inbox, self.clock)
         self.attack = self._make_attack()
         return self.attack
 
-    def _make_attack(self) -> AttackAction | MpcIntercept:
-        c = self.config
-        if self.guidance == 'pursuit':
-            return AttackAction(self.drone, self.inbox, c, self.clock)
-        # The MPC's speed is the attack's (swarm.yaml may keep it low for testing), and it
-        # flies within the baseline's limits: minimum height, climb and descent speed.
-        intercept = dataclasses.replace(self.swarm_config.intercept,
-                                        interceptor_max_speed=c.max_speed)
-        return MpcIntercept(self.drone, self.detector, intercept, self.clock,
-                            search=(c.search_pitch_deg, c.search_heading_deg),
-                            limit=lambda v: limit_velocity(v, self.drone.altitude, c))
+    def _make_attack(self) -> AttackAction | MpcAttack:
+        # The MPC flies at attack.max_speed, within the baseline's limits (mpc_attack.py).
+        return make_attack(self.guidance, self.drone, self.inbox, self.config,
+                           self.swarm_config.intercept, self.clock)
+
+    @property
+    def detector(self) -> InboxDetector | None:
+        """The MPC's view of the detection topics (None for pursuit)."""
+        return self.attack.detector if isinstance(self.attack, MpcAttack) else None
 
     @property
     def guard(self):
@@ -94,11 +123,8 @@ class AttackNode:
         return (x, y, z - self.config.guard_altitude)
 
     def _step(self) -> None:
-        if self.guidance == 'mpc':
-            now = self.clock()
-            if now is not None:
-                self.detector.update(now)  # newest message -> world position
         self.attack.step()
+        self.reporter.publish(self.attack)
 
     def _on_position(self, msg) -> None:
         now = self.clock()
@@ -128,7 +154,6 @@ class AttackNode:
                       f'{self.offset_topic} at {c.max_speed} m/s. Searching toward '
                       f'{c.search_heading_deg} deg, gimbal {c.search_pitch_deg} deg up. '
                       'Ctrl-C to stop.')
-        self.detector.start()
         self.attack.start()
         start = time.monotonic()
         seen = 0

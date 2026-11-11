@@ -59,7 +59,7 @@ from geometry_msgs.msg import PointStamped
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 
-from attack_test import GRAVEYARD_ENU, Px4Process, set_model_pose  # tests/, next to this file
+from swarm_backend.scenarios.gazebo_surveillance import GRAVEYARD_ENU, Px4Process, set_model_pose
 from swarm_backend import ground_truth
 from swarm_backend.config import load_config
 from swarm_backend.detect.live import offset_topic
@@ -263,8 +263,7 @@ class Scenario2:
             # The MPC searches where the drone is and never flies back by itself.
             self.defender.set_position(*self.guard,
                                        yaw=math.radians(self.attack_config.search_heading_deg))
-            self.attacker.new_attack()  # a fresh MpcIntercept and InboxDetector
-            self.attacker.detector.start()  # ignore reports from before now
+            self.attacker.new_attack()  # a fresh MpcAttack; start() ignores older reports
         self.seen_states = 0
         self.attacker.attack.start()
 

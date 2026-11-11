@@ -13,7 +13,7 @@
 #   ./start-stellar.sh -m gz_x500_depth       # drone with a depth camera
 #   ./start-stellar.sh -w baylands            # another world
 #   ./start-stellar.sh --vnc                  # GUI through a browser on this computer instead
-#   ./start-stellar.sh --headless             # no GUI, no ports published
+#   ./start-stellar.sh --headless             # no GUI (only the operator UI port is published)
 #   ./start-stellar.sh --no-gpu               # do not give the container the GPU(s), see below
 #
 # --native-gui (default): the Gazebo window opens on the screen you are sitting at
@@ -46,6 +46,7 @@ GUI_MODE="native"   # native | vnc | headless
 USE_GPU=1          # --no-gpu sets 0
 GPU_FLAG_GIVEN=0
 HOST_NOVNC_PORT="${HOST_NOVNC_PORT:-6080}"
+HOST_UI_PORT="${HOST_UI_PORT:-8090}"  # operator UI (mount-backend.sh ui), in every GUI mode
 HOST_VNC_PORT="${HOST_VNC_PORT:-5900}"
 
 while [ $# -gt 0 ]; do
@@ -143,7 +144,7 @@ trap 'exit 130' INT TERM HUP
 # `-e VNC_PASSWORD` (no value) so it never shows up in the process list.
 export VNC_PASSWORD="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 8)"
 
-PORT_ARGS=()
+PORT_ARGS=(-p "127.0.0.1:${HOST_UI_PORT}:8090")
 GUI_ARGS=()
 GPU_ARGS=()
 
@@ -156,7 +157,7 @@ if [ "$GUI_MODE" = "native" ]; then
     GUI_ARGS+=(-e XAUTHORITY=/tmp/.Xauthority -v "${XAUTH_FILE}":/tmp/.Xauthority:ro)
   fi
 elif [ "$GUI_MODE" = "vnc" ]; then
-  PORT_ARGS=(-p "127.0.0.1:${HOST_NOVNC_PORT}:6080" -p "127.0.0.1:${HOST_VNC_PORT}:5900")
+  PORT_ARGS+=(-p "127.0.0.1:${HOST_NOVNC_PORT}:6080" -p "127.0.0.1:${HOST_VNC_PORT}:5900")
 fi
 
 if [ "$USE_GPU" = "1" ]; then
@@ -169,7 +170,7 @@ if ! docker run -d --rm --name px4-gazebo-vnc \
     -v "${REPO_ROOT}":/workspace \
     hive-px4-vnc MicroXRCEAgent udp4 -p 8888 >/dev/null; then
   echo "Could not start the container. If a port is taken by another user, try:"
-  echo "  HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 $0 --vnc"
+  echo "  HOST_NOVNC_PORT=6081 HOST_VNC_PORT=5901 HOST_UI_PORT=8091 $0 --vnc"
   exit 1
 fi
 
@@ -193,8 +194,9 @@ elif [ "$GUI_MODE" = "vnc" ]; then
   echo "  VNC client:                      vnc://127.0.0.1:${HOST_VNC_PORT}"
   echo "  VNC password:                    ${VNC_PASSWORD}"
 else
-  echo "  Headless: no GUI and no ports published."
+  echo "  Headless: no GUI."
 fi
+echo "  Operator UI (this computer):     http://localhost:${HOST_UI_PORT} (after mount-backend.sh ui)"
 echo "  Backend (in a second terminal):  ${REPO_ROOT}/ros2_ws/src/swarm_backend/mount-backend.sh"
 echo ""
 echo "Starting PX4 + Gazebo (model: ${MODEL}, world: ${WORLD}). Ctrl+C or 'shutdown' stops everything."

@@ -20,9 +20,11 @@ from swarm_backend.config import default_config_path, load_config
 from swarm_backend.intercept import surveillance_msgs as msgs
 from swarm_backend.intercept.attack import DetectionInbox
 from swarm_backend.intercept.detection import OFFSET_TOPIC, POSITION_TOPIC, topic
-from swarm_backend.intercept.patrol import PatrolAction
+from swarm_backend.intercept.mpc_attack import GUIDANCE, make_attack
+from swarm_backend.intercept.patrol import STALE_DETECTION_S, PatrolAction
 from swarm_backend.nodes.attack_node import (
-    ALTITUDE_TOLERANCE_M, CLIMB_TIMEOUT_S, POLL_S, RETURN_TIMEOUT_S, stamp_seconds)
+    ALTITUDE_TOLERANCE_M, CLIMB_TIMEOUT_S, POLL_S, RETURN_TIMEOUT_S, AttackReporter,
+    stamp_seconds)
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm.manager import SwarmManager
@@ -35,9 +37,10 @@ CONNECT_TIMEOUT_S = 180.0  # three freshly spawned drones take a while to reach 
 class PatrolNode:
     """A PX4Drone, the detection and surveillance topics and the patrol, on one ROS node."""
 
-    def __init__(self, node, swarm_config, drone_id, clock=None):
+    def __init__(self, node, swarm_config, drone_id, clock=None, guidance='pursuit'):
         """`clock` gives seconds for the patrol and the attack (default: PX4's time stamps;
-        the attack test gives Gazebo's clock, which does not jump)."""
+        the attack test gives Gazebo's clock, which does not jump). `guidance` is the
+        attack: 'pursuit' (the baseline) or 'mpc' (intercept/mpc_attack.py)."""
         from geometry_msgs.msg import PointStamped, Vector3Stamped
 
         self.config = swarm_config.surveillance
@@ -50,8 +53,11 @@ class PatrolNode:
         self.inbox = DetectionInbox()
         self.clock = clock or (lambda: self.drone.stamp)
         slot = self.config.drone_ids.index(drone_id)
-        self.patrol = PatrolAction(self.drone, self.inbox, swarm_config.attack, self.config,
-                                   slot, self.clock)
+        self.patrol = PatrolAction(
+            self.drone, self.inbox, swarm_config.attack, self.config, slot, self.clock,
+            make_attack=lambda guard: make_attack(
+                guidance, self.drone, self.inbox, swarm_config.attack, swarm_config.intercept,
+                self.clock, guard=guard, keep_recent_s=STALE_DETECTION_S))
         node.create_subscription(PointStamped, topic(drone_id, POSITION_TOPIC),
                                  self._on_position, 10)
         node.create_subscription(Vector3Stamped, topic(drone_id, OFFSET_TOPIC),
@@ -64,11 +70,14 @@ class PatrolNode:
         self._sightings = node.create_publisher(String, msgs.SIGHTING_TOPIC, 10)
         self._status = node.create_publisher(String, msgs.STATUS_TOPIC, 10)
         self._events = node.create_publisher(String, msgs.EVENT_TOPIC, 10)
+        self._reporter = AttackReporter(node, drone_id, self.clock)  # for the operator UI
         node.create_timer(1.0 / swarm_config.rate_hz, self._step)
         node.create_timer(1.0 / self.config.status_hz, self._send_status)
 
     def _step(self) -> None:
         self.patrol.step()
+        if self.patrol.running:
+            self._reporter.publish(self.patrol.attack)
         for s in self.patrol.take_sightings():
             self._sightings.publish(String(data=msgs.encode_sighting(s)))
         for e in self.patrol.take_events():
@@ -176,13 +185,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--id', type=int, required=True, help='PX4 instance of this defender')
     parser.add_argument('--duration', type=float, default=0.0,
                         help='seconds (wall clock) before landing; 0 = until Ctrl-C')
+    parser.add_argument('--guidance', choices=GUIDANCE, default='pursuit',
+                        help='the attack: pursuit (the baseline) or mpc')
     args = parser.parse_args(argv)
     swarm_config = load_config(args.config or default_config_path())
 
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = rclpy.create_node(f'patrol_{args.id}')
     try:
-        run = PatrolNode(node, swarm_config, args.id)
+        run = PatrolNode(node, swarm_config, args.id, guidance=args.guidance)
     except ValueError as e:
         node.get_logger().error(str(e))
         rclpy.try_shutdown()

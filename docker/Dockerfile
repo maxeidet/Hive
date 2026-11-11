@@ -39,7 +39,21 @@ ENV GZ_CONFIG_PATH=/usr/share/gz
 # ONNX reader cannot run YOLO26. --no-deps so pip leaves the apt numpy and protobuf alone
 # (cv2 and Gazebo's Python bindings are built against those); flatbuffers is the one
 # dependency it needs at run time.
-RUN pip3 install --break-system-packages --no-deps onnxruntime==1.20.1 flatbuffers==24.3.25
+# On x86 (Stellar) the GPU build, with CUDA 12 and cuDNN 9 from pip (the base image has
+# no CUDA): YOLO at 1280 px takes ~9 ms per image on the RTX 3090 Ti instead of ~400 ms on
+# the CPU, where three detectors slowed Gazebo to 0.12x real time. detect/yolo_onnx.py
+# falls back to the CPU when no GPU is visible (start-stellar.sh without --gpu). Other
+# machines (arm64 Macs) keep the CPU build: there is no onnxruntime-gpu for them.
+ARG TARGETARCH
+RUN if [ "${TARGETARCH:-$(dpkg --print-architecture)}" = "amd64" ]; then \
+      pip3 install --break-system-packages --no-deps onnxruntime-gpu==1.22.0 \
+        nvidia-cudnn-cu12==9.10.2.21 nvidia-cublas-cu12==12.8.4.1 \
+        nvidia-cuda-runtime-cu12==12.8.90 nvidia-cufft-cu12==11.3.3.83 \
+        nvidia-curand-cu12==10.3.9.90 nvidia-cuda-nvrtc-cu12==12.8.93 \
+        nvidia-nvjitlink-cu12==12.8.93 flatbuffers==24.3.25; \
+    else \
+      pip3 install --break-system-packages --no-deps onnxruntime==1.20.1 flatbuffers==24.3.25; \
+    fi
 
 # Simulation only: the x500 airframe (and every x500 variant, they all source it) sets
 # NAV_DLL_ACT=2, "return home when the ground-station link is lost". With that on, PX4

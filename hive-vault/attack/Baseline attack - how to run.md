@@ -49,6 +49,8 @@ A hit is a real collision at up to 5 m/s (`attack.max_speed`). The drones can tu
 
 Only for a confirmed target, stamped with the image time. Code: `intercept/detection.py`.
 
+The attack node also publishes its own state on `/px4_2/attack/state` (`std_msgs/String`: `idle`, `search`, `attack`, `coast`, `lost` or `hit`), on every change and once a second. The operator UI (`./mount-backend.sh ui`) shows it on the drone's card.
+
 ## What is where
 
 | File | What |
@@ -58,7 +60,7 @@ Only for a confirmed target, stamped with the image time. Code: `intercept/detec
 | `intercept/attack_scenario.py` | The test's hostile paths and hit scoring |
 | `nodes/fake_detection.py` | Fake detector node on Gazebo's poses |
 | `nodes/attack_node.py` | Attack node on a PX4 drone |
-| `tests/attack_test.py` | The flight test (tasks 4-6) |
+| `swarm_backend/scenarios/attack.py` (was `tests/attack_test.py`) | The attack scenario (tasks 4-6) |
 | `tests/test_detection.py`, `test_attack.py`, `test_attack_scenario.py` | Unit tests without ROS, including closed-loop runs against a simulated drone |
 
 Settings: the `attack:` section of `config/swarm.yaml`.

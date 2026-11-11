@@ -21,7 +21,7 @@ from swarm_backend.intercept.scenario import make_scenario, run_scenario
 from swarm_backend.intercept.target import PositionFix
 from swarm_backend.intercept.target_detector import Detector
 
-from sim import FastSim, SimDrone
+from swarm_backend.fast_sim import FastSim, SimDrone
 
 # A camera that sees the target 700 m away (the report's 20 deg camera sees ~680 m):
 # with the platform's 51 m there is too little time for any controller at speed.
@@ -154,7 +154,7 @@ def test_hits_every_feasible_scenario_with_perfect_detections():
 def test_the_report_mpc_all_the_way_misses_a_fast_head_on_target_that_this_one_hits():
     """Zheng et al.'s cost with a fixed horizon from first detection (see
     intercept/mpc.py). As the terminal controller after the midcourse it hits more often
-    (with the PX4-like drone of tests/sim.py: 2 of 5 all the way, 4 of 5 after it)."""
+    (with the PX4-like drone of fast_sim.py: 2 of 5 all the way, 4 of 5 after it)."""
     alone = [run(0.0, 17.0, seed, weights=ZHENG, terminal_s=None).outcome for seed in range(5)]
     after = [run(0.0, 17.0, seed, weights=ZHENG).outcome for seed in range(5)]
     assert alone.count(Outcome.HIT) < after.count(Outcome.HIT)
@@ -181,7 +181,7 @@ def test_accelerates_like_pursuit_on_a_px4_like_drone():
     velocity controller, from hover: the midcourse reaches 4 m/s as fast as pursuit
     (1.1 s), the MPC phase in 2.8 s (it was 8.1 s, and missed). The MPC stays a little
     gentler by design: it plans the least acceleration that still meets the target."""
-    from sim import SimDrone
+    from swarm_backend.fast_sim import SimDrone
 
     from swarm_backend.intercept.mpc import PX4_VELOCITY_GAIN
     from swarm_backend.intercept.target import PositionFix

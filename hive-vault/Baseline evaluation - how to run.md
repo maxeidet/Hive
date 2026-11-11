@@ -25,6 +25,12 @@ export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.
 ./mount-backend.sh baseline-eval summary                   # the report's tables from the saved runs
 ```
 
+Or in one command, without the `export` and `spawn`: `scenarios/baseline_eval.sh` takes the same arguments (`intercept`, `detect`, `summary`), starts the drones that are not running and waits for them. It also runs without a terminal, so `nohup` works as well as `tmux`.
+
+A short trial instead: `scenarios/trial.sh` flies 3 head-on runs at 4 m/s (`scenarios/trial.sh 5` for 5; baseline_eval's arguments after the number change the settings), lands the defenders and prints the metrics of just those runs. Each trial is saved in its own folder, `data/trials/<date-time>/`.
+
+Drone 4 flies straight in by default, as in the planning report. `--path weave` (a sine side to side, `--path-amplitude` m either way, default 15, over `--path-wavelength` m, default 60) or `--path zigzag` (the same in straight legs with sharp turns) makes it fly a curved way in; both `baseline_eval.sh` and `trial.sh` take them. It starts along the straight line and ends at the base, so the scenario's aspect still holds at the start, but not after the first swing. Runs that are not straight save to their own default folder (`data/baseline_eval_weave/`) and record `path`, `path_amplitude` and `path_wavelength`. In the fast simulation, weave and zigzag took the hit rate at 4 m/s head-on from 3/3 to 0/3: the defender loses the target from its camera at each swing, gives up and returns.
+
 Each run is appended to `data/baseline_eval/intercept.jsonl` or `detect.jsonl`, and runs already there are skipped. So Ctrl-C (the defenders land) and starting again picks up where it stopped. `--rerun` flies saved runs again. After a batch the tables are printed and written to `data/baseline_eval/summary.txt`. Don't run `detect`, `attacktest` or the patrol and base-station commands alongside it.
 
 ## What it does
@@ -67,7 +73,16 @@ Everything else is the harness's: seeds, aspects, speeds, altitudes, goal radius
 
 | File | What |
 |---|---|
-| `tests/baseline_eval_test.py` | The Gazebo runner (`intercept`, `detect`, `summary`); reuses `tests/attack_test.py` |
+| `swarm_backend/scenarios/baseline_eval.py` | The scenario (`intercept`, `detect`, `summary`; `--sim` for the fast simulation, into `data/baseline_eval_sim/`); flies in `SurveillanceWorld` (`scenarios/surveillance.py`), shared with the attack scenario |
 | `swarm_backend/intercept/arc_eval.py` | The harness's scenarios placed on the arc; recordings → the harness's `Sample`s and `FrameRecord`s |
 | `swarm_backend/detect/live.py --record` | One JSON line per processed image (boxes, confirmed tracks) |
 | `scenarios/surveillance.yaml` | The arc, and the `detect:` setting above |
+| `scenarios/compare_paths.sh` | N runs (default 3) for each of straight, weave ±5 m, weave ±15 m and zigzag ±15 m, and drone 4 10 m below, level with and 10 m above the defenders (they fly at `surveillance.altitude`, 40 m: drone 4 at 30, 40, 50 m; 36 runs). Drone 4 starts at a seeded bearing in drone 2's 30° sector (`--sector 2`; the same seed gives the same start on every path and altitude). Comparison table per path and altitude, with the first detection's 3-D distance (`data/path_compare/<date-time>/`) |
+| `baseline_eval.sh intercept --altitude-offsets -10 0 10 --sector 2` | The options on their own (`--altitudes 30 40 50` gives absolute heights). Every run also saves `detected_by`, `detect_t`, `detect_distance` (3-D, defender to drone 4), `detect_horizontal` and `detect_height` |
+| `scenarios/trial.sh` | A few runs, then land and print their metrics (own folder per trial) |
+| `scenarios/baseline_eval.sh`, `scenarios/lib.sh` | The one-command launcher, and what launchers share: checks, waiting for the drones, running in the container |
+
+## The defenders detected their own airframe (11 Nov)
+
+The gimbal camera sees 115 degrees and hangs 14 cm under the body, so its own legs, skids, arms and propellers are in the picture. The baseline detector takes the white parts for sky and a dark screw hole on them for a drone 10-25 m away, and the base station sent the defender after it. `detect.body_mask: true` in `scenarios/surveillance.yaml` makes the real detectors ignore those pixels (`detect/airframe.py`; by hand: `python3 -m swarm_backend.detect.live --id 2 --body-mask`). The ignored part is shaded magenta in the debug image (`/px4_N/detection/debug`, RViz). It was fitted to Gazebo pictures: camera 14.2 cm under base_link on the gimbal's yaw arm, everything more than 38 degrees above the drone's level plane counts as airframe.
+

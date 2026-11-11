@@ -48,7 +48,7 @@ if ! docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q t
   echo "Container $CONTAINER is not running. Start it with docker/start-stellar.sh (or start-dev.sh -w hive_base) first."
   exit 1
 fi
-if docker exec "$CONTAINER" pgrep -f 'lib/swarm_backend/swarm_shell|tests/intercept_test.py|tests/scenario2_test.py|tests/attack_test.py' >/dev/null; then
+if docker exec "$CONTAINER" pgrep -f 'lib/swarm_backend/swarm_shell|tests/intercept_test.py|tests/scenario2_test.py|swarm_backend\.scenarios' >/dev/null; then
   echo "A swarm shell or another scenario is already running and would fight over the drones. Close it first."
   exit 1
 fi

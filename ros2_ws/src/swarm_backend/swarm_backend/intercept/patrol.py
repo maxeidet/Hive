@@ -3,7 +3,8 @@ the sector the base station gave it, report what it sees, and attack when told t
 
   PATROL  hold the slot, sweep the sector. A confirmed target is reported; if the base
           station allowed it (`may_start`), the drone turns on it at once (decision 6)
-  ENGAGE  the baseline attack (intercept/attack.py), searching from the slot
+  ENGAGE  the attack, searching from the slot: the baseline (intercept/attack.py), or
+          whatever `make_attack` gives, e.g. the MPC (intercept/mpc_attack.py)
   RETURN  fly back to the slot, then PATROL
 
 Call step() at the setpoint rate, apply() with each order from the base station, and
@@ -36,8 +37,13 @@ FRIENDLY_MAX_AGE_S = 3.0  # positions older than this are not used (status comes
 class PatrolAction:
 
     def __init__(self, drone: Drone, inbox: DetectionInbox, attack_config: AttackConfig,
-                 config: SurveillanceConfig, slot: int, clock: Callable[[], float | None]):
-        """`slot` counts from the left of the arc (0 .. len(config.drone_ids) - 1)."""
+                 config: SurveillanceConfig, slot: int, clock: Callable[[], float | None],
+                 make_attack: Callable[[Vector3], AttackAction] | None = None):
+        """`slot` counts from the left of the arc (0 .. len(config.drone_ids) - 1).
+        `make_attack(guard)` gives a fresh attack for each engagement (default the
+        baseline's AttackAction; intercept/mpc_attack.make_attack for the MPC)."""
+        self.make_attack = make_attack or (
+            lambda guard: AttackAction(drone, inbox, attack_config, clock, guard=guard))
         self.drone = drone
         self.inbox = inbox
         self.attack_config = attack_config
@@ -181,8 +187,7 @@ class PatrolAction:
         self.mode = Mode.ENGAGE
         self._contact_sent = self._lost_sent = False
         self._engage_started = self.clock() or 0.0
-        self.attack = AttackAction(self.drone, self.inbox, self.attack_config, self.clock,
-                                   guard=self.slot_point)
+        self.attack = self.make_attack(self.slot_point)
         self.attack.start()
 
     def _begin_return(self) -> None:
