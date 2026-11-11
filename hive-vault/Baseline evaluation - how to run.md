@@ -81,3 +81,8 @@ Everything else is the harness's: seeds, aspects, speeds, altitudes, goal radius
 | `baseline_eval.sh intercept --altitude-offsets -10 0 10 --sector 2` | The options on their own (`--altitudes 30 40 50` gives absolute heights). Every run also saves `detected_by`, `detect_t`, `detect_distance` (3-D, defender to drone 4), `detect_horizontal` and `detect_height` |
 | `scenarios/trial.sh` | A few runs, then land and print their metrics (own folder per trial) |
 | `scenarios/baseline_eval.sh`, `scenarios/lib.sh` | The one-command launcher, and what launchers share: checks, waiting for the drones, running in the container |
+
+## The defenders detected their own airframe (11 Nov)
+
+The gimbal camera sees 115 degrees and hangs 14 cm under the body, so its own legs, skids, arms and propellers are in the picture. The baseline detector takes the white parts for sky and a dark screw hole on them for a drone 10-25 m away, and the base station sent the defender after it. `detect.body_mask: true` in `scenarios/surveillance.yaml` makes the real detectors ignore those pixels (`detect/airframe.py`; by hand: `python3 -m swarm_backend.detect.live --id 2 --body-mask`). The ignored part is shaded magenta in the debug image (`/px4_N/detection/debug`, RViz). It was fitted to Gazebo pictures: camera 14.2 cm under base_link on the gimbal's yaw arm, everything more than 38 degrees above the drone's level plane counts as airframe.
+

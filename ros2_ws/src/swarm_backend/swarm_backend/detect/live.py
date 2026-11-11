@@ -44,6 +44,7 @@ import numpy as np
 
 from swarm_backend.config import default_namespace
 from swarm_backend.detect import detectors
+from swarm_backend.detect.airframe import airframe_mask, body_axes
 from swarm_backend.detect.camera import GIMBAL_HFOV, CameraModel, camera_roll
 from swarm_backend.detect.orientation import Axes
 from swarm_backend.detect.candidates import above_line
@@ -56,6 +57,7 @@ CANDIDATE = (255, 220, 0)
 CONFIRMED = (255, 0, 0)
 HORIZON = (0, 160, 255)
 CENTRE = (255, 255, 255)
+AIRFRAME = (255, 0, 255)
 
 
 @dataclass
@@ -74,6 +76,7 @@ class Result:
     roll: float | None = None  # camera roll used for the offset, radians (None = uncorrected)
     matching: str = 'pixels'  # how detections were matched to tracks: 'world' or 'pixels'
     position: tuple[float, float, float] | None = None  # target_position, world NED, metres
+    airframe: np.ndarray | None = None  # True where the drone's own airframe is (--body-mask)
 
 
 def best_target(tracks: list[Track]) -> Track | None:
@@ -124,6 +127,14 @@ def image_to_array(msg) -> np.ndarray:
 def annotate(img: np.ndarray, result: Result) -> np.ndarray:
     seen = [t for t in result.tracks if t.detection is not None]
     tracked = {id(t.detection) for t in seen}
+    if result.airframe is not None and result.airframe.any():
+        # Shade the own airframe the detector ignores, and outline it.
+        img = img.copy()
+        img[result.airframe] = (img[result.airframe] * 0.5 + np.array(AIRFRAME) * 0.5
+                                ).astype(img.dtype)
+        contours, _ = cv2.findContours(result.airframe.astype(np.uint8), cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(img, contours, -1, AIRFRAME, 1)
     out = draw(img, [b for b in result.boxes if id(b) not in tracked], CANDIDATE)
     confirmed = [t for t in seen if t.confirmed]
     out = draw(out, [t.detection for t in confirmed], CONFIRMED,
@@ -156,7 +167,9 @@ class LiveDetector:
     detector: any detector from detectors.py. horizon: callable giving the image row of the
     horizon for the next image (or None to search the whole image). use_px4: read the
     camera's orientation from PX4 (roll for the offset); off, the offset is not
-    roll-corrected. on_result is called with every Result.
+    roll-corrected. body_mask: ignore what lies on the drone's own airframe (airframe.py;
+    needs use_px4, and is off until PX4 has reported the attitudes). on_result is called
+    with every Result.
     """
 
     def __init__(self, node, drone_id: int, detector: Detector,
@@ -165,7 +178,7 @@ class LiveDetector:
                  on_result: Callable[[Result], None] | None = None,
                  save: Path | None = None, save_every: float = 1.0,
                  use_px4: bool = True, hfov: float = GIMBAL_HFOV,
-                 direction_confirmer: Confirmer | None = None):
+                 direction_confirmer: Confirmer | None = None, body_mask: bool = False):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -188,6 +201,7 @@ class LiveDetector:
             from swarm_backend.detect.px4_camera import PX4Camera
             self.px4 = PX4Camera(node, drone_id)
         self.hfov = hfov
+        self.body_mask = body_mask and self.px4 is not None
         self.confirmer = confirmer or Confirmer()  # in pixels, while the orientation is unknown
         self.world_confirmer = direction_confirmer or world_confirmer(self.confirmer.k)
         self._matching = None
@@ -237,6 +251,15 @@ class LiveDetector:
             self._mask_key, self._mask = key, above_line(shape, horizon)
         return self._mask
 
+    def _airframe(self, shape, camera: CameraModel, axes, stamp: float):
+        """The own airframe in this picture (airframe.py), or None (off, or no attitude)."""
+        if not self.body_mask or axes is None:
+            return None
+        drone_q = self.px4.drone_attitude(stamp)
+        if drone_q is None:
+            return None
+        return airframe_mask(shape, camera, body_axes(axes, drone_q))
+
     def _process(self) -> None:
         with self._lock:
             msg, self._latest = self._latest, None
@@ -245,11 +268,15 @@ class LiveDetector:
         img = image_to_array(msg)
         start = time.perf_counter()
         horizon = self.horizon()
-        boxes = self.detector(img, self._sky_mask(img.shape, horizon))
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         axes = None if self.px4 is None else self.px4.axes(stamp)
         roll = None if axes is None else camera_roll(axes[0], axes[1])
         camera = CameraModel(self.hfov, msg.width, msg.height)
+        search = self._sky_mask(img.shape, horizon)
+        own = self._airframe(img.shape, camera, axes, stamp)
+        if own is not None:
+            search = ~own if search is None else search & ~own
+        boxes = self.detector(img, search)
         matching = 'pixels' if axes is None else 'world'
         if matching != self._matching:  # positions of the two kinds can't be compared
             self.confirmer.tracks.clear()
@@ -277,7 +304,7 @@ class LiveDetector:
                 self._position_pub.publish(pos_msg)
         ms = (time.perf_counter() - start) * 1000
         result = Result(stamp, msg.width, msg.height, boxes, tracks, horizon, ms, target, offset,
-                        axes, roll, matching, position)
+                        axes, roll, matching, position, own)
 
         out = annotate(img, result)
         debug = self._Image()
@@ -332,6 +359,9 @@ def main(argv: list[str] | None = None) -> int:
                         help='which detector to run (default %(default)s)')
     parser.add_argument('--no-px4', action='store_true',
                         help="don't read the camera orientation from PX4 (offset not roll-corrected)")
+    parser.add_argument('--body-mask', action='store_true',
+                        help="ignore what lies on the drone's own airframe in the picture "
+                             '(arms, propellers, landing gear; shaded in the debug image)')
     parser.add_argument('--save', type=Path, default=None, help='folder for raw + annotated PNGs')
     parser.add_argument('--save-every', type=float, default=1.0,
                         help='seconds (sim time) between saves')
@@ -384,7 +414,8 @@ def main(argv: list[str] | None = None) -> int:
         live = LiveDetector(node, args.id, detector, Confirmer(k=args.k, gate=args.gate),
                             args.rate, lambda: args.horizon, log, args.save, args.save_every,
                             use_px4=not args.no_px4,
-                            direction_confirmer=world_confirmer(args.k, args.gate_deg))
+                            direction_confirmer=world_confirmer(args.k, args.gate_deg),
+                            body_mask=args.body_mask)
     except RuntimeError as e:
         print(e)
         return 1
@@ -392,7 +423,8 @@ def main(argv: list[str] | None = None) -> int:
           f'{live.camera.gz_topic}\n  -> {live.camera.ros_topic}\n'
           f'  target_offset on {live.offset_topic}\n'
           f'  target_position on {live.position_topic}\n  debug image on {live.debug_topic}\n'
-          f'  camera orientation from PX4: {"off" if args.no_px4 else "on"}')
+          f'  camera orientation from PX4: {"off" if args.no_px4 else "on"}\n'
+          f'  own airframe ignored: {"yes" if live.body_mask else "no"}')
     if live._bridge is None:
         print('  using the camera bridge another program (e.g. view) already runs: '
               'closing that stops the images here too')

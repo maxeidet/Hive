@@ -351,13 +351,17 @@ class GazeboSurveillance(SurveillanceWorld):
                 path = Path(self.record_path(i))
                 path.unlink(missing_ok=True)
                 extra = ['--record', str(path)]
+            if self.swarm_config.detect.body_mask:  # ignore its own arms, legs, propellers
+                extra.append('--body-mask')
             self.detect_procs.append(subprocess.Popen(
                 [sys.executable, '-m', 'swarm_backend.detect.live', '--id', str(i),
                  '--rate', str(self.options.detect_rate)] + extra,
                 stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                 start_new_session=True))
         self.log.info(f'Real detectors started for drones {list(self.ids)}, logs '
-                      f'/tmp/detect_<id>.log')
+                      f'/tmp/detect_<id>.log'
+                      + (', own airframe ignored' if self.swarm_config.detect.body_mask
+                         else ''))
 
     def stop_detectors(self) -> None:
         for p in self.detect_procs:

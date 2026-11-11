@@ -84,3 +84,10 @@ class PX4Camera:
                 return None
             drone = None if self.earth_frame else self.drone.at(t)
             return camera_axes(gimbal, self.earth_frame, drone)
+
+    def drone_attitude(self, image_stamp: float):
+        """The drone's attitude (w, x, y, z; body FRD -> world NED) when the image with this
+        (Gazebo) timestamp was taken, or None while PX4 has not reported enough yet."""
+        with self._lock:
+            t = self.clock.to_px4(image_stamp)
+            return None if t is None else self.drone.at(t)

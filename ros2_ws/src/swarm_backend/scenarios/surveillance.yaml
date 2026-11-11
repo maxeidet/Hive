@@ -99,3 +99,6 @@ detect:
                             # and PX4's camera orientation put it up to ~2 deg = ~20 px off)
   hostile_altitude_min: 40.0  # = surveillance.altitude
   hostile_altitude_max: 40.0
+  body_mask: false          # true: the real detectors ignore the defender's own arms, legs
+                            # and propellers in its camera picture (detect/airframe.py); off,
+                            # they confirm screw holes on their own landing gear as drones
