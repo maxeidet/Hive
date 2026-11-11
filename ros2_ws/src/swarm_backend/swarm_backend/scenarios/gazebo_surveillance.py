@@ -37,6 +37,7 @@ from swarm_backend import ground_truth
 from swarm_backend.intercept import surveillance_msgs as msgs
 from swarm_backend.nodes.base_station_node import BaseStationNode
 from swarm_backend.nodes.fake_detection import FakeDetectionNode, GazeboTruth
+from swarm_backend.nodes.hivemind_node import Hivemind
 from swarm_backend.nodes.patrol_node import PatrolNode
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, wait_until
@@ -211,6 +212,12 @@ class GazeboSurveillance(SurveillanceWorld):
             FakeDetectionNode(node, dataclasses.replace(self.attack_config, attacker_id=i),
                               self.truth, self.names, self.cameras[i])
             for i in self.ids] if fake else []
+        # The defenders are friendly: the hivemind broadcasts where they are on
+        # /hive/friendlies, and every real detector (detect/live.py) marks a track that
+        # points at one of them as a friend, so it is never locked or reported. Only
+        # surveillance.drone_ids: the hostile drone (attack.target_id) is never on it.
+        self.hivemind = (None if fake else
+                         Hivemind(node, [p.drone for p in self.patrols.values()]))
         self.detect_procs: list[subprocess.Popen] = []
         self._offsets = {d: 0 for d in self.ids}
 
@@ -363,7 +370,7 @@ class GazeboSurveillance(SurveillanceWorld):
         self.log.info(f'Real detectors ({self.options.tracker}'
                       + (f' {" ".join(self.options.detect_args)}' if self.options.detect_args else '')
                       + f') started for drones {list(self.ids)}, logs '
-                      f'/tmp/detect_<id>.log'
+                      f'/tmp/detect_<id>.log; friendly drones {list(self.ids)} ignored'
                       + (', own airframe ignored' if self.swarm_config.detect.body_mask
                          else ''))
 
