@@ -33,6 +33,7 @@ setup(
             'attack_node = swarm_backend.nodes.attack_node:main',
             'base_station_node = swarm_backend.nodes.base_station_node:main',
             'patrol_node = swarm_backend.nodes.patrol_node:main',
+            'hivemind_node = swarm_backend.nodes.hivemind_node:main',
         ],
     },
 )

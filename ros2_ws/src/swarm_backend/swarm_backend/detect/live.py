@@ -44,6 +44,13 @@ Birds: YOLO (two classes, drone and bird) always reports its bird boxes here (it
 with --yolo-birds). They are drawn green ("bird 0.62") and never go to the tracker, the
 lock or the topics: only boxes YOLO calls a drone can become the target. A bird that YOLO
 calls a drone is drawn and tracked like a drone; nothing here can tell it apart.
+
+Friendly drones: the hivemind (nodes/hivemind_node.py) broadcasts where all our drones
+are on /hive/friendlies. A track whose box points at one of them, with a box-size distance
+that roughly fits, is marked friendly for the rest of its life (hive/friendlies.py): it
+is drawn blue ("friend 0 T5"), the lock never picks it, and a lock on a track that turns
+out to be friendly is released at once. Without the hivemind nothing is marked;
+--no-friendlies turns it off.
 """
 import argparse
 import math
@@ -66,6 +73,9 @@ from swarm_backend.detect.bytetrack import ByteTracker, Settings, State
 from swarm_backend.detect.detectors import Detection, Detector, draw
 from swarm_backend.detect.kalman import Noise, rotation_homography
 from swarm_backend.detect.tracking import Confirmer, Track, angle_between
+from swarm_backend.hive.friendlies import TOPIC as FRIENDLIES_TOPIC
+from swarm_backend.hive.friendlies import FriendlyBook, friendly_for
+from swarm_backend.hive.friendlies import decode as decode_friendlies
 from swarm_backend.sensor_view import (
     bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
 
@@ -75,6 +85,7 @@ HORIZON = (0, 160, 255)
 CENTRE = (255, 255, 255)
 LOST = (170, 170, 170)
 BIRD = (0, 220, 0)  # YOLO's bird class: shown, never tracked
+FRIEND = (0, 120, 255)  # a track on one of our own drones (the hivemind): never locked
 
 # ByteTrack's score thresholds per detector (high, low, new), in the detector's own score:
 # the baseline's is contrast in grey levels (it reports nothing under its --contrast, 60 by
@@ -105,6 +116,7 @@ class Result:
     locked_id: int | None = None  # --lock: the track id locked on (None: no lock, or off)
     lock_event: str | None = None  # --lock: what changed with this image (locked, handover...)
     birds: list[Detection] = field(default_factory=list)  # YOLO's bird boxes: drawn only
+    friendly: dict = field(default_factory=dict)  # track id -> the friendly drone it is
 
 
 def split_birds(found: list[Detection]) -> tuple[list[Detection], list[Detection]]:
@@ -245,10 +257,13 @@ def image_to_array(msg) -> np.ndarray:
 
 
 def annotate(img: np.ndarray, result: Result) -> np.ndarray:
-    seen = [t for t in result.tracks if t.detection is not None]
-    tracked = {id(t.detection) for t in seen}
+    friends = [t for t in result.tracks if t.detection is not None and t.id in result.friendly]
+    seen = [t for t in result.tracks if t.detection is not None and t.id not in result.friendly]
+    tracked = {id(t.detection) for t in seen + friends}
     out = draw(img, result.birds, BIRD,
                labels=[f'bird {b.score:.2f}' for b in result.birds])
+    out = draw(out, [t.detection for t in friends], FRIEND,
+               labels=[f'friend {result.friendly[t.id]} T{t.id}' for t in friends])
     out = draw(out, [b for b in result.boxes if id(b) not in tracked], CANDIDATE)
     byte = any(hasattr(t, 'state') for t in result.tracks)  # ByteTrack's tracks
     confirmed = [t for t in seen if t.confirmed]
@@ -258,7 +273,8 @@ def annotate(img: np.ndarray, result: Result) -> np.ndarray:
     unconfirmed = [t for t in seen if not t.confirmed]
     out = draw(out, [t.detection for t in unconfirmed], CANDIDATE,
                labels=[f'T{t.id} {t.streak}' if byte else str(t.streak) for t in unconfirmed])
-    lost = [t for t in result.tracks if getattr(t, 'state', None) == State.LOST]
+    lost = [t for t in result.tracks if getattr(t, 'state', None) == State.LOST
+            and t.id not in result.friendly]
     out = draw(out, [predicted_box(t) for t in lost], LOST,
                labels=[f'T{t.id} lost {t.misses}' for t in lost])
     if result.horizon is not None and 0 <= result.horizon < out.shape[0]:
@@ -363,7 +379,8 @@ class LiveDetector:
                  use_px4: bool = True, hfov: float = GIMBAL_HFOV,
                  direction_confirmer: Confirmer | None = None,
                  tracker: ByteTracker | None = None,
-                 detector_name: str = 'baseline', lock: TargetLock | None = None):
+                 detector_name: str = 'baseline', lock: TargetLock | None = None,
+                 friendlies: bool = True):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -392,6 +409,12 @@ class LiveDetector:
         self._matching = None
         self.tracker = tracker
         self.lock = lock  # stay on one drone (TargetLock), or None: best score every image
+        self.drone_id = drone_id
+        self.friend_book = FriendlyBook()  # the hivemind's latest positions
+        self.friendly: dict[int, int] = {}  # track id -> friendly drone id, for its life
+        if friendlies:
+            from std_msgs.msg import String
+            node.create_subscription(String, FRIENDLIES_TOPIC, self._on_friendlies, 10)
         self._last_axes: Axes | None = None  # the camera's orientation in the last image
         self.horizon = horizon
         self.on_result = on_result
@@ -426,6 +449,33 @@ class LiveDetector:
         if self._bridge is not None:
             self._bridge.terminate()
             self._bridge.wait()
+
+    def _on_friendlies(self, msg) -> None:
+        try:
+            self.friend_book.update(*decode_friendlies(msg.data))
+        except (ValueError, KeyError, TypeError):
+            pass  # a malformed message: keep the last good one
+
+    def _mark_friendlies(self, tracks, camera: CameraModel, axes, stamp: float) -> None:
+        """Mark the tracks that are one of our own drones (see the module docstring)."""
+        live = {t.id for t in tracks}
+        self.friendly = {i: f for i, f in self.friendly.items() if i in live}
+        if axes is None:
+            return
+        positions = self.friend_book.at(stamp)
+        me = positions.pop(self.drone_id, None)
+        if me is None or not positions:
+            return  # where we are, or anyone else is, is not known
+        age = self.friend_book.age(stamp)
+        for t in tracks:
+            if t.id in self.friendly or t.detection is None:
+                continue
+            d = t.detection
+            direction = camera.direction(d.u, d.v, *axes)
+            box_range = camera.range_from_detection(self.detector_name, d.width, d.height)
+            friend = friendly_for(direction, box_range, me, positions, age)
+            if friend is not None:
+                self.friendly[t.id] = friend
 
     def _on_image(self, msg) -> None:
         with self._lock:
@@ -463,10 +513,18 @@ class LiveDetector:
                 self._matching = matching
                 if self.lock is not None:
                     self.lock.reset()  # the other confirmer numbers its tracks itself
+                self.friendly = {}
             if axes is None:
                 tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
             else:
                 tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
+        self._mark_friendlies(tracks, camera, axes, stamp)
+        all_tracks, tracks = tracks, [t for t in tracks if t.id not in self.friendly]
+        released = None
+        if self.lock is not None and self.lock.locked_id in self.friendly:
+            released = (f'T{self.lock.locked_id} released: it is friendly drone '
+                        f'{self.friendly[self.lock.locked_id]}')
+            self.lock.locked_id = None
         if self.lock is not None:
             def direction(track, predicted: bool):
                 if axes is None:
@@ -498,10 +556,13 @@ class LiveDetector:
                 pos_msg.point.x, pos_msg.point.y, pos_msg.point.z = position
                 self._position_pub.publish(pos_msg)
         ms = (time.perf_counter() - start) * 1000
-        result = Result(stamp, msg.width, msg.height, boxes, tracks, horizon, ms, target, offset,
-                        axes, roll, matching, position,
-                        None if self.lock is None else self.lock.locked_id,
-                        None if self.lock is None else self.lock.event, birds)
+        event = None if self.lock is None else self.lock.event
+        if released:
+            event = released + (f'; {event}' if event else '')
+        result = Result(stamp, msg.width, msg.height, boxes, all_tracks, horizon, ms, target,
+                        offset, axes, roll, matching, position,
+                        None if self.lock is None else self.lock.locked_id, event, birds,
+                        dict(self.friendly))
 
         out = annotate(img, result)
         debug = self._Image()
@@ -588,6 +649,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--lock-timeout', type=float, default=LOCK_TIMEOUT_S,
                         help='--lock: seconds unseen before the lock is released '
                              '(default %(default)s)')
+    parser.add_argument('--no-friendlies', action='store_true',
+                        help='do not mark our own drones from the hivemind '
+                             '(/hive/friendlies); they could then be locked onto')
     parser.add_argument('--lock-gate-deg', type=float, default=LOCK_GATE_DEG,
                         help='--lock: degrees from where the locked drone should be that a new '
                              'track may be and take the lock over (default %(default)s, '
@@ -626,7 +690,8 @@ def main(argv: list[str] | None = None) -> int:
         if now - stats['last_log'] < 1.0:
             return
         confirmed = ', '.join(describe(t) for t in result.tracks
-                              if t.confirmed and t.detection is not None) or 'none'
+                              if t.confirmed and t.detection is not None
+                              and t.id not in result.friendly) or 'none'
         offset = '' if result.offset is None else (
             f', offset x {math.degrees(result.offset[0]):+.1f} y '
             f'{math.degrees(result.offset[1]):+.1f} deg')
@@ -639,6 +704,8 @@ def main(argv: list[str] | None = None) -> int:
         locked = '' if not args.lock else (
             f', locked T{result.locked_id}' if result.locked_id is not None else ', locked none')
         birds = f', {len(result.birds)} birds' if result.birds else ''
+        friends = ', '.join(f'T{t} = drone {f}' for t, f in sorted(result.friendly.items()))
+        birds += f', friendly: {friends}' if friends else ''
         print(f'[{result.stamp:.2f}] {len(result.boxes)} candidates{birds}, confirmed: {confirmed}'
               f'{locked}{offset}; {camera}  ({stats["ms"] / stats["frames"]:.0f} ms/image)', flush=True)
         stats.update(last_log=now, frames=0, ms=0.0)
@@ -651,7 +718,8 @@ def main(argv: list[str] | None = None) -> int:
                             tracker=tracker,
                             detector_name=args.detector,
                             lock=TargetLock(args.lock_gate_deg, timeout=args.lock_timeout)
-                            if args.lock else None)
+                            if args.lock else None,
+                            friendlies=not args.no_friendlies)
     except RuntimeError as e:
         print(e)
         return 1

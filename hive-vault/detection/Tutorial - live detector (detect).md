@@ -93,6 +93,7 @@ Open RViz on the drone: `./mount-backend.sh view 2`. Click **Add â†’ By topic â†
 | White cross | The image centre |
 | Grey box `T<id> lost <n>` | ByteTrack: a lost track, drawn where its filter predicts it |
 | Green box `bird <score>` | YOLO: a box classed as a bird. Shown only: never tracked, locked or published (added 11 Nov) |
+| Blue box `friend <drone> T<id>` | A track on one of our own drones, from the hivemind's positions (`/hive/friendlies`). Tracked, but never locked or published (added 11 Nov) |
 
 ## Read what it publishes
 
