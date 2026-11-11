@@ -109,15 +109,28 @@ class MpcIntercept(InterceptAction):
     the minimum-effort intercept, MpcWeights(tracking=1, terminal=0, time_to_go=False)
     is Zheng et al.'s. `terminal_s` is when the MPC takes over from the midcourse
     (None: the MPC all the way). For the harness's factory: functools.partial(
-    MpcIntercept, weights=..., terminal_s=...)."""
+    MpcIntercept, weights=..., terminal_s=...).
+
+    For flying on the camera in Gazebo (nodes/attack_node.py --guidance mpc):
+    `search` is where the gimbal looks before the target has been seen, (degrees above
+    the horizon, degrees from north), as the baseline's SEARCH; once seen and lost, it
+    looks where the target was last. `limit` replaces the height check on every
+    velocity command, e.g. the baseline's attack.limit_velocity, so both fly within the
+    same limits."""
 
     def __init__(self, drone: Drone, detector: Detector, config: InterceptConfig,
                  clock: Callable[[], float | None], weights: MpcWeights = MpcWeights(),
-                 terminal_s: float | None = TERMINAL_S):
+                 terminal_s: float | None = TERMINAL_S,
+                 search: tuple[float, float] | None = None,
+                 limit: Callable[[Vector3], Vector3] | None = None):
         super().__init__(drone, detector, config, clock)
         self.mpc = Mpc(weights, max_speed=config.interceptor_max_speed)
         self.terminal_s = terminal_s
+        self.search = search
+        self.limit = limit
         self.phase: str | None = None  # 'midcourse' or 'terminal', for logging
+        self.transitions: list[tuple[float, str]] = []  # (time, what it does now)
+        self._last_target: Vector3 | None = None  # last estimated target position
         self.tracker = TargetTracker3D()
         self.running = False
         self.estimate: tuple[Vector3, Vector3] | None = None  # last (position, velocity) used
@@ -135,6 +148,7 @@ class MpcIntercept(InterceptAction):
         self.running = True
         self._status = Status.LOST  # until the first fix; the harness only ends a run
         #                             on LOST once the target has been detected
+        self._note(self.clock(), 'search')
 
     def stop(self) -> None:
         """Hover where we are and stop moving the gimbal."""
@@ -161,12 +175,15 @@ class MpcIntercept(InterceptAction):
         if self.tracker.age(now) > self.config.track_timeout:
             if self._status == Status.TRACKING:
                 self.drone.hold()  # lost it: stop rather than fly on a stale guess
+                self._note(now, 'lost')
             self._status = Status.LOST
             self.estimate = None
+            self._look_for_target()
             return
         self._status = Status.TRACKING
         self.estimate = self.tracker.estimate(now)  # predicted to now, also between fixes
         target, target_velocity = self.estimate
+        self._last_target = target
 
         # 3-4. Midcourse or MPC -> velocity setpoint.
         me = self.drone.position
@@ -184,7 +201,8 @@ class MpcIntercept(InterceptAction):
             u = self.mpc.first_acceleration(me, self.drone.velocity, target, target_velocity)
             velocity = velocity_command(self.drone.velocity, u, self.mpc.weights.dt,
                                         MAX_ACCEL, speed)
-        self.commanded = self._keep_height(velocity)
+        self._note(now, self.phase)
+        self.commanded = self.limit(velocity) if self.limit else self._keep_height(velocity)
         dx, dy = target[0] - me[0], target[1] - me[1]
         if math.hypot(dx, dy) > MIN_DIRECTION_M:
             self._yaw = math.atan2(dy, dx)  # face the target, so the gimbal turns little
@@ -200,15 +218,32 @@ class MpcIntercept(InterceptAction):
             return (velocity[0], velocity[1], 0.0)
         return velocity
 
+    def _note(self, now: float | None, what: str) -> None:
+        """Record a change of what the action does (search, midcourse, terminal, lost)."""
+        if now is not None and (not self.transitions or self.transitions[-1][1] != what):
+            self.transitions.append((now, what))
+
+    def _look_for_target(self) -> None:
+        """No estimate: look where the target was last, or else the search direction."""
+        me = self.drone.position
+        if self._last_target is not None:
+            self._aim_gimbal(me, self._last_target)
+        elif self.search is not None:
+            self._aim_world(*self.search)
+
     def _aim_gimbal(self, me: Vector3, target: Vector3) -> None:
+        dx, dy, dz = (t - m for t, m in zip(target, me))
+        self._aim_world(math.degrees(math.atan2(-dz, math.hypot(dx, dy))),
+                        math.degrees(math.atan2(dy, dx)))
+
+    def _aim_world(self, pitch: float, heading_deg: float) -> None:
+        """Point the gimbal `pitch` degrees above the horizon, `heading_deg` from north."""
         if not self._gimbal:
             return
-        dx, dy, dz = (t - m for t, m in zip(target, me))
-        pitch = math.degrees(math.atan2(-dz, math.hypot(dx, dy)))  # above the horizon
         heading = (pitch_yaw_deg(self.drone.attitude)[1] if self.drone.attitude is not None
                    else math.degrees(self._yaw or 0.0))
         try:
-            self.drone.aim_gimbal(pitch, wrap_deg(math.degrees(math.atan2(dy, dx)) - heading))
+            self.drone.aim_gimbal(pitch, wrap_deg(heading_deg - heading))
         except NotImplementedError:
             self._gimbal = False
 
