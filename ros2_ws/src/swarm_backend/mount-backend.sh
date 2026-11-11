@@ -348,6 +348,7 @@ case "$cmd" in
   baseline-intercept) run "python3 -m swarm_backend.scenarios intercept_baseline --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
+  hivemind) run "python3 -m swarm_backend.nodes.hivemind_node --config $CONFIG $*" ;;
   bird)   run "python3 -m swarm_backend.birds $*" ;;
   boxtest) run "python3 -m swarm_backend.box_test $*" ;;
   gendata)

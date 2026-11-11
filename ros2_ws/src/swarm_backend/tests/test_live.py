@@ -232,3 +232,61 @@ def test_birds_are_kept_out_of_tracking_and_drawn_green():
     assert (out[bird.y - 6, bird.x:bird.x + 10] == BIRD).all()  # the green frame above it
     rec = result_record(Result(0.0, 320, 240, boxes, [], None, 1.0, birds=birds))
     assert len(rec['raw']) == 1 and len(rec['birds']) == 1  # the replay sees drones only
+
+
+def test_a_track_on_a_friendly_drone_is_marked_and_kept_from_the_lock():
+    """The hivemind says drone 0 is parked on the base, below the defender (drone 1): the
+    box that points at it is friendly for its whole life, the other one is not."""
+    import numpy as np
+
+    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.live import FRIEND, LiveDetector, Result, annotate
+    from swarm_backend.detect.tracking import Track
+    from swarm_backend.hive.friendlies import Friendly, FriendlyBook
+
+    camera = CameraModel()
+    # Camera 30 m up, looking north and 45 deg down: drone 0 at 30 m north on the ground
+    # is straight ahead, in the middle of the image.
+    s = math.sqrt(0.5)
+    axes = ((s, 0.0, s), (0.0, 1.0, 0.0), (-s, 0.0, s))  # forward, right, down
+    me, parked = (0.0, 0.0, -30.0), (30.0, 0.0, 0.0)
+    live = LiveDetector.__new__(LiveDetector)
+    live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}
+    live.friend_book = FriendlyBook()
+    live.friend_book.update(5.0, [Friendly(0, parked, (0.0, 0.0, 0.0)),
+                                  Friendly(1, me, (0.0, 0.0, 0.0))])
+    width = round(camera.f * 0.8 / math.dist(me, parked))  # a drone's box at that distance
+    on_friend = Track(1, (camera.cx, camera.height / 2))
+    on_friend.detection = Detection(round(camera.cx - width / 2),
+                                    round(camera.height / 2 - width / 2), width, width, 0.9)
+    elsewhere = Track(2, (200.0, 100.0))
+    elsewhere.detection = Detection(196, 96, 8, 8, 0.5)
+    live._mark_friendlies([on_friend, elsewhere], camera, axes, 5.1)
+    assert live.friendly == {1: 0}
+    on_friend.detection = None  # unseen for a while: still friendly
+    live._mark_friendlies([on_friend, elsewhere], camera, axes, 5.2)
+    assert live.friendly == {1: 0}
+    live._mark_friendlies([elsewhere], camera, axes, 5.3)  # its track is gone
+    assert live.friendly == {}
+
+    img = np.full((camera.height, camera.width, 3), 200, np.uint8)
+    on_friend.detection = Detection(600, 300, 10, 10, 0.9)
+    out = annotate(img, Result(0.0, camera.width, camera.height, [], [on_friend], None, 1.0,
+                               friendly={1: 0}))
+    assert (out[300 - 6, 600:610] == FRIEND).all()  # drawn blue, not red
+
+
+def test_without_the_hivemind_nothing_is_friendly():
+    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.live import LiveDetector
+    from swarm_backend.detect.tracking import Track
+    from swarm_backend.hive.friendlies import FriendlyBook
+
+    live = LiveDetector.__new__(LiveDetector)
+    live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}
+    live.friend_book = FriendlyBook()
+    track = Track(1, (640.0, 360.0))
+    track.detection = Detection(636, 356, 8, 8, 0.9)
+    live._mark_friendlies([track], CameraModel(), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
+                                                  (0.0, 0.0, 1.0)), 1.0)
+    assert live.friendly == {}

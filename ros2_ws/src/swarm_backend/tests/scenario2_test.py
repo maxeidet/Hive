@@ -32,6 +32,10 @@ around the hostiles' start points and fly in with them, straight over the base a
 it, at about the hostiles' speed: distractors for the detector. They have no collisions and
 are removed at the end. --bird-seed makes their start points repeatable.
 
+The hivemind (nodes/hivemind_node.py) runs next to the detector and broadcasts where our
+own drones are (every drone in the config but the hostiles, drone 0 parked on the base
+too), log /tmp/scenario2_hivemind.log; the detector never locks onto them (blue boxes).
+
 With --no-attack the defender only hovers and watches (the detector still runs). Each
 target_position is also matched, by direction, to a hostile, so the log says when and at
 what distance each was first seen. It runs until Ctrl-C, --duration simulation seconds, or
@@ -94,6 +98,7 @@ DETECT_LOG = '/tmp/scenario2_detect.log'
 RECORD_ROOT = '/workspace/data/tune'  # /workspace = the repo: ~/Hive/data/tune (not in git)
 POLL_S = 0.05
 BIRDS_LOG = '/tmp/scenario2_birds.log'
+HIVE_LOG = '/tmp/scenario2_hivemind.log'
 
 
 def settings(path: str, args) -> dict:
@@ -117,6 +122,9 @@ class Scenario2:
         self.args = args
         self.def_id = int(s['defender_id'])
         self.hostile_ids = [int(i) for i in s['hostile_ids']]
+        # Our own drones, for the hivemind: everything in the config but the hostiles
+        # (drone 0, parked on the base, too).
+        self.friendly_ids = [d.id for d in config.drones if d.id not in self.hostile_ids]
         self.base = (float(s['base_position'][0]), float(s['base_position'][1]))
         overrides = {'attacker_id': self.def_id}
         if args.attack_speed is not None:
@@ -168,6 +176,7 @@ class Scenario2:
         self.seen_states = 0  # attack transitions already logged
 
         self.detect_proc: subprocess.Popen | None = None
+        self.hive_proc: subprocess.Popen | None = None  # nodes/hivemind_node.py
         self.birds = []  # BirdPlan, with --birds
         self.birds_proc: subprocess.Popen | None = None  # birds.py fly
         self.t0: float | None = None  # simulation time the hostiles left
@@ -306,6 +315,14 @@ class Scenario2:
         if running:
             raise RuntimeError(f'A detector already runs for drone {self.def_id}; stop it, '
                                'this scenario starts its own')
+        # The hivemind first: it tells the detector which drones are ours.
+        self.hive_proc = subprocess.Popen(
+            [sys.executable, '-m', 'swarm_backend.nodes.hivemind_node', '--config',
+             self.args.config, '--ids', *map(str, self.friendly_ids)],
+            stdin=subprocess.DEVNULL, stdout=open(HIVE_LOG, 'w'), stderr=subprocess.STDOUT,
+            start_new_session=True)
+        self.log.info(f'Hivemind: friendly drones {self.friendly_ids} on /hive/friendlies '
+                      f'(log {HIVE_LOG})')
         log = open(DETECT_LOG, 'w')
         cmd = [sys.executable, '-m', 'swarm_backend.detect.live', '--id', str(self.def_id),
                '--rate', str(self.s['detect_rate']), '--detector', self.s['detector']]
@@ -327,14 +344,14 @@ class Scenario2:
                                f'End of {DETECT_LOG}:\n{tail}')
 
     def stop_detector(self) -> None:
-        p = self.detect_proc
-        if p is None or p.poll() is not None:
-            return
-        p.send_signal(signal.SIGINT)
-        try:
-            p.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            p.kill()
+        for p in (self.detect_proc, self.hive_proc):  # the hivemind too
+            if p is None or p.poll() is not None:
+                continue
+            p.send_signal(signal.SIGINT)
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                p.kill()
 
     # --- the flight -----------------------------------------------------------
 
