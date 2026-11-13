@@ -8,7 +8,7 @@ import pytest
 
 from swarm_backend.mapping import (
     MapStats, is_depth_camera, map_stats, mapping_rviz_config, ned_to_enu, octomap_args,
-    pixel_scale, point_clouds, reach, saver_args, with_free_rays)
+    pixel_scale, point_clouds, reach, saver_args, wait_for_clouds, with_free_rays)
 from swarm_backend.sensor_view import find_sensors
 
 TEMPLATE = yaml.safe_load((Path(__file__).parent.parent / 'config' / 'sensors.rviz').read_text())
@@ -146,3 +146,36 @@ def test_cloud_step_keeps_every_nth_pixel():
     out = with_free_rays(depth_cloud(depth, SCALE), SCALE, free_range=9.0, step=4)
     assert out.shape == (12 * 16, 3)
     assert out[1] == pytest.approx(depth_cloud(depth, SCALE)[0, 4])
+
+
+class FakeGazebo:
+    """Topic lists that change over time: the drone first, its sensors `delay` s later."""
+
+    def __init__(self, delay: float):
+        self.t, self.delay = 0.0, delay
+
+    def topics(self):
+        drone_only = [t for t in TOPICS if 'x500_depth_0' in t and 'camera_link' not in t] or \
+            ['/world/hive_base/model/x500_depth_0/link/base_link/sensor/imu_sensor/imu']
+        return TOPICS if self.t >= self.delay else ['/clock', *drone_only]
+
+    def sleep(self, s):
+        self.t += s
+
+
+def test_waits_for_the_sensor_to_appear():
+    gz = FakeGazebo(delay=5.0)
+    drone, clouds = wait_for_clouds(0, 60.0, gz.topics, gz.sleep, lambda: gz.t)
+    assert drone.name == 'x500_depth_0'
+    assert [c.ros_topic for c in clouds] == ['/depth_camera/points']
+    assert gz.t == 5.0
+
+
+def test_gives_up_after_the_timeout():
+    gz = FakeGazebo(delay=100.0)
+    drone, clouds = wait_for_clouds(0, 10.0, gz.topics, gz.sleep, lambda: gz.t)
+    assert drone is not None and clouds == []
+    assert gz.t == 10.0
+    gz = FakeGazebo(delay=0.0)
+    assert wait_for_clouds(7, 3.0, gz.topics, gz.sleep, lambda: gz.t) == (None, [])
+

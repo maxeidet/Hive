@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,6 +33,7 @@ from swarm_backend.sensor_view import (
 DEFAULT_NS = 'mapping'
 DEFAULT_RESOLUTION = 0.1  # metres per voxel
 DEFAULT_MAX_RANGE = 8.0  # metres; points further away are only used to clear free space
+DEFAULT_WAIT = 60.0  # seconds to wait for the drone's sensor in Gazebo
 DEFAULT_CLOUD_STEP = 4  # every 4th pixel of the depth image each way: 7 cm apart at 8 m
 
 
@@ -169,6 +171,22 @@ class FreeRays:
         self._node.destroy_node()
 
 
+def wait_for_clouds(drone_id: int, timeout: float, topics=None, sleep=time.sleep,
+                    clock=time.monotonic):
+    """The drone and its point cloud sensors (find_drone, point_clouds), polling Gazebo's
+    topic list for up to `timeout` seconds. Right after a drone spawns, Gazebo advertises its
+    sensors a few seconds after the drone itself."""
+    topics = topics or gz_topics
+    deadline = clock() + timeout
+    while True:
+        names = topics()
+        drone = find_drone(names, drone_id)
+        clouds = point_clouds(find_sensors(names, drone_id)) if drone else []
+        if clouds or clock() >= deadline:
+            return drone, clouds
+        sleep(1.0)
+
+
 def ros_executable(package: str, executable: str) -> str:
     """Path of a ROS executable. Started directly rather than with `ros2 run`, because
     `ros2 run` runs it as a child process, and stopping `ros2 run` leaves the child running."""
@@ -237,6 +255,9 @@ def main(argv: list[str] | None = None) -> int:
                         help=f'voxel size in metres (default {DEFAULT_RESOLUTION})')
     parser.add_argument('--max-range', type=float, default=DEFAULT_MAX_RANGE,
                         help=f'sensor range used for the map in metres (default {DEFAULT_MAX_RANGE})')
+    parser.add_argument('--wait', type=float, default=DEFAULT_WAIT,
+                        help='seconds to wait for the drone and its depth camera or lidar in '
+                             f'Gazebo (default {DEFAULT_WAIT:g})')
     parser.add_argument('--cloud-step', type=int, default=DEFAULT_CLOUD_STEP,
                         help='use every Nth pixel of a depth camera each way '
                              f'(default {DEFAULT_CLOUD_STEP})')
@@ -244,13 +265,15 @@ def main(argv: list[str] | None = None) -> int:
                         help='RViz layout template; opens RViz with the map when given')
     args = parser.parse_args(argv)
 
-    topics = gz_topics()
-    drone = find_drone(topics, args.id)
+    drone, clouds = wait_for_clouds(args.id, 0.0)
+    if not clouds:
+        print(f'Waiting up to {args.wait:g} s for drone {args.id} and its depth camera or lidar '
+              'in Gazebo...', flush=True)
+        drone, clouds = wait_for_clouds(args.id, args.wait)
     if drone is None:
         print(f'Drone {args.id} is not in Gazebo. Start one with a depth camera or lidar, '
               'e.g. ./mount-backend.sh spawn depth (or lidar).')
         return 1
-    clouds = point_clouds(find_sensors(topics, args.id))
     if not clouds:
         print(f'Drone {args.id} ({drone.name}) has no depth camera or lidar, so it cannot map. '
               'Use a model such as gz_x500_depth or gz_x500_lidar_3d.')
