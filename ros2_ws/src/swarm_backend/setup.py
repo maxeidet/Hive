@@ -33,6 +33,8 @@ setup(
             'attack_node = swarm_backend.nodes.attack_node:main',
             'base_station_node = swarm_backend.nodes.base_station_node:main',
             'patrol_node = swarm_backend.nodes.patrol_node:main',
+            'daep_bridge = swarm_backend.explore.daep_bridge:main',
+            'save_map = swarm_backend.explore.save_map:main',
         ],
     },
 )

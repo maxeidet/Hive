@@ -55,6 +55,14 @@
 #   ./mount-backend.sh maptest [args]  3D mapping flight test: drone 0 (depth or lidar model) maps,
 #                                      flies 6 m north and checks that the map grew
 #                                      (tests/mapping_test.py --help, e.g. --distance 10 --bearing 90)
+#   ./mount-backend.sh explore [X,Y RADIUS] [ARG:=VALUE ...]  3D mapping with the DAEP planner:
+#                                      drone 0 (depth or lidar model) flies to X,Y (Gazebo, ENU),
+#                                      explores the box X,Y +- RADIUS, saves ros2_ws/data/map.bt
+#                                      and lands when done. Without X,Y: the box in DAEP's
+#                                      px4_exploration.yaml around the start point. Needs the
+#                                      private DAEP forks in ros2_ws/src, built once with
+#                                      colcon build --packages-up-to daep (launch/
+#                                      daep_exploration.launch.py, e.g. explore 13.5,-14 7 alt:=4 z_max:=5)
 #   ./mount-backend.sh snap [ID] [args] save drone ID's camera images as PNGs in data/Manualimages/ of
 #                                      the repo, default drone 2, one per second until Ctrl-C
 #                                      (e.g. snap 2 --count 10 --label sky_30m; --help for more).
@@ -216,6 +224,17 @@ mapping() {
   run "python3 -m swarm_backend.mapping --id $id --rviz $PKG/config/sensors.rviz $*"
 }
 
+explore() {
+  # DAEP exploration (launch/daep_exploration.launch.py), from ros2_ws so data/ lands there.
+  local args=""
+  if [[ "${1:-}" =~ ^-?[0-9.]+,-?[0-9.]+$ ]]; then
+    args="center:=$1 radius:=${2:-6}"
+    shift; [ $# -gt 0 ] && shift
+  fi
+  run "ros2 pkg prefix daep >/dev/null 2>&1 || { echo 'DAEP is not built. Clone the daep and daep_msgs forks into ros2_ws/src, then: colcon build --packages-up-to daep'; exit 1; }
+  ros2 launch swarm_backend daep_exploration.launch.py $args $*"
+}
+
 restart() {
   local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings
   while [ $# -gt 0 ]; do
@@ -320,6 +339,7 @@ case "$cmd" in
   view|lidar|camera) view "$1" ;;
   map) mapping "$@" ;;
   maptest) run "python3 $PKG/tests/mapping_test.py --config $CONFIG $*" ;;
+  explore) explore "$@" ;;
   predict) run "python3 -m swarm_backend.detect.predict $*" ;;
   snap)
     id=2
