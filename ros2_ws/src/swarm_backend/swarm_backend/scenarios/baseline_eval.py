@@ -204,6 +204,7 @@ def run_intercept(world: SurveillanceWorld, config, scenario, designated: int,
         'designated': world.ids[designated], 'scored_defender': scored,
         'engaged_by': engaged, 'killer': flight.killer,
         'images': sum(map(len, flight.records.values())),
+        'crashes': flight.crashes,  # respawned before the next run (surveillance.py)
         'hostile_altitude': -scenario.target_start[2],
         **detection_fields(first, world.ids)}
 
@@ -233,7 +234,8 @@ def run_detect(world: SurveillanceWorld, config, scenario, way=None) -> tuple:
                                     flight.t_end, GIMBAL_HFOV)
     return score_detect(frames, scenario, config.detect), {
         'engaged_by': None if flight.engaged is None else flight.engaged[1],
-        'killer': flight.killer, 'images': sum(map(len, flight.records.values()))}
+        'killer': flight.killer, 'images': sum(map(len, flight.records.values())),
+        'crashes': flight.crashes}
 
 
 def jobs(args, config, out_file: Path) -> list:

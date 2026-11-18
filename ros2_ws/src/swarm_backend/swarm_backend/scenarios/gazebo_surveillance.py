@@ -15,9 +15,12 @@ own process, so stopping it stops the container.
 Every run the hostile drone is restarted on the ground below its start point and climbs.
 A hit removes it: its PX4 is stopped and the model moved to a graveyard far outside the
 battle (GRAVEYARD_ENU). The base station gets a `kill` event and the defender, which
-survives, flies back to its slot. A defender can still tumble in Gazebo after a hit; if one
-has crashed, the base station counts it as lost and the others carry on. At the end the
-defenders land at their slots and the hostile drone is started again at its spawn point.
+survives, flies back to its slot. A defender can still tumble in Gazebo after a hit, or
+crash otherwise (scenarios/crash.py says when): it sits out the rest of the run, and
+between runs it is respawned the way the hostile drone is (PX4 stopped, the model set
+upright on the ground right below its slot, a new PX4), climbs to its slot and patrols
+again (`respawned` event to the base station). At the end the defenders land at their
+slots and the hostile drone is started again at its spawn point.
 
 Runs in the container (it starts PX4 processes and calls `gz`).
 """
@@ -42,6 +45,7 @@ from swarm_backend.nodes.patrol_node import PatrolNode
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, wait_until
 from swarm_backend.save_images import drone_names
+from swarm_backend.scenarios.crash import Crash, CrashWatch, misplaced, tilt_deg
 from swarm_backend.scenarios.surveillance import (
     SETUP_TIMEOUT_S, SLOT_TOLERANCE_M, SurveillanceWorld)
 from swarm_backend.sensor_view import find_sensors
@@ -102,7 +106,7 @@ class Px4Process:
         self.instance = instance
         pid = px4_pid(instance)
         if pid is None:
-            raise RuntimeError(f'PX4 instance {instance} (the hostile drone) is not running. '
+            raise RuntimeError(f'PX4 instance {instance} (drone {instance}) is not running. '
                                'Start it with `./mount-backend.sh spawn` (SWARM_CONFIG = '
                                'scenarios/surveillance.yaml)')
         with open(f'/proc/{pid}/environ', 'rb') as f:
@@ -161,13 +165,6 @@ def stop_motors(model_name: str, motors: int = 4) -> bool:
     return result.returncode == 0
 
 
-def tilt_deg(q) -> float:
-    """How far a body leans from upright (degrees), from its (x, y, z, w) quaternion."""
-    x, y, z, w = q
-    up_z = 1.0 - 2.0 * (x * x + y * y)  # world z of the body's up axis
-    return math.degrees(math.acos(max(-1.0, min(1.0, up_z))))
-
-
 def detector_running(drone_id: int) -> bool:
     return subprocess.run(['pgrep', '-f', f'swarm_backend.detect.live --id {drone_id}( |$)'],
                           capture_output=True).returncode == 0
@@ -192,11 +189,15 @@ class GazeboSurveillance(SurveillanceWorld):
 
         self.world, self.names, self.cameras = find_scene(self.ids, self.hostile_id)
         self.px4 = Px4Process(self.hostile_id)
+        self.defender_px4 = {i: Px4Process(i) for i in self.ids}  # to respawn crashed ones
+        self.crash_watch = CrashWatch()  # watching from setup() until stop_and_land()
         # Everything is timed on Gazebo's simulation clock: steady however slowly Gazebo
         # runs, unlike PX4's time stamps, which jump when its time sync adjusts.
         self.truth = GazeboTruth(self.world)
         self.truth.listeners.append(self._on_truth)
-        self._hostile_pose = None  # (xyz ENU, quaternion) of the hostile model, from Gazebo
+        self._model_poses = {}  # model name -> (xyz ENU, quaternion) of the drones, from Gazebo
+        self._bodies = {}  # defender id -> body position (world NED), from Gazebo
+        self._away_from_spawn: set[int] = set()  # defenders whose PX4 started elsewhere
 
         self.patrols = {i: PatrolNode(node, self.swarm_config, i, clock=self.clock,
                                       guidance=options.guidance)
@@ -232,11 +233,15 @@ class GazeboSurveillance(SurveillanceWorld):
             self.flight.step()
 
     def _on_truth(self, stamp: float, poses) -> None:
-        name = self.names[self.hostile_id]
-        model = next((p for p in poses if p[0] == name), None)
-        if model is not None:
-            self._hostile_pose = (model[2], model[3])
+        drones = {self.names[i] for i in (*self.ids, self.hostile_id)}
+        for p in poses:
+            if p[0] in drones:
+                self._model_poses[p[0]] = (p[2], p[3])
         bodies = {i: ground_truth.body_position(poses, self.names[i]) for i in self.ids}
+        self._bodies = bodies
+        for i in self.ids:
+            pose = self._model_poses.get(self.names[i])
+            self.crash_watch.update(stamp, i, bodies[i], None if pose is None else pose[1])
         hostile = ground_truth.body_position(poses, self.names[self.hostile_id])
         self.observe_truth(stamp, bodies, hostile, lambda: {
             i: ground_truth.camera_pose(poses, self.names[i], self.cameras[i]) for i in self.ids})
@@ -279,23 +284,31 @@ class GazeboSurveillance(SurveillanceWorld):
 
     def set_hostile_down(self, east: float, north: float) -> None:
         """The hostile model upright and still on the ground at (east, north), Gazebo ENU,
-        its PX4 stopped. Moved again if it does not stand (up to PLACE_ATTEMPTS times)."""
+        its PX4 stopped."""
+        self.set_down(self.names[self.hostile_id], east, north, 'the hostile drone')
+
+    def set_down(self, name: str, east: float, north: float, what: str) -> None:
+        """A drone model (its PX4 stopped) upright and still on the ground at (east, north),
+        Gazebo ENU: teleported there, and again if it does not stand (up to
+        PLACE_ATTEMPTS times)."""
         for attempt in range(1, PLACE_ATTEMPTS + 1):
-            self.move_hostile(east, north)
+            if not set_model_pose(self.world, name, east, north):
+                self.log.warning(f'Gazebo did not confirm moving {name}')
             self.wait_sim(SETTLE_ON_GROUND_S / 2)
-            before = self._hostile_pose
+            before = self._model_poses.get(name)
             self.wait_sim(SETTLE_ON_GROUND_S / 2)
-            after = self._hostile_pose
+            after = self._model_poses.get(name)
             if before is None or after is None:
                 return  # no poses: nothing to check
             tilt, moved = tilt_deg(after[1]), math.dist(before[0], after[0])
             if tilt <= UPRIGHT_MAX_TILT_DEG and moved <= STILL_M:
                 return
-            self.log.warning(f'Hostile drone not standing after the move (tilt {tilt:.0f} deg, '
-                             f'moved {moved:.2f} m), attempt {attempt}/{PLACE_ATTEMPTS}')
-            stop_motors(self.names[self.hostile_id])
-        raise RuntimeError(f'The hostile drone does not stand still at E {east:+.0f} '
-                           f'N {north:+.0f} m (see Gazebo)')
+            self.log.warning(f'{what[0].upper() + what[1:]} not standing after the move '
+                             f'(tilt {tilt:.0f} deg, moved {moved:.2f} m), '
+                             f'attempt {attempt}/{PLACE_ATTEMPTS}')
+            stop_motors(name)
+        raise RuntimeError(f'{what[0].upper() + what[1:]} does not stand still at '
+                           f'E {east:+.0f} N {north:+.0f} m (see Gazebo)')
 
     def respawn_hostile(self, north: float, east: float) -> None:
         """A fresh hostile drone on the ground at (north, east), connected and ready: the
@@ -327,6 +340,86 @@ class GazeboSurveillance(SurveillanceWorld):
 
     def report_kill(self, drone_id: int) -> None:
         self._events.publish(String(data=msgs.encode_event(msgs.EventMsg(drone_id, 'kill'))))
+
+    # --- crashed defenders ------------------------------------------------------
+
+    def crashed(self) -> dict[int, Crash]:
+        return self.crash_watch.crashes()
+
+    def respawn_defenders(self, drone_ids: list[int]) -> None:
+        for i in drone_ids:
+            self.respawn_defender(i)
+
+    def respawn_defender(self, drone_id: int) -> None:
+        """A crashed defender started again: its PX4 stopped, the model teleported upright
+        onto the ground right below its slot, a new PX4, then it climbs straight up to the
+        slot and patrols its sector again. Like respawn_hostile; teleporting it into the
+        air instead does not work, as a new PX4 must arm standing still on the ground."""
+        p = self.patrols[drone_id]
+        p.patrol.stop()
+        north, east, _ = p.patrol.slot_point
+        self.log.info(f'Respawning drone {drone_id} below its slot at N {north:+.0f} '
+                      f'E {east:+.0f} m')
+        # Its PX4 now counts positions from there, not from its spawn point: put it back
+        # there after landing (stop_and_land), so the next process finds it as configured.
+        self._away_from_spawn.add(drone_id)
+        one = self.restart_defender_at(drone_id, north, east)
+        self.log.info(f'Drone {drone_id} taking off to {self.surv.altitude} m')
+        one.takeoff(self.surv.altitude)
+        wait_until(one.all_reached, SETUP_TIMEOUT_S, f'drone {drone_id} to climb')
+        self.crash_watch.clear([drone_id])  # flying again: a new crash counts
+        p.patrol.start()  # to its slot, right above
+        self._events.publish(String(data=msgs.encode_event(
+            msgs.EventMsg(drone_id, 'respawned'))))
+
+    def restart_defender_at(self, drone_id: int, north: float, east: float) -> SwarmManager:
+        """A defender's PX4 stopped, the model set upright on the ground at (north, east),
+        world NED, and a new PX4 started there, connected and through its pre-flight
+        checks. Returns a SwarmManager for just that drone.
+
+        PX4 reports positions from where it started, and PX4Drone adds `home` to make them
+        world positions; reset() sets `home` to the new start. Every other process (the
+        next scenario, mount-backend.sh) takes `home` from the config's spawn point, so a
+        PX4 started anywhere else must be started at the spawn point again before this
+        process ends (stop_and_land)."""
+        p, name = self.patrols[drone_id], self.names[drone_id]
+        self.defender_px4[drone_id].stop()
+        if not stop_motors(name):
+            self.log.warning(f'Could not stop the motors of {name}')
+        time.sleep(1.0)  # its last messages
+        self.set_down(name, east, north, f'drone {drone_id}')
+        p.drone.reset((north, east, 0.0))
+        self.defender_px4[drone_id].start(name)
+        log = f'/tmp/px4_{drone_id}.log'
+        one = SwarmManager(Swarm([p.drone]), TOLERANCE_M)
+        wait_until(one.connected, RESPAWN_TIMEOUT_S, f'drone {drone_id} to connect (see {log})')
+        wait_until(one.ready, RESPAWN_TIMEOUT_S, f"drone {drone_id}'s pre-flight checks (see {log})")
+        return one
+
+    def restart_at_spawn(self, drone_id: int) -> None:
+        """A defender on the ground, its PX4 restarted at its configured spawn point."""
+        north, east, _ = self.swarm_config.drone(drone_id).spawn_ned
+        self.log.info(f'Starting drone {drone_id} again at its spawn point')
+        self.restart_defender_at(drone_id, north, east)
+        self._away_from_spawn.discard(drone_id)
+
+    def check_homes(self) -> None:
+        """Before take-off: every defender's PX4 position must match where Gazebo has it.
+        A PX4 started somewhere other than the config's spawn point (a respawn in a process
+        that did not end normally) puts the drone, and what the hivemind tells the
+        detectors about it, that far off. Such a drone is restarted at its spawn point."""
+        wait_until(lambda: all(self._bodies.get(i) is not None for i in self.ids), 30,
+                   "the defenders' poses from Gazebo")
+        bad = misplaced({i: self.patrols[i].drone.position for i in self.ids},
+                        self._bodies)
+        for i, off in sorted(bad.items()):
+            if self.patrols[i].drone.armed:
+                raise RuntimeError(
+                    f'Drone {i} is {off:.0f} m from where its PX4 thinks it is, and armed. '
+                    'Land it, then start the scenario again.')
+            self.log.warning(f"Drone {i}'s PX4 is {off:.0f} m off from Gazebo (started away "
+                             'from its spawn point): restarting it there')
+            self.restart_at_spawn(i)
 
     def set_hostile_param(self, name: str, value: float) -> None:
         """Set a PX4 parameter on the hostile drone (e.g. its speed limit)."""
@@ -420,6 +513,7 @@ class GazeboSurveillance(SurveillanceWorld):
                 f'No data from PX4 for drones {self.defenders.not_connected()}. Start them with '
                 '`./mount-backend.sh spawn` (SWARM_CONFIG = scenarios/surveillance.yaml)') from None
         wait_until(self.defenders.ready, CONNECT_TIMEOUT_S, "the defenders' pre-flight checks")
+        self.check_homes()
         self.start_detectors()
         self.log.info(f'Taking off: defenders {list(self.ids)} to {s.altitude} m')
         self.defenders.takeoff(s.altitude)
@@ -429,8 +523,10 @@ class GazeboSurveillance(SurveillanceWorld):
             p.patrol.start()
         self.wait_patrol()
         self.log.info('All defenders on patrol')
+        self.crash_watch.watch(self.ids)  # from now on they should be flying
 
     def stop_and_land(self) -> None:
+        self.crash_watch.stop()  # landing is not a crash
         if self.flight is not None:
             self.flight.stop()
             self.flight = None
@@ -440,7 +536,8 @@ class GazeboSurveillance(SurveillanceWorld):
             self.remove_hostile()
         finally:
             self.stop_detectors()
-        armed = [p for p in self.patrols.values() if p.drone.armed]
+        crashed = self.crashed()  # never get back to a slot: not waited for
+        armed = [p for p in self.patrols.values() if p.drone.armed and p.drone.id not in crashed]
         if armed:
             try:
                 self.log.info('Defenders back to their slots')
@@ -458,6 +555,12 @@ class GazeboSurveillance(SurveillanceWorld):
             wait_until(self.defenders.all_landed, max(LAND_TIMEOUT_S, SETUP_TIMEOUT_S),
                        'the defenders to land and disarm')
             self.log.info('Landed')
+        # Respawned defenders back where the config expects them (restart_defender_at).
+        for i in sorted(self._away_from_spawn):
+            try:
+                self.restart_at_spawn(i)
+            except (RuntimeError, TimeoutError) as e:
+                self.log.warning(f'{e} (the next scenario restarts it at its spawn point)')
         # The hostile drone back where the config (and mount-backend.sh) expects it.
         hx, hy, _ = self.swarm_config.drone(self.hostile_id).spawn_ned
         self.log.info(f'Starting drone {self.hostile_id} again at its spawn point')

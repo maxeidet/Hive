@@ -145,6 +145,18 @@ class BaseStation:
         drone.mode, drone.back_since = Mode.PATROL, now
         return self._finish(now, [])
 
+    def on_respawned(self, drone_id: int, now: float) -> list[Order]:
+        """A crashed defender was started again (the scenarios do it between runs), also
+        one counted as LOST: it patrols its sector again at once, and the arc is shared
+        out among all the patrolling drones again."""
+        drone = self.drones[drone_id]
+        if drone.target is not None:
+            self.targets.pop(drone.target, None)
+        self._release(drone)
+        self._sent_patrol.pop(drone_id, None)
+        drone.mode, drone.back_since = Mode.PATROL, None
+        return self._finish(now, [])
+
     def drop_target(self, target_id: str, now: float) -> list[Order]:
         """The target left (out of range, landed). Its attacker goes back."""
         target = self.targets.pop(target_id, None)

@@ -14,6 +14,12 @@ SurveillanceWorld is what the scenarios use; it has two backends with the same i
 fly() is one run, the same on both: the hostile drone is placed at its start, the
 defenders get back on patrol, the hostile flies its track and the run ends with a hit,
 at the end of the track, at `timeout` or when `end` says so.
+
+A defender that crashes (upside down, or down on the ground: scenarios/crash.py) sits out
+the rest of the run, which is scored as it happened. Between runs, before the next one, it
+is respawned below its slot and flies back up to it (Gazebo only; the fast simulation has
+no crashes). Each run's crashes are in Flight.crashes, with their cause: 'intercept' when
+the drone that hit crashed with the hit (the run is still a hit), else 'other'.
 """
 import math
 import threading
@@ -29,6 +35,7 @@ from swarm_backend.intercept.interceptor import Status
 from swarm_backend.intercept.mock import HostileFlight
 from swarm_backend.intercept.paths import Path as Track
 from swarm_backend.intercept.paths import polyline_length
+from swarm_backend.scenarios.crash import Crash, crash_cause
 
 SLOT_TOLERANCE_M = 2.0
 SETUP_TIMEOUT_S = 900.0  # climbs and repositioning, slow when Gazebo is
@@ -87,6 +94,9 @@ class Flight:
     truth: list = field(default_factory=list)  # [TruthPoint]
     records: dict = field(default_factory=dict)  # defender index -> [detector record]
     statuses: list = field(default_factory=list)  # (stamp, {defender index: Status})
+    # Defenders that crashed in the run (or on the way back after it), respawned before the
+    # next: [{'drone', 't' (s since set off), 'reason', 'cause' ('intercept' or 'other')}]
+    crashes: list = field(default_factory=list)
 
     def hit_time(self, drone_id: int) -> float | None:
         h = self.judges[drone_id].hit_time
@@ -124,6 +134,7 @@ class SurveillanceWorld:
         self._previous_truth = None  # (stamp, bodies, hostile, cameras) of the last poses
         self._hostile_truth: Vector3 | None = None
         self._sightings: list[tuple[float, int]] = []
+        self._reported_crashes: set[Crash] = set()  # in a Flight already
         self._lock = threading.Lock()
 
     @staticmethod
@@ -176,6 +187,14 @@ class SurveillanceWorld:
     def stop_and_land(self) -> None:
         raise NotImplementedError
 
+    def crashed(self) -> dict[int, Crash]:
+        """Defenders that have crashed and are not respawned yet. None in a backend
+        without crashes (the fast simulation)."""
+        return {}
+
+    def respawn_defenders(self, drone_ids: list[int]) -> None:
+        """Start crashed defenders again, back in the air on their slots and patrolling."""
+
     # --- shared -------------------------------------------------------------------
 
     def wait_sim(self, seconds: float) -> None:
@@ -197,8 +216,30 @@ class SurveillanceWorld:
                 and patrol.drone.reached(SLOT_TOLERANCE_M))
 
     def wait_patrol(self) -> None:
-        self.wait_until(lambda: all(self.on_patrol(i) for i in self.alive()), SETUP_TIMEOUT_S,
-                        'every defender to be back on patrol')
+        """Every defender back on patrol, except the crashed ones (they never get there)."""
+        self.wait_until(lambda: all(self.on_patrol(i) for i in self.alive()
+                                    if i not in self.crashed()),
+                        SETUP_TIMEOUT_S, 'every defender to be back on patrol')
+
+    def note_crashes(self, flight: Flight) -> None:
+        """Between runs: record the run's crashes in `flight`, then respawn those drones
+        and wait until every defender is on patrol again."""
+        crashes = self.crashed()
+        if not crashes:
+            return
+        killer = flight.killer
+        hit_time = None if killer is None else flight.judges[killer].hit_time
+        for d, crash in sorted(crashes.items()):
+            if crash in self._reported_crashes:  # a respawn that failed before: tried again
+                continue
+            self._reported_crashes.add(crash)
+            cause = crash_cause(crash, killer, hit_time)
+            flight.crashes.append({'drone': d, 't': round(crash.time - flight.t0, 2),
+                                   'reason': crash.reason, 'cause': cause})
+            self.log.warning(f'Drone {d} crashed at t={crash.time - flight.t0:.1f} s '
+                             f'({crash.reason}, cause: {cause}): respawning it')
+        self.respawn_defenders(sorted(crashes))
+        self.wait_patrol()
 
     def status(self, drone_id: int) -> Status:
         """What the defender's attack is doing, as the evaluation harness counts it."""
@@ -310,7 +351,7 @@ class SurveillanceWorld:
             flight.sightings = [(t - t0, i) for t, i in self._sightings]
         try:
             self.wait_patrol()
-            if flight.killer is not None:
+            if flight.killer is not None and flight.killer not in self.crashed():
                 flight.return_s = self.clock() - killed_at
                 self.log.info(f'Drone {flight.killer} back on patrol after '
                               f'{flight.return_s:.1f} s')
@@ -318,4 +359,9 @@ class SurveillanceWorld:
             self.log.warning(str(e))
         self.after_run()
         flight.records = self.read_records()
+        try:  # between runs: after the records, so the respawn is in none of them
+            self.note_crashes(flight)
+        except (RuntimeError, TimeoutError) as e:
+            # Carry on with the drones that fly; the next run tries the respawn again.
+            self.log.warning(f'Respawn failed: {e}')
         return flight

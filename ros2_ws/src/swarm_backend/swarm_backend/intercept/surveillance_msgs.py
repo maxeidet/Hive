@@ -21,7 +21,9 @@ ASSIGNMENT_TOPIC = '/surveillance/assignment'
 
 # 'kill': the attacker destroyed its target and survives (sent by the referee in the
 # attack test, which scores hits from Gazebo's true positions)
-EVENT_KINDS = ('contact', 'target_lost', 'returned', 'kill')
+# 'respawned': a crashed defender was started again and is back on patrol, also one the
+# base station counted as lost (sent by the Gazebo scenarios between runs)
+EVENT_KINDS = ('contact', 'target_lost', 'returned', 'kill', 'respawned')
 
 
 @dataclass(frozen=True)

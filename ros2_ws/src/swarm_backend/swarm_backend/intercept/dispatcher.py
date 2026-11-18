@@ -8,7 +8,8 @@ scenario's referee, which scores hits from the truth) means the attacker destroy
 target and survives: the target is forgotten and the attacker flies back to its slot. A
 `contact` from an attacker (its detector saw the target within contact_m) is only logged:
 the base station does not see the hostile drone itself, and a miss is not detected on
-real drones yet.
+real drones yet. A `respawned` event (a crashed defender started again by the scenario) puts
+the drone back on patrol, even one counted as lost.
 """
 from collections.abc import Callable
 
@@ -55,6 +56,12 @@ class Dispatcher:
 
     def on_event(self, e: EventMsg, now: float) -> list[Order]:
         self.last_heard[e.drone_id] = now
+        if e.kind == 'respawned':  # also for a drone counted as lost: it is back
+            target = self.station.drones[e.drone_id].target
+            if target is not None:
+                self.associator.forget(target)
+            self.log('info', f'drone {e.drone_id} respawned: back on patrol')
+            return self._record(self.station.on_respawned(e.drone_id, now))
         if self.station.drones[e.drone_id].mode is Mode.LOST:
             return []
         if e.kind == 'kill':
