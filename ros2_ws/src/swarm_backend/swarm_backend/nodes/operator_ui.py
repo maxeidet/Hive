@@ -7,6 +7,10 @@ search area on /base/search_area for whoever plans the search (std_msgs/String, 
 the fields of ui.model.SearchArea, latched: a node that starts later still gets the last
 one).
 
+The Map area tab lets the operator draw the area a drone should scan into the 3D map
+(POST /api/map_area). It is only stored and shown for now: no topic carries it yet, since
+how the mapping planner (DAEP) will take an area is still open (see _publish_map_area).
+
     python3 -m swarm_backend.nodes.operator_ui --config <swarm.yaml> [--port 8090]
 
 Open http://localhost:8090 on the host (the container publishes the port).
@@ -20,9 +24,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from swarm_backend.config import DroneConfig, default_config_path, load_config
-from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
-                                   drone_status, drone_view, load_map, update_search_area,
-                                   world_origin)
+from swarm_backend.ui.model import (EventLog, MapArea, SearchArea, attack_view, drone_home,
+                                   drone_status, drone_view, load_map, update_map_area,
+                                   update_search_area, world_origin)
 
 SEARCH_AREA_TOPIC = '/base/search_area'
 STATIC_DIR = Path(__file__).resolve().parent.parent / 'ui' / 'static'
@@ -171,6 +175,7 @@ class OperatorUi:
         self.hostile_id = hostile_id
         self._lock = threading.Lock()
         self.area = area
+        self.map_area = MapArea()
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._area_pub = node.create_publisher(String, SEARCH_AREA_TOPIC, latched)
@@ -203,8 +208,10 @@ class OperatorUi:
         views = self._views(now)
         with self._lock:
             area = self.area.to_dict()
+            map_area = self.map_area.to_dict()
             events = self.events.after(events_after)
-        return {'search_area': area, 'drones': views, 'map': load_map(STATIC_DIR),
+        return {'search_area': area, 'map_area': map_area, 'drones': views,
+                'map': load_map(STATIC_DIR),
                 'events': events, 'uptime_s': round(now - self.started, 1)}
 
     def set_search_area(self, data: dict) -> SearchArea:
@@ -223,6 +230,21 @@ class OperatorUi:
     def _publish_area(self) -> None:
         self._area_pub.publish(self._string(data=json.dumps(self.area.to_dict())))
 
+    def set_map_area(self, data: dict) -> MapArea:
+        with self._lock:
+            self.map_area = update_map_area(self.map_area, data)
+            m = self.map_area
+            self._publish_map_area()
+            self.events.add(time.monotonic() - self.started, 'operator',
+                            f'Map area revision {m.revision}' if m.shape else 'Map area cleared',
+                            detail=m.describe())
+        self._log.info(f'Map area {m.revision}: {m.describe() or "none"}')
+        return m
+
+    def _publish_map_area(self) -> None:
+        """Placeholder: nothing takes the area to map yet. Once it is known how DAEP gets
+        an area (a box per square, a polygon in the fork, an action...), send it here."""
+
 
 def events_after(path: str) -> int:
     """The `events_after` query parameter of a request path, 0 if missing or bad."""
@@ -234,7 +256,10 @@ def events_after(path: str) -> int:
 
 
 def make_handler(ui):
-    """`ui`: anything with state(events_after) and set_search_area(data), like OperatorUi."""
+    """`ui`: anything with state(events_after), set_search_area(data) and
+    set_map_area(data), like OperatorUi."""
+    setters = {'/api/search_area': lambda ui, data: ui.set_search_area(data),
+               '/api/map_area': lambda ui, data: ui.set_map_area(data)}
 
     class Handler(BaseHTTPRequestHandler):
 
@@ -249,7 +274,8 @@ def make_handler(ui):
                 self._json(404, {'error': 'not found'})
 
         def do_POST(self):
-            if self.path != '/api/search_area':
+            setter = setters.get(self.path)
+            if setter is None:
                 self._json(404, {'error': 'not found'})
                 return
             try:
@@ -257,7 +283,7 @@ def make_handler(ui):
                 data = json.loads(self.rfile.read(length) or b'{}')
                 if not isinstance(data, dict):
                     raise ValueError('Expected a JSON object')
-                area = ui.set_search_area(data)
+                area = setter(ui, data)
             except ValueError as e:  # json.JSONDecodeError is a ValueError
                 self._json(400, {'error': str(e)})
                 return

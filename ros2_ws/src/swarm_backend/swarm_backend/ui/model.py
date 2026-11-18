@@ -1,8 +1,9 @@
 """What the operator UI shows and sets, as plain data. No ROS, so it can be tested anywhere.
 
-The UI only watches the drones. The one thing it sets is the search area: an arc around
-the base that the defenders should watch. How the drones cover it is up to them (or the
-base station), not the operator.
+The UI only watches the drones. What it sets is the search area: an arc around the base
+that the defenders should watch. How the drones cover it is up to them (or the base
+station), not the operator. And the area to map: a polygon a drone should scan into the
+3D map (only stored for now; nothing flies it yet).
 
 Angles are degrees clockwise from north, positions world NED (north, east) in metres,
 the same frame as the rest of the backend.
@@ -65,6 +66,121 @@ def update_search_area(current: SearchArea, data: dict) -> SearchArea:
     if not MIN_RADIUS_M <= radius <= MAX_RADIUS_M:
         raise ValueError(f'radius_m must be {MIN_RADIUS_M:g}..{MAX_RADIUS_M:g}')
     return SearchArea(heading, width, radius, current.centre, current.revision + 1)
+
+
+# Limits on the area to map.
+MAX_MAP_POINTS = 64
+MAX_MAP_REACH_M = 5000.0  # no corner further than this from the base
+MIN_MAP_AREA_M2 = 25.0
+MIN_MAP_RADIUS_M = 3.0
+
+
+@dataclass(frozen=True)
+class MapArea:
+    """The area the operator wants a drone to scan into the 3D map: a simple polygon or a
+    circle, or nothing.
+
+    points: polygon corners in world NED (north, east) metres, in drawing order.
+    circle: (north, east, radius_m) instead. At most one of the two is set.
+    Nothing flies it yet: the mapping planner (DAEP) that will take it is not wired up.
+    """
+    points: tuple[tuple[float, float], ...] = ()
+    circle: tuple[float, float, float] | None = None
+    revision: int = 0  # +1 on every change, like SearchArea.revision
+
+    @property
+    def shape(self) -> str | None:
+        return 'circle' if self.circle else 'polygon' if self.points else None
+
+    @property
+    def area_m2(self) -> float:
+        return math.pi * self.circle[2] ** 2 if self.circle else polygon_area_m2(self.points)
+
+    def describe(self) -> str:
+        """For the event log: what the area is, or '' for none."""
+        if self.circle:
+            return f'circle r {self.circle[2]:.0f} m, {self.area_m2:.0f} m²'
+        return f'{len(self.points)} corners, {self.area_m2:.0f} m²' if self.points else ''
+
+    def to_dict(self) -> dict:
+        circle = None if not self.circle else {'centre': list(self.circle[:2]),
+                                               'radius_m': self.circle[2]}
+        return {'shape': self.shape, 'points': [list(p) for p in self.points], 'circle': circle,
+                'revision': self.revision, 'area_m2': round(self.area_m2, 1)}
+
+
+def polygon_area_m2(points) -> float:
+    """Area of a simple polygon (shoelace), any winding."""
+    n = len(points)
+    return abs(sum(points[i][0] * points[(i + 1) % n][1] - points[(i + 1) % n][0] * points[i][1]
+                   for i in range(n))) / 2 if n >= 3 else 0.0
+
+
+def _segments_cross(p1, p2, q1, q2) -> bool:
+    """True if segment p1-p2 properly crosses q1-q2 (touching ends do not count)."""
+    def side(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    d1, d2 = side(q1, q2, p1), side(q1, q2, p2)
+    d3, d4 = side(p1, p2, q1), side(p1, p2, q2)
+    return d1 * d2 < 0 and d3 * d4 < 0
+
+
+def update_map_area(current: MapArea, data: dict) -> MapArea:
+    """The area to map the operator asked for: data = {'points': [[north, east], ...]} or
+    {'circle': {'centre': [north, east], 'radius_m': r}}.
+
+    An empty points list clears it. Raises ValueError on anything that is not a simple
+    polygon of 3..MAX_MAP_POINTS corners, or a circle of at least MIN_MAP_RADIUS_M, all
+    within MAX_MAP_REACH_M of the base.
+    """
+    unknown = set(data) - {'points', 'circle'}
+    if unknown:
+        raise ValueError(f'Unknown map area fields: {sorted(unknown)}')
+    if len(data) != 1:
+        raise ValueError('Give either points or circle')
+    if 'circle' in data:
+        return MapArea(circle=_circle(data['circle']), revision=current.revision + 1)
+    raw = data.get('points')
+    if not isinstance(raw, list):
+        raise ValueError('points must be a list of [north, east]')
+    try:
+        points = tuple((float(p[0]), float(p[1])) for p in raw if len(p) == 2)
+    except (TypeError, ValueError, KeyError):
+        raise ValueError('Each point must be [north, east] in metres') from None
+    if len(points) != len(raw):
+        raise ValueError('Each point must be [north, east] in metres')
+    if not points:
+        return MapArea(revision=current.revision + 1)
+    if not 3 <= len(points) <= MAX_MAP_POINTS:
+        raise ValueError(f'A map area needs 3..{MAX_MAP_POINTS} corners')
+    if any(not (math.isfinite(n) and math.isfinite(e)) or math.hypot(n, e) > MAX_MAP_REACH_M
+           for n, e in points):
+        raise ValueError(f'Corners must be finite and within {MAX_MAP_REACH_M:g} m of the base')
+    edges = [(points[i], points[(i + 1) % len(points)]) for i in range(len(points))]
+    for i, (a, b) in enumerate(edges):
+        for c, d in edges[i + 2:]:
+            if _segments_cross(a, b, c, d):
+                raise ValueError('The map area’s edges cross each other')
+    if polygon_area_m2(points) < MIN_MAP_AREA_M2:
+        raise ValueError(f'The map area must cover at least {MIN_MAP_AREA_M2:g} m²')
+    return MapArea(points, revision=current.revision + 1)
+
+
+def _circle(raw) -> tuple[float, float, float]:
+    """(north, east, radius_m) from {'centre': [north, east], 'radius_m': r}, checked."""
+    try:
+        if set(raw) != {'centre', 'radius_m'} or len(raw['centre']) != 2:
+            raise ValueError
+        n, e, r = float(raw['centre'][0]), float(raw['centre'][1]), float(raw['radius_m'])
+    except (TypeError, ValueError, KeyError):
+        raise ValueError('circle must be {"centre": [north, east], "radius_m": r}') from None
+    if not all(math.isfinite(v) for v in (n, e, r)):
+        raise ValueError('The circle must be finite')
+    if r < MIN_MAP_RADIUS_M:
+        raise ValueError(f'The circle needs a radius of at least {MIN_MAP_RADIUS_M:g} m')
+    if math.hypot(n, e) + r > MAX_MAP_REACH_M:
+        raise ValueError(f'The circle must stay within {MAX_MAP_REACH_M:g} m of the base')
+    return n, e, r
 
 
 EARTH_RADIUS_M = 6371000.0
