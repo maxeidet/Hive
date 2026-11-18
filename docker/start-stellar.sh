@@ -15,6 +15,12 @@
 #   ./start-stellar.sh --vnc                  # GUI through a browser on this computer instead
 #   ./start-stellar.sh --headless             # no GUI (only the operator UI port is published)
 #   ./start-stellar.sh --no-gpu               # do not give the container the GPU(s), see below
+#   ./start-stellar.sh --record               # save the run for the demo videos, see below
+#
+# --record: Gazebo's LogRecord saves every model's pose (50 Hz, cheap: the sim runs at its
+#   normal speed) to data/recordings/<date-time>/gz/ in the repo, to film afterwards from a
+#   replay at any camera angle. Start the UI with `mount-backend.sh ui --record auto` to save
+#   it in the same folder. Then recording/video.sh (recording/README.md).
 #
 # --native-gui (default): the Gazebo window opens on the screen you are sitting at
 #   (course students have no remote access, so we always are). No VNC involved.
@@ -45,6 +51,7 @@ WORLD="hive_base"
 GUI_MODE="native"   # native | vnc | headless
 USE_GPU=1          # --no-gpu sets 0
 GPU_FLAG_GIVEN=0
+RECORD=0
 HOST_NOVNC_PORT="${HOST_NOVNC_PORT:-6080}"
 HOST_UI_PORT="${HOST_UI_PORT:-8090}"  # operator UI (mount-backend.sh ui), in every GUI mode
 HOST_VNC_PORT="${HOST_VNC_PORT:-5900}"
@@ -78,6 +85,10 @@ while [ $# -gt 0 ]; do
       ;;
     --no-gpu)
       USE_GPU=0
+      shift
+      ;;
+    --record)
+      RECORD=1
       shift
       ;;
     -h|--help)
@@ -206,4 +217,13 @@ if [ "$GUI_MODE" = "headless" ]; then
   HEADLESS_ENV="HEADLESS=1 "
 fi
 
-docker exec -it px4-gazebo-vnc bash -c "cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true; export ${HEADLESS_ENV}PX4_GZ_WORLD=${WORLD} PX4_SIM_MODEL=${MODEL} PX4_GZ_MODEL_POSE=0,0,0,0,0,0; /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0"
+# --record: add LogRecord to the container's copy of the world (after the repo world is
+# copied in, so every run starts from the unpatched world), before PX4 starts Gazebo.
+RECORD_CMD=""
+if [ "$RECORD" = "1" ]; then
+  RUN_NAME="$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "${REPO_ROOT}/data/recordings/${RUN_NAME}"
+  RECORD_CMD="python3 /workspace/recording/enable_log_record.py /opt/px4-gazebo/share/gz/worlds/${WORLD}.sdf /workspace/data/recordings/${RUN_NAME}/gz; "
+fi
+
+docker exec -it px4-gazebo-vnc bash -c "cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true; ${RECORD_CMD}export ${HEADLESS_ENV}PX4_GZ_WORLD=${WORLD} PX4_SIM_MODEL=${MODEL} PX4_GZ_MODEL_POSE=0,0,0,0,0,0; /usr/local/bin/ros2-entrypoint.sh px4-gazebo -i 0"

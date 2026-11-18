@@ -1,0 +1,19 @@
+{
+  "_comment": "Hive's replay camera angles for the demo videos (recording/README.md). Every script in recording/ reads this file. Positions are metres. 'offset' is in the followed model's frame (x forward, y left, z up from the model origin). Fixed positions are Gazebo world ENU: x east, y north, z up (world NED north = y, east = x). Drone entity names are <model>_<id>: in scenarios/surveillance.yaml the defenders are x500_gimbal_1..3 (left to right on the arc, 150 m north of the base at 40 m) and the hostile is x500_4. Check with `docker exec px4-gazebo-vnc gz model --list` during a run.",
+
+  "world": "hive_base",
+  "world_sdf_in_container": "/opt/px4-gazebo/share/gz/worlds/hive_base.sdf",
+  "extra_resource_paths": ["/opt/px4-gazebo/share/gz/models", "/opt/px4-gazebo/share/gz/worlds",
+                           "/workspace/worlds/models", "/workspace/worlds"],
+
+  "replay_angles": {
+    "hostile_chase":  {"follow": "x500_4", "offset": [-10.0, 0.0, 4.0]},
+    "hostile_close":  {"follow": "x500_4", "offset": [-5.0, 0.0, 2.0]},
+    "d1_watch":       {"follow": "x500_gimbal_1", "offset": [-4.0, 0.0, 1.5], "look_at_model": "x500_4"},
+    "d2_watch":       {"follow": "x500_gimbal_2", "offset": [-4.0, 0.0, 1.5], "look_at_model": "x500_4"},
+    "d3_watch":       {"follow": "x500_gimbal_3", "offset": [-4.0, 0.0, 1.5], "look_at_model": "x500_4"},
+    "base_tripod":    {"position": [0.0, -15.0, 12.0], "look_at_point": [0.0, 150.0, 40.0], "track_model": "x500_4"},
+    "arc_overhead":   {"position": [0.0, 60.0, 260.0], "look_at_point": [0.0, 170.0, 40.0], "track_model": "x500_4"},
+    "arc_side":       {"position": [180.0, 150.0, 45.0], "look_at_point": [0.0, 160.0, 40.0], "track_model": "x500_4"}
+  }
+}

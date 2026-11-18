@@ -70,6 +70,16 @@ RUN grep -q "^param set-default NAV_DLL_ACT 2$" /opt/px4-gazebo/etc/init.d-posix
 RUN grep -q "^ATTEMPTS=30$" /opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim \
     && sed -i 's/^ATTEMPTS=30$/ATTEMPTS=${PX4_GZ_WORLD_TIMEOUT:-30}/' /opt/px4-gazebo/etc/init.d-posix/px4-rc.gzsim
 
+# Demo videos (recording/README.md): ffmpeg cuts and encodes them; Playwright's headless
+# Chromium renders the operator UI frame by frame on simulation time (ui/render.py). Its
+# clock API (page.clock) needs Playwright 1.45 or newer. --with-deps installs Chromium's
+# system libraries and fonts. The browser goes to /opt so every user in the container finds it.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --break-system-packages playwright==1.49.1 \
+    && python3 -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV DISPLAY=:1
 ENV VNC_PORT=5900
 ENV NOVNC_PORT=6080

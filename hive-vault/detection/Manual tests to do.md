@@ -8,6 +8,14 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 ## To do
 
+- [ ] **Demo video, Gazebo and UI in sync** (added 18 Nov; see [[Recording demo videos]] and `recording/README.md`. only the unit tests and the Docker build were run; the renderer, compose, the replay and the live recording are untested)
+  1. Stellar: `docker/start-stellar.sh --record`. Terminal 2: `export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml`, `./mount-backend.sh ui --record auto`. Terminal 3: `./mount-backend.sh spawn`, then `./mount-backend.sh attacktest`. When it is done: Ctrl-C the UI, then the sim.
+  2. `du -sh data/recordings/*/gz` (more than a few KB) and `recording/video.sh events` (lists link up, intercept, hit with sim times).
+  3. `recording/video.sh replay -a d2_watch --start S` with S about 10 s before the intercept (use the attacking defender's angle). Check it prints `Replay paused at sim time S`, the camera follows, then record (mp4), play, stop, save as `/workspace/data/recordings/<run>/d2_watch.mp4`.
+  4. `recording/video.sh ui --start S --duration 40 --collapse-events`, then `recording/video.sh compose --ui ui_S.mp4 --gazebo d2_watch.mp4 --layout pip`.
+
+  **Pass:** `demo.mp4` plays at real speed; at the hit the hostile jumps away in the Gazebo inset in the same frame (±2 frames) as the defender's card turns to `hit` in the UI. **Note here:** how many frames off it was (and the `--gz-offset` that fixed it), how long the UI render took, and whether the replay paused at the right time (the terminal line).
+
 - [ ] **YOLO (gazebo-only) and the new range rule in a live chase** (added 6 Nov; range rule fitted offline, see `training/fit_range.py`)
   1. Container and drone 0 up. In `ros2_ws/src/swarm_backend/`: `scenarios/scenario1.sh --duration 120`.
   2. Second terminal: `./mount-backend.sh detect 2 --detector yolo --weights /workspace/models/yolo26n-gazebo-only-1280.onnx --conf 0.25 --save /workspace/detect_frames`. Then the same with `detect 2` (baseline) on another flight to compare.

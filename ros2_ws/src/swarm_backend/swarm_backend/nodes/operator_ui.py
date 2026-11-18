@@ -8,8 +8,14 @@ the fields of ui.model.SearchArea, latched: a node that starts later still gets 
 one).
 
     python3 -m swarm_backend.nodes.operator_ui --config <swarm.yaml> [--port 8090]
+        [--record auto|DIR|FILE.jsonl]
 
 Open http://localhost:8090 on the host (the container publishes the port).
+
+--record also saves what the page shows, stamped with Gazebo's simulation time, for a demo
+video that is in sync with the Gazebo replays (ui/replay.py, recording/README.md). `auto`
+= ui.jsonl in the newest data/recordings/<run>/ (made by start-stellar.sh --record or
+`mount-backend.sh restart --record`).
 """
 import argparse
 import json
@@ -23,8 +29,11 @@ from swarm_backend.config import DroneConfig, default_config_path, load_config
 from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
                                    drone_status, drone_view, load_map, update_search_area,
                                    world_origin)
+from swarm_backend.ui.replay import Recorder, sim_query
 
 SEARCH_AREA_TOPIC = '/base/search_area'
+RECORD_HZ = 10.0  # --record: UI states per second (wall clock), each stamped with sim time
+RECORDINGS = Path('/workspace/data/recordings')  # /workspace = the repo; one folder per run
 STATIC_DIR = Path(__file__).resolve().parent.parent / 'ui' / 'static'
 DETECTION_FRESH_S = 2.0  # a detection older than this is not shown
 ATTACK_STATE_FRESH_S = 3.0  # the attack node repeats its state every second
@@ -239,12 +248,14 @@ def make_handler(ui):
     class Handler(BaseHTTPRequestHandler):
 
         def do_GET(self):
-            if self.path in ('/', '/index.html'):
+            if self.path.split('?')[0] in ('/', '/index.html'):  # ?replay=... for the replay
                 self._send(200, (STATIC_DIR / 'index.html').read_bytes(), 'text/html')
             elif self.path.split('?')[0] == '/map.png' and (STATIC_DIR / 'map.png').is_file():
                 self._send(200, (STATIC_DIR / 'map.png').read_bytes(), 'image/png')
             elif self.path.split('?')[0] == '/api/state':
-                self._json(200, ui.state(events_after(self.path)))
+                sim = sim_query(self.path)  # only the replay page sends it
+                after = events_after(self.path)
+                self._json(200, ui.state(after) if sim is None else ui.state(after, sim=sim))
             else:
                 self._json(404, {'error': 'not found'})
 
@@ -280,6 +291,43 @@ def make_handler(ui):
     return Handler
 
 
+def recording_path(arg: str) -> Path:
+    """--record's file: `auto` = ui.jsonl in the newest data/recordings/<run>/, a folder =
+    ui.jsonl in it, else the file itself."""
+    if arg == 'auto':
+        runs = sorted(p for p in RECORDINGS.glob('*') if p.is_dir()) if RECORDINGS.is_dir() else []
+        if not runs:
+            raise SystemExit(f'--record auto: no run folder in {RECORDINGS}. Start the sim with '
+                             'start-stellar.sh --record (or mount-backend.sh restart --record), '
+                             'or give a folder.')
+        return runs[-1] / 'ui.jsonl'
+    path = Path(arg)
+    return path if path.suffix == '.jsonl' else path / 'ui.jsonl'
+
+
+def start_recording(node, ui, path: Path) -> Recorder:
+    """Saves ui.state() RECORD_HZ times a second, stamped with Gazebo's simulation time
+    (its pose stream, as the scenarios use), until the node stops."""
+    import subprocess
+
+    from swarm_backend.nodes.fake_detection import GazeboTruth
+    from swarm_backend.save_images import drone_names
+
+    topics = subprocess.run(['gz', 'topic', '-l'], capture_output=True, text=True).stdout.split()
+    world, _ = drone_names(topics)
+    world = world or next((t.split('/')[2] for t in topics
+                           if t.startswith('/world/') and t.endswith('/clock')), None)
+    if world is None:
+        raise SystemExit('--record: Gazebo is not running (no /world/<name>/clock topic), so '
+                         'there is no simulation time to stamp the UI with.')
+    truth = GazeboTruth(world)
+    recorder = Recorder(path, ui.state)
+    recorder.truth = truth  # keeps Gazebo's subscription alive
+    node.create_timer(1.0 / RECORD_HZ, lambda: recorder.record(truth.clock(), time.time()))
+    print(f'Recording the UI on {world}\'s simulation time to {path}', flush=True)
+    return recorder
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--config', default=None, help='swarm.yaml (default: the installed one)')
@@ -289,7 +337,11 @@ def main(argv: list[str] | None = None) -> int:
                              'section\'s search_heading_deg)')
     parser.add_argument('--width', type=float, default=90.0, help='first arc width, degrees')
     parser.add_argument('--radius', type=float, default=150.0, help='first arc radius, metres')
+    parser.add_argument('--record', default=None, metavar='auto|DIR|FILE',
+                        help='also save the page\'s states on Gazebo\'s clock for the demo '
+                             'videos: auto = data/recordings/<newest run>/ui.jsonl')
     args = parser.parse_args(argv)
+    record_path = recording_path(args.record) if args.record else None
 
     config = load_config(args.config or default_config_path())
     heading = config.attack.search_heading_deg if args.heading is None else args.heading
@@ -307,11 +359,15 @@ def main(argv: list[str] | None = None) -> int:
     threading.Thread(target=server.serve_forever, daemon=True).start()
     print(f'Operator UI on http://localhost:{args.port} (drones '
           f'{", ".join(str(d.id) for d in config.drones)}). Ctrl-C stops it.', flush=True)
+    recorder = start_recording(node, ui, record_path) if record_path else None
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
+        if recorder is not None:
+            recorder.close()
+            print(f'Saved {recorder.lines} UI states to {recorder.path}', flush=True)
         server.shutdown()
         node.destroy_node()
         rclpy.try_shutdown()

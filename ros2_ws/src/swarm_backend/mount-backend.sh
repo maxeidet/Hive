@@ -79,7 +79,9 @@
 #   ./mount-backend.sh ui [args]       operator UI on http://localhost:8090: where the drones are,
 #                                      where their gimbals look, and the search area (published
 #                                      on /base/search_area). Read-only towards the drones
-#                                      (swarm_backend/nodes/operator_ui.py --help)
+#                                      (swarm_backend/nodes/operator_ui.py --help). `ui --record auto`
+#                                      also saves it on sim time for the demo videos
+#                                      (recording/README.md)
 #   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
 #                                      the operator UI's background map (map_snapshot.py --help,
 #                                      default 800 m across, --half-size 600 for more). Restart `ui`.
@@ -104,13 +106,16 @@
 #                                      --help, e.g. --detector baseline --save /workspace/detect_frames)
 #   ./mount-backend.sh detecttest [args] baseline detection flight test: drone 2 watches drone 0
 #                                      fly away from it (tests/detection_test.py --help)
-#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL] [--headless|--gui]  restart Gazebo and the drones without
+#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL] [--headless|--gui] [--record]  restart Gazebo and the drones without
 #                                      restarting the container: stops every test, shell, RViz,
 #                                      PX4 and Gazebo, starts Gazebo with drone 0 again (log:
 #                                      /tmp/px4_0.log), then drones 1..N-1 of swarm.yaml if N is
 #                                      given. Keeps the world, drone 0 model and headless setting
 #                                      it was running with, else baylands and gz_x500.
 #                                      Example: ./mount-backend.sh restart && scenarios/scenario1.sh
+#                                      --record: save this run for the demo videos (Gazebo's
+#                                      LogRecord, data/recordings/<date-time>/gz/), as
+#                                      start-stellar.sh --record; see recording/README.md
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, gimbal_labels
@@ -246,13 +251,14 @@ view() {
 }
 
 restart() {
-  local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings want_headless=""
+  local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings want_headless="" record=""
   while [ $# -gt 0 ]; do
     case "$1" in
       -w|--world) world="$2"; shift 2 ;;
       -m|--model) model="$2"; shift 2 ;;
       --headless) want_headless=1; shift ;;
       --gui)      want_headless=0; shift ;;
+      --record)   record=1; shift ;;
       [0-9]*)     n="$1"; shift ;;
       *) echo "Unknown restart argument: $1 (see --help)"; exit 1 ;;
     esac
@@ -293,6 +299,11 @@ restart() {
 
   echo "Starting Gazebo ($world) and drone 0 ($model), log: /tmp/px4_0.log in the container"
   docker exec "$CONTAINER" bash -c "cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true"
+  if [ -n "$record" ]; then
+    local run_name
+    run_name="$(date +%Y%m%d-%H%M%S)"
+    docker exec "$CONTAINER" bash -c "mkdir -p /workspace/data/recordings/$run_name && python3 /workspace/recording/enable_log_record.py /opt/px4-gazebo/share/gz/worlds/$world.sdf /workspace/data/recordings/$run_name/gz"
+  fi
   copy_models
   # Same as the start scripts, but detached: the PX4 shell is not on a terminal.
   docker exec -dit "$CONTAINER" bash -c "

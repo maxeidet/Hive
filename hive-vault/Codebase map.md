@@ -26,6 +26,8 @@ Hive/
 │   ├── generate_hive_base.py    generates hive_base.sdf (python3 worlds/generate_hive_base.py)
 │   ├── trees/                   CC0 pine and oak meshes, loaded from /workspace so no internet is needed
 │   └── models/x500_lidar_3d/    custom drone: 360° 3D lidar, 16 beams, 100 m, 10 Hz
+├── recording/                   demo videos (recording/README.md): Gazebo log record + replay angles,
+│                                the UI rendered on sim time, compose, compress (video.sh)
 ├── hive-vault/                  this Obsidian vault
 ├── .gitattributes               *.sh text eol=lf (scripts must keep LF line endings in the container)
 └── README.md                    (empty)

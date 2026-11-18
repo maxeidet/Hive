@@ -31,6 +31,7 @@ Start here, then follow the links.
 | [[Join test results 2026-10-14]] | First runs of Max's attack on the real detector: head-on hits, crossing misses by ~4 m, what went wrong and what's next |
 | [[Baseline evaluation - how to run]] | `./mount-backend.sh baseline-eval`: the report's 30-seed intercept and detection scenarios and metrics, flown in Gazebo by the 3-defender arc with real detectors |
 | [[Surveillance attack test - how to run]] | `./mount-backend.sh attacktest`: 3 defenders on the arc, base station, real detectors; a hit removes the hostile and the defender returns to its slot |
+| [[Recording demo videos]] | Demo videos of a scenario: Gazebo filmed from a replay, the operator UI rendered from its recording, both on sim time so they line up frame by frame (`recording/video.sh`) |
 | [[Progress 2026-10-14 evaluation harness]] | Evaluation harness for the report's intercept and detection baselines: what was built, the merge with dev, what is still a placeholder |
 | [[Base surveillance plan]] | 3 drones on a quarter circle, option A (widen the sweeps) for the gap while one attacks, central control by the base station with its messages. Decisions open for Jostien |
 | [[Baseline attack - how to run]] | The baseline attack (pure pursuit on the detection topics), the fake detector and the attack flight test: how to run them, the contract, the files, first results |
