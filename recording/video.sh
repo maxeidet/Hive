@@ -18,6 +18,17 @@
 #   replay -a ANGLE [--start S] [-p GAIN] [-v] [RUN]   open the Gazebo replay at one angle
 #   ui --start S [--duration D] [--fps 25] [--size 1920x1080] [--collapse-events] [RUN]
 #                                        render the UI to RUN/ui_<S>.mp4 (headless, no sim needed)
+#   debug --id ID --start S [--duration D] [RUN]
+#                                        drone ID's debug images (mount-backend.sh debugrec) from
+#                                        sim time S: RUN/debug_d<ID>_<S>.mp4, composes like a replay clip
+#   cam --angle A --start S [--duration D] [--plain] [RUN]
+#                                        a live camera (mount-backend.sh camrec) from sim time S with
+#                                        each drone labelled: RUN/cam_<A>_<S>.mp4 (--plain: no labels)
+#   screen [--region WxH+X+Y] [RUN]       during the run: film the UI's browser window (click it)
+#                                        into RUN/screen.mkv until Ctrl-C (recording/screen.py)
+#   screen-cut --start S --duration D [RUN]
+#                                        that film on sim time: RUN/screen_<S>.mp4, composes
+#                                        like `ui` (use it instead: video.sh ui hangs on Stellar)
 #   compose --ui F --gazebo F [--layout pip|side|stack] [--gz-offset S] [--out F] [RUN]
 #                                        file names are relative to the run folder
 #   compress IN OUT [MB] [WIDTH]         two-pass H.264 to a target size; paths relative to the
@@ -159,6 +170,40 @@ CFG
     RUN=$(run_dir "$RUN")
     C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
     docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.render "/workspace/$RUNS/$RUN/ui.jsonl" "${ARGS[@]}"
+    ;;
+
+  debug)
+    split_run "$@"
+    RUN=$(run_dir "$RUN")
+    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
+    docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.debug_video cut "/workspace/$RUNS/$RUN" "${ARGS[@]}"
+    ;;
+
+  cam)
+    split_run "$@"
+    RUN=$(run_dir "$RUN")
+    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
+    docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.camera_video overlay "/workspace/$RUNS/$RUN" "${ARGS[@]}"
+    ;;
+
+  screen)
+    split_run "$@"
+    RUN=$(run_dir "$RUN")
+    [ -n "${DISPLAY:-}" ] || { echo "DISPLAY is not set: run this in a terminal on this computer's desktop."; exit 1; }
+    # Its own container, not the sim's: x11grab hands the X server a shared-memory segment
+    # (MIT-SHM), which only works when the container shares the host's IPC namespace.
+    XA="${XAUTHORITY:-$HOME/.Xauthority}"
+    XARGS=(-e "DISPLAY=$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix)
+    [ -f "$XA" ] && XARGS+=(-e XAUTHORITY=/tmp/.Xauthority -v "$XA":/tmp/.Xauthority:ro)
+    docker run --rm -it --name px4-gazebo-vnc-screen --ipc=host -e NO_VNC=1 "${XARGS[@]}" \
+      -v "$REPO":/workspace "$IMAGE" python3 /workspace/recording/screen.py record "/workspace/$RUNS/$RUN" "${ARGS[@]}"
+    ;;
+
+  screen-cut)
+    split_run "$@"
+    RUN=$(run_dir "$RUN")
+    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
+    docker exec "$C" python3 /workspace/recording/screen.py cut "/workspace/$RUNS/$RUN" "${ARGS[@]}"
     ;;
 
   compose)

@@ -56,8 +56,20 @@ export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.
 ./mount-backend.sh ui --record auto
 ```
 
-It prints `Recording the UI on hive_base's simulation time to .../ui.jsonl`. Open
-http://localhost:8090 if you want to watch (not needed for the video).
+It prints `Recording the UI on hive_base's simulation time to .../ui.jsonl`.
+
+**Film the UI from the screen** (on Stellar: `video.sh ui` below hangs there, see its note).
+Open http://localhost:8090 in a browser on this computer's desktop, size the window as the
+video should be, then from the repo:
+
+```bash
+recording/video.sh screen             # click the browser window; Ctrl-C after the scenario
+```
+
+It films that part of the screen into `screen.mkv` in the run folder, each frame stamped with
+the computer's clock; `ui.jsonl` holds that clock next to the sim time, so `screen-cut` puts it
+on sim time exactly. Keep the window where it is and uncovered (no other window on top).
+`--region 1920x1080+0+0` films a fixed rectangle instead of a clicked window.
 
 **Terminal 3, the scenario**, as usual, e.g.:
 
@@ -69,8 +81,36 @@ http://localhost:8090 if you want to watch (not needed for the video).
 Any scenario works the same way, e.g. `scenarios/trial.sh 1` (one intercept trial; it spawns
 the drones itself). The camera angles assume `surveillance.yaml`'s drones.
 
-**When the scenario is over**: Ctrl-C the UI (it prints how many states it saved), then stop
-the sim (Ctrl+C in terminal 1; the container is removed, that's fine).
+**Optional, terminal 4: the detectors' debug images** (the camera picture with YOLO's boxes and
+the tracks drawn, from `/px4_<ID>/detection/debug`). The Gazebo log has no camera images and the
+cameras don't run in a replay, so this is the only way to get them. Start it before the scenario,
+from `ros2_ws/src/swarm_backend/`:
+
+```bash
+./mount-backend.sh debugrec            # drones 1 2 3; `debugrec 3` for only drone 3
+```
+
+It saves `debug_d<ID>.mkv` (25 fps on sim time) and `debug_d<ID>.json` (its start) per drone
+in the newest run folder. Each defender's encoder uses two CPU threads. Ctrl-C it with the UI.
+
+**Optional, terminal 5: live camera angles** (instead of filming replays by hand below). Start
+it before the scenario, from `ros2_ws/src/swarm_backend/`:
+
+```bash
+./mount-backend.sh camrec                       # attacker_watch and arc_side
+./mount-backend.sh camrec d3_watch base_tripod  # any angles of recording_config.json
+```
+
+It puts an invisible camera per angle in the world (no visual or collision: the defenders'
+YOLO can't see it), moves them every sim step, and films them into `cam_<angle>.mkv` on sim
+time, with every drone's true pose in `poses.jsonl`. `attacker_watch` rides behind whichever
+defender is nearest the hostile, as seen from the hostile, and cuts to another one when it
+gets much nearer. At a hit the cameras stay on the place of the hit. Each camera renders on
+the GPU during the run: keep it to one or two. Ctrl-C removes the cameras.
+
+**When the scenario is over**: Ctrl-C the UI (it prints how many states it saved) and
+`debugrec` (it prints the sim times each drone covers), then stop the sim (Ctrl+C in
+terminal 1; the container is removed, that's fine).
 
 **Pick the start time:**
 
@@ -97,7 +137,18 @@ recording/video.sh replay -a hostile_chase --start 312
 
 Use the same window size for every angle: the clip has the size of the 3D view.
 
-**Render the UI** (headless, about 5-10 frames a second, so a 60 s clip takes a few minutes):
+**Cut the UI film** (if you ran `video.sh screen`):
+
+```bash
+recording/video.sh screen-cut --start 312 --duration 60      # -> screen_312.mp4
+```
+
+Use it wherever `ui_312.mp4` appears below (`compose --ui screen_312.mp4 ...`).
+
+**Render the UI** (headless, about 5-10 frames a second, so a 60 s clip takes a few minutes).
+On Stellar (navi, 2026-11-18) this hangs before the first frame: with the GPU in the container
+Chromium hangs at start, without it the panels' `backdrop-filter: blur` is redrawn in software
+for every animation frame. Film the screen instead (above).
 
 ```bash
 recording/video.sh ui --start 312 --duration 60
@@ -105,6 +156,26 @@ recording/video.sh ui --start 312 --duration 60 --collapse-events   # right side
 ```
 
 It writes `data/recordings/<run>/ui_312.mp4` at 1920x1080, 25 fps (`--size`, `--fps`).
+
+**Cut a debug video** to the same start (if you ran `debugrec`):
+
+```bash
+recording/video.sh debug --id 3 --start 312 --duration 60     # -> debug_d3_312.mp4
+```
+
+It composes like a Gazebo clip, e.g. `compose --ui demo.mp4 --gazebo debug_d3_312.mp4
+--pip-corner bl --out demo_boxes.mp4` puts it in the other corner of a finished demo.
+
+**Cut a live camera with labels** (if you ran `camrec`):
+
+```bash
+recording/video.sh cam --angle attacker_watch --start 312 --duration 60   # -> cam_attacker_watch_312.mp4
+recording/video.sh cam --angle arc_side --start 312 --duration 60 --plain # no labels
+```
+
+Each drone gets a bracket and a label from the true poses: `D3 defender` with its UI status
+and range to the target (`intercept  42 m`), `D4 hostile` in red, the attacker in orange; the
+sim time and the newest event are in the corner. Use it like a Gazebo clip in `compose`.
 
 **Put them together** (file names are relative to the run folder):
 
@@ -169,6 +240,9 @@ it jumps there: end the clip at the hit, or use a defender or tripod angle.
 | `compress_to_size.sh` | two-pass H.264 to a target size |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/replay.py` | the UI recorder and its replay |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/render.py` | renders the UI to mp4 on sim time |
+| `../ros2_ws/src/swarm_backend/swarm_backend/ui/camera_video.py` | live camera angles: spawn, direct and film them (`camrec`), labels afterwards (`video.sh cam`) |
+| `screen.py` | films the UI's browser window live and puts it on sim time (`video.sh screen`, `screen-cut`) |
+| `../ros2_ws/src/swarm_backend/swarm_backend/ui/debug_video.py` | records the detectors' debug images on sim time (`debugrec`) and cuts them (`video.sh debug`) |
 
 ## Why the odd settings (from the Flatbed Falcon kit, all hit for real)
 

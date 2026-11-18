@@ -155,6 +155,9 @@ def main(angle, pgain=0.1, start=None):
     if angle not in angles:
         sys.exit(f'Unknown angle {angle!r}. Angles in recording_config.json: {", ".join(angles)}')
     a = angles[angle]
+    if str(a.get('follow', '')).startswith('@'):
+        sys.exit(f'{angle} follows {a["follow"]}, which only the live cameras know '
+                 '(mount-backend.sh camrec). Pick another angle for the replay.')
 
     # Wait for the GUI's CameraTracking plugin to come up.
     for _ in range(240):

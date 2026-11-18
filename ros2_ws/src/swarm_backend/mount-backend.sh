@@ -82,6 +82,16 @@
 #                                      (swarm_backend/nodes/operator_ui.py --help). `ui --record auto`
 #                                      also saves it on sim time for the demo videos
 #                                      (recording/README.md)
+#   ./mount-backend.sh debugrec [IDS]  during a recorded run: save the detectors' debug images
+#                                      (boxes drawn) of drones IDS (default 1 2 3) as video on
+#                                      sim time, in data/recordings/<newest run>/debug_d<ID>.mkv
+#                                      (swarm_backend/ui/debug_video.py, recording/README.md)
+#   ./mount-backend.sh camrec [ANGLES] during a recorded run: invisible cameras at ANGLES of
+#                                      recording/recording_config.json (default attacker_watch
+#                                      arc_side), moved live and filmed on sim time into
+#                                      data/recordings/<newest run>/cam_<ANGLE>.mkv, with every
+#                                      drone's true pose in poses.jsonl for the overlay
+#                                      (swarm_backend/ui/camera_video.py, recording/README.md)
 #   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
 #                                      the operator UI's background map (map_snapshot.py --help,
 #                                      default 800 m across, --half-size 600 for more). Restart `ui`.
@@ -385,6 +395,8 @@ case "$cmd" in
   baseline-eval) run "python3 -m swarm_backend.scenarios baseline_eval --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
   attacktest) run "python3 -m swarm_backend.scenarios attack --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
   ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
+  debugrec) run "python3 -m swarm_backend.ui.debug_video record $*" ;;
+  camrec) run "python3 -m swarm_backend.ui.camera_video record $*" ;;
   mapsnap) run "python3 -m swarm_backend.map_snapshot $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
