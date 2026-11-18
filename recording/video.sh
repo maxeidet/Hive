@@ -24,6 +24,7 @@
 #   cam --angle A --start S [--duration D] [--plain] [RUN]
 #                                        a live camera (mount-backend.sh camrec) from sim time S with
 #                                        each drone labelled: RUN/cam_<A>_<S>.mp4 (--plain: no labels)
+#   final [--out F] [RUN]                the final cut: scenes from recording/final_cut.py (SCENES)
 #   screen [--region WxH+X+Y] [RUN]       during the run: film the UI's browser window (click it)
 #                                        into RUN/screen.mkv until Ctrl-C (recording/screen.py)
 #   screen-cut --start S --duration D [RUN]
@@ -184,6 +185,13 @@ CFG
     RUN=$(run_dir "$RUN")
     C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
     docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.camera_video overlay "/workspace/$RUNS/$RUN" "${ARGS[@]}"
+    ;;
+
+  final)
+    split_run "$@"
+    RUN=$(run_dir "$RUN")
+    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
+    docker exec "$C" python3 /workspace/recording/final_cut.py "/workspace/$RUNS/$RUN" "${ARGS[@]}"
     ;;
 
   screen)
