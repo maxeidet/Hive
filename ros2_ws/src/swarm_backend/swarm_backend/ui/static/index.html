@@ -5,166 +5,393 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hive Operator</title>
 <style>
-  /* One dark theme: green for the search area, amber for cautions, red for the hostile. */
+  /* One dark theme. The map fills the window; the panels float over it as frosted glass.
+     Colour only where it means something: blue friendlies, red hostile, green search
+     sector, amber cautions. */
   :root {
     color-scheme: dark;
-    --bg: #0d1113; --panel: #13191c; --line: #263238; --text: #dbe4e0; --muted: #7d8f88;
-    --grid: rgba(150, 190, 170, 0.14); --area: #4cc38a; --area-fill: rgba(76, 195, 138, 0.07);
-    --ok: #4cc38a; --warn: #e5a83a; --bad: #f05a4f;
-    --handle: #0d1113;
+    --bg: #0a1113;
+    --glass: rgba(18, 29, 32, 0.58);
+    --glass-2: rgba(27, 41, 45, 0.66);
+    --glass-hi: linear-gradient(160deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .03) 55%);
+    --edge: rgba(200, 235, 235, 0.09);
+    --edge-hi: rgba(200, 235, 235, 0.2);
+    --text: #e4edec; --muted: #85979a; --faint: #57696c;
+    --grid: rgba(190, 230, 230, 0.06); --ring: rgba(190, 230, 230, 0.15); --tick: rgba(190, 230, 230, 0.35);
+    --friend: #5cc8ff; --hostile: #ff5b3a; --unknown: #9aa6a8; --area: #5fd49a; --warn: #f0b04a; --ok: #5fd49a;
+    --r: 16px; --gap: 14px; --left: 372px; --right: 360px;
+    --sans: "Inter", "SF Pro Display", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body {
-    margin: 0; background: var(--bg); color: var(--text); display: flex; flex-direction: column;
-    font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  header {
-    display: flex; align-items: center; gap: 16px; padding: 8px 16px;
-    border-bottom: 1px solid var(--line); background: var(--panel);
-  }
-  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
-  .clock { color: var(--muted); font: 12px var(--mono); }
-  .link { margin-left: auto; font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
-  .dot.ok { background: var(--ok); }
-  main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; flex: 1; min-height: 0; }
-  #mapWrap { position: relative; min-height: 360px; min-width: 0; }
-  /* Absolute, so the canvas's own pixel size never stretches the grid. */
-  #map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  .legend {
-    position: absolute; left: 12px; bottom: 12px; font-size: 12px; color: var(--muted);
-    border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 6px 10px;
-  }
-  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 14px 16px; }
-  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 10px; font-weight: 600; }
-  .field { display: grid; grid-template-columns: 70px 1fr 64px; gap: 8px; align-items: center; margin-bottom: 8px; }
-  .field[hidden] { display: none; }
-  .field label { color: var(--muted); font-size: 13px; }
-  input[type=range] { accent-color: var(--ok); }
-  .field input[type=number] {
-    width: 100%; padding: 3px 6px; border: 1px solid var(--line); border-radius: 4px;
-    background: var(--bg); color: var(--text); font: inherit; font-variant-numeric: tabular-nums;
-  }
-  .buttons { display: flex; gap: 8px; align-items: center; margin: 12px 0 4px; }
-  button {
-    font: inherit; padding: 5px 12px; border-radius: 5px; border: 1px solid var(--line);
-    background: var(--bg); color: var(--text); cursor: pointer;
-  }
-  button.primary { background: var(--ok); border-color: var(--ok); color: var(--bg); font-weight: 600; }
-  button:disabled { opacity: .35; cursor: default; }
-  .note { font-size: 12px; color: var(--muted); min-height: 1.4em; }
-  .note.err { color: var(--bad); }
-  .cards { display: grid; gap: 10px; }
-  .card {
-    position: relative; border: 1px solid var(--line); border-radius: 8px; padding: 10px; display: grid;
-    grid-template-columns: 1fr 96px; gap: 8px; overflow: hidden;
-  }
-  .card::before {  /* a bright edge on the left, in the track's colour */
-    content: ""; position: absolute; left: -1px; top: -1px; bottom: -1px; width: 3px; background: var(--edge, var(--line));
-  }
-  .card.hostile { border-color: rgba(255, 59, 48, .45); }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); overflow: hidden; -webkit-font-smoothing: antialiased; }
+  #map { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at 55% 50%, transparent 45%, rgba(0, 0, 0, .5) 100%); }
+
+  .hud { position: fixed; inset: 0; display: grid; gap: var(--gap); padding: var(--gap); pointer-events: none;
+    grid-template-columns: var(--left) minmax(0, 1fr) var(--right); grid-template-rows: auto minmax(0, 1fr) auto; }
+  .hud > * { pointer-events: auto; }
+  .hud > .title { pointer-events: none; }
+
+  .glass { background: var(--glass); border: 1px solid var(--edge); border-radius: var(--r);
+    backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 18px 40px -12px rgba(0, 0, 0, .6); }
+  .label { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
+
+  /* Top bar */
+  header { grid-column: 1 / -1; display: flex; align-items: center; gap: 18px; padding: 8px 10px 8px 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .02em; line-height: 1.2; }
+  .brand svg { width: 22px; height: 22px; }
+  .brand small { color: var(--muted); font-weight: 400; letter-spacing: .12em; text-transform: uppercase; font-size: 10px; }
+  .spacer { flex: 1; }
+  .readout { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+  .readout b { font: 500 13px var(--mono); letter-spacing: .04em; }
+  .readout span { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .14em; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; font-size: 12px; white-space: nowrap;
+    background: rgba(255, 255, 255, .06); border: 1px solid var(--edge); }
+  .led { width: 7px; height: 7px; border-radius: 50%; background: var(--hostile); box-shadow: 0 0 0 3px rgba(255, 91, 58, .18); }
+  .led.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(95, 212, 154, .18), 0 0 10px var(--ok); }
+
+  .title { grid-row: 2; grid-column: 2; align-self: start; padding: 4px; }
+  .title h1 { margin: 0; font: 300 32px/1.1 var(--sans); letter-spacing: -.01em; text-shadow: 0 2px 20px rgba(0, 0, 0, .6); }
+  .title div { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* Left column */
+  .left { grid-row: 2 / 4; display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+  .left::-webkit-scrollbar { display: none; }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .tile { padding: 10px 12px 9px; border-radius: 13px; }
+  .tile b { display: block; font: 300 26px/1.1 var(--sans); font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .tile.hot b { color: var(--hostile); }
+  .tile.warn b { color: var(--warn); }
+
+  .panel { padding: 14px 16px; }
+  .ph { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .ph h2 { margin: 0; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .14em; color: var(--muted); }
+  .ph .rev { font: 11px var(--mono); color: var(--faint); }
+
+  .sector { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+  .sector label { display: block; background: rgba(0, 0, 0, .22); border-radius: 10px; padding: 7px 10px; border: 1px solid transparent; cursor: text; }
+  .sector label.dirty { border-color: rgba(95, 212, 154, .45); }
+  .sector label:focus-within { border-color: var(--edge-hi); }
+  .sector .val { display: flex; align-items: baseline; gap: 2px; }
+  .sector input { all: unset; width: 3.4ch; min-width: 0; font: 300 22px/1.15 var(--sans); font-variant-numeric: tabular-nums; }
+  .sector input::-webkit-inner-spin-button { display: none; }
+  .sector #radius { width: 4.4ch; }
+  @supports (field-sizing: content) { .sector input, .sector #radius { width: auto; field-sizing: content; min-width: 1ch; } }
+  .sector small { font-size: 12px; color: var(--muted); }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .btn { all: unset; cursor: pointer; padding: 6px 14px; border-radius: 999px; font-size: 12px; border: 1px solid var(--edge); background: rgba(255, 255, 255, .05); }
+  .btn:hover:not(:disabled) { background: rgba(255, 255, 255, .1); }
+  .btn.primary { background: var(--area); color: #06110b; font-weight: 600; border-color: transparent; }
+  .btn.primary:hover:not(:disabled) { background: #74e0aa; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .btn:focus-visible, .chip:focus-visible, .ico:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  .note { color: var(--faint); font-size: 11px; margin-left: auto; text-align: right; }
+  .note.err { color: var(--hostile); }
+
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .card { position: relative; padding: 12px; border-radius: 14px; overflow: hidden; min-height: 168px; display: flex; flex-direction: column; transition: opacity .3s; }
+  .card.focus { background: var(--glass-hi), var(--glass-2); border-color: var(--edge-hi); grid-column: 1 / -1; min-height: 0; }
+  .card.hostile { border-color: rgba(255, 91, 58, .35); }
   .card.stale { opacity: .45; }
-  .card h3 { margin: 0 0 4px; font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; white-space: nowrap; }
-  .swatch { width: 10px; height: 10px; border-radius: 2px; }
-  .card.hostile .swatch { transform: rotate(45deg) scale(.85); }
-  .badge { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
-  .badge.armed { color: var(--ok); border-color: var(--ok); }
-  .badge.task { color: var(--bg); border-color: transparent; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-  dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 12px; }
-  dt { color: var(--muted); }
-  dd { margin: 0; font-variant-numeric: tabular-nums; }
-  .dial { width: 96px; height: 96px; }
-  @media (max-width: 760px) {
-    body { height: auto; }
-    main { grid-template-columns: minmax(0, 1fr); }
-    #mapWrap { height: 60vh; }
-    aside { border-left: 0; border-top: 1px solid var(--line); }
+  .card .top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .card .id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .card .id > div { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+  .card h3 { margin: 0; font-size: 14px; font-weight: 500; white-space: nowrap; }
+  /* The drone icon: a plain quadcopter from above, nose up. */
+  .quad { width: 36px; height: 36px; flex: none; color: var(--friend); transition: color .3s; }
+  .card.hostile .quad { color: var(--hostile); }
+  /* The target before any defender has spotted it: grey, dashed, a question mark. */
+  .card.unknown .quad { color: var(--unknown); }
+  .card.unknown .mark path { stroke-dasharray: 4 3; }
+  .card.unknown .mark .dot, .card:not(.unknown) .mark .q { display: none; }
+  .tag.unknown { color: var(--unknown); background: rgba(154, 166, 168, .12); }
+  .card.stale .quad { color: var(--faint); }
+  .tile { position: relative; }
+  .tile svg { position: absolute; bottom: 12px; right: 11px; width: 16px; height: 16px; color: var(--faint); }
+  .tile.hot svg { color: var(--hostile); }
+  .tile.warn svg { color: var(--warn); }
+  .legend .quad { width: 15px; height: 15px; }
+  .card .sub { font: 10.5px var(--mono); color: var(--faint); margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tag { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; padding: 2px 8px; border-radius: 999px; white-space: nowrap; color: var(--muted); background: rgba(255, 255, 255, .07); }
+  .tag.searching { color: var(--area); background: rgba(95, 212, 154, .12); }
+  .tag.intercept { color: #fff; background: var(--hostile); box-shadow: 0 0 12px rgba(255, 91, 58, .5); }
+  .tag.lost { color: var(--warn); background: rgba(240, 176, 74, .14); }
+  .tag.hit { color: #06110b; background: var(--ok); }
+  .tag.hostile { color: var(--hostile); background: rgba(255, 91, 58, .14); }
+  .tag.nolink { color: var(--hostile); background: transparent; border: 1px solid rgba(255, 91, 58, .4); }
+  .big { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 10px; gap: 8px; }
+  .big b { display: block; font: 300 30px/1 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: -.01em; margin-top: 4px; }
+  .big b small { font-size: 13px; color: var(--muted); margin-left: 3px; }
+  .dial { width: 64px; height: 64px; flex: none; }
+  .spark { width: 100%; height: 30px; margin-top: 8px; display: block; }
+  .kv { display: flex; gap: 10px; overflow: hidden; margin-top: auto; padding-top: 8px; font: 11px var(--mono); color: var(--muted); }
+  .kv span { white-space: nowrap; }
+  .kv b { color: var(--text); font-weight: 500; }
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+  .metrics[hidden] { display: none; }
+  .metrics div { background: rgba(0, 0, 0, .2); border-radius: 10px; padding: 7px 9px; }
+  .metrics span { display: block; font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
+  .metrics b { font: 400 16px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .metrics b.warn { color: var(--warn); }
+
+  /* Right column: event log */
+  .events { grid-row: 2 / 4; grid-column: 3; display: flex; flex-direction: column; min-height: 0; padding: 14px 0 0; }
+  .events .ph { padding: 0 10px 0 16px; gap: 8px; }
+  .events .ph h2 { flex: 1; }
+  .events .ph .ico { width: 24px; height: 24px; font-size: 14px; color: var(--muted); }
+  .events .ph .ico svg { width: 14px; height: 14px; transition: transform .25s; }
+  .events.collapsed { align-self: start; padding-bottom: 4px; }
+  .events.collapsed .ph { margin-bottom: 10px; }
+  .events.collapsed .chips, .events.collapsed .log { display: none; }
+  .events.collapsed .ph .ico svg { transform: rotate(180deg); }
+  .rev.unread { color: var(--text); background: rgba(255, 255, 255, .1); padding: 1px 7px; border-radius: 999px; }
+  .chips { display: flex; gap: 5px; padding: 0 16px 10px; flex-wrap: wrap; }
+  .chip { all: unset; cursor: pointer; font-size: 11px; padding: 3px 10px; border-radius: 999px; color: var(--muted); border: 1px solid var(--edge); }
+  .chip.on { color: var(--text); background: rgba(255, 255, 255, .1); border-color: var(--edge-hi); }
+  .log { flex: 1; overflow-y: auto; padding: 0 8px 24px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .12) transparent;
+    -webkit-mask-image: linear-gradient(to bottom, #000 88%, transparent); mask-image: linear-gradient(to bottom, #000 88%, transparent); }
+  .ev { display: grid; grid-template-columns: 52px 10px 1fr; gap: 8px; align-items: baseline; padding: 7px 8px; border-radius: 9px; }
+  .ev:hover { background: rgba(255, 255, 255, .04); }
+  .ev time { font: 11px var(--mono); color: var(--faint); }
+  .ev i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); align-self: center; }
+  .ev.fleet i { background: var(--friend); }
+  .ev.detect i { background: var(--warn); }
+  .ev.operator i { background: var(--area); }
+  .ev.attack i { background: var(--hostile); box-shadow: 0 0 8px var(--hostile); }
+  .ev.bad.fleet i { background: var(--hostile); }
+  .ev.good.attack i { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .ev p { margin: 0; line-height: 1.4; overflow-wrap: anywhere; }
+  .ev p em { font-style: normal; font: 11px var(--mono); color: var(--muted); margin-left: 4px; }
+  .ev .who { font-weight: 500; }
+  .ev.new { animation: slide .5s ease-out; }
+  @keyframes slide { from { opacity: 0; transform: translateY(-6px); background: rgba(255, 255, 255, .08); } }
+  .empty { color: var(--faint); font-size: 12px; padding: 8px 16px; }
+
+  /* Map controls and the hostile's callout */
+  .mapctl { grid-row: 3; grid-column: 2; align-self: end; justify-self: start; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .mapctl > .glass { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 999px; }
+  .ico { all: unset; cursor: pointer; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; color: var(--text); font-size: 16px; }
+  .ico:hover { background: rgba(255, 255, 255, .1); }
+  .legend { display: flex; gap: 14px; padding: 8px 14px; border-radius: 999px; font-size: 11px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .opacity { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 10px; font-size: 11px; color: var(--muted); }
+  .opacity[hidden] { display: none; }
+  input[type=range] { accent-color: var(--text); width: 80px; }
+
+  .callout { position: fixed; z-index: 2; pointer-events: none; padding: 9px 12px; border-radius: 12px; min-width: 150px; left: 0; top: 0; }
+  .callout[hidden] { display: none; }
+  .callout .k { font-size: 9px; text-transform: uppercase; letter-spacing: .16em; color: var(--hostile); font-weight: 600; }
+  .callout b { display: block; font: 300 24px/1.1 var(--sans); font-variant-numeric: tabular-nums; margin: 2px 0; white-space: nowrap; }
+  .callout b small { font-size: 12px; color: var(--muted); }
+  .callout p { margin: 0; font: 10.5px var(--mono); color: var(--muted); white-space: nowrap; }
+
+  /* Narrow windows: the map on top, the panels below it, scrolling. */
+  @media (max-width: 1100px) {
+    html, body { height: auto; }
+    body { overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+    .hud { display: contents; }
+    header { order: -2; flex-wrap: wrap; gap: 10px 14px; }
+    #map { order: -1; position: relative; height: 60vh; border-radius: var(--r); border: 1px solid var(--edge); }
+    .vignette, .callout, .title { display: none; }
+    .left { overflow: visible; }
+    .events { max-height: 70vh; }
+    .mapctl { order: -1; }
+  }
+  @media (max-width: 480px) {
+    .readout:first-of-type, .brand small { display: none; }
+    .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cards { grid-template-columns: minmax(0, 1fr); }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   }
 </style>
 </head>
 <body>
-<header>
-  <h1>Hive operator</h1>
-  <span class="clock" id="clock">--:--:--Z</span>
-  <div class="link"><span class="dot" id="linkDot"></span><span id="linkText">connecting…</span></div>
-</header>
-<main>
-  <div id="mapWrap">
-    <canvas id="map"></canvas>
-    <div class="legend">Drag the sector's middle to turn and resize it, its ends to widen it. North is up.</div>
-  </div>
-  <aside>
-    <h2>Search sector</h2>
-    <div class="field"><label for="heading">Bearing</label><input id="headingR" type="range" min="0" max="359" step="1"><input id="heading" type="number" min="0" max="359" step="1"></div>
-    <div class="field"><label for="width">Width</label><input id="widthR" type="range" min="10" max="180" step="1"><input id="width" type="number" min="10" max="180" step="1"></div>
-    <div class="field"><label for="radius">Range</label><input id="radiusR" type="range" min="10" max="1000" step="5"><input id="radius" type="number" min="10" max="5000" step="5"></div>
-    <div class="buttons">
-      <button class="primary" id="apply" disabled>Apply</button>
-      <button id="revert" disabled>Revert</button>
+<canvas id="map" aria-label="Map of the drones and the search sector, north up"></canvas>
+<div class="vignette"></div>
+<div class="callout glass" id="callout" hidden></div>
+
+<div class="hud">
+  <header class="glass">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z"/><path d="M12 8l3.5 2v4L12 16l-3.5-2v-4z" fill="currentColor" stroke="none" opacity=".85"/></svg>
+      <div>HIVE<br><small>Operator</small></div>
     </div>
-    <div class="note" id="note"></div>
-    <div class="field" id="mapField" hidden><label for="mapAlpha">Map</label><input id="mapAlpha" type="range" min="0" max="100" step="5" value="70"><span class="note" id="mapWorld"></span></div>
-    <h2 style="margin-top:18px">Drones</h2>
+    <div class="spacer"></div>
+    <div class="readout"><b id="tplus">T+--:--</b><span>Since UI start</span></div>
+    <div class="readout"><b id="clock">--:--:--Z</b><span>UTC</span></div>
+    <span class="pill"><span class="led" id="linkDot"></span><span id="linkText">connecting…</span></span>
+  </header>
+
+  <div class="title">
+    <h1 id="world">Operator</h1>
+    <div><span class="pill" id="phase">Waiting for drones</span></div>
+  </div>
+
+  <div class="left">
+    <div class="tiles">
+      <div class="tile glass"><span class="label">Airborne</span><b id="tAir">–</b>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M6 6L3.5 3.5M10 6l2.5-2.5M6 10l-2.5 2.5M10 10l2.5 2.5"/><circle cx="3.5" cy="3.5" r="2.2"/><circle cx="12.5" cy="3.5" r="2.2"/><circle cx="3.5" cy="12.5" r="2.2"/><circle cx="12.5" cy="12.5" r="2.2"/><rect x="6" y="5.5" width="4" height="5" rx="1.5"/></svg></div>
+      <div class="tile glass" id="tHosBox"><span class="label">Hostile</span><b id="tHos">–</b>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M8 1.5L14.5 8 8 14.5 1.5 8z"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></svg></div>
+      <div class="tile glass" id="tEngBox"><span class="label">Engaged</span><b id="tEng">–</b>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="8" cy="8" r="5"/><path d="M8 1v4M8 11v4M1 8h4M11 8h4"/></svg></div>
+      <div class="tile glass" id="tNoBox"><span class="label">No link</span><b id="tNo">–</b>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M2 6.5a8.5 8.5 0 0 1 12 0M4.3 9a5.2 5.2 0 0 1 7.4 0M8 12.3h.01M2.5 2.5l11 11"/></svg></div>
+    </div>
+
+    <section class="panel glass" aria-labelledby="sectorTitle">
+      <div class="ph"><h2 id="sectorTitle">Search sector</h2><span class="rev" id="rev"></span></div>
+      <div class="sector">
+        <label id="headingBox"><span class="label">Bearing</span><span class="val"><input id="heading" type="number" min="0" max="359" step="1"><small>°</small></span></label>
+        <label id="widthBox"><span class="label">Width</span><span class="val"><input id="width" type="number" min="10" max="180" step="1"><small>°</small></span></label>
+        <label id="radiusBox"><span class="label">Range</span><span class="val"><input id="radius" type="number" min="10" max="5000" step="5"><small>m</small></span></label>
+      </div>
+      <div class="row"><button class="btn primary" id="apply" disabled>Apply</button><button class="btn" id="revert" disabled>Revert</button><span class="note" id="note">drag the sector’s handles on the map</span></div>
+    </section>
+
     <div class="cards" id="cards"></div>
-  </aside>
-</main>
+  </div>
+
+  <section class="events glass" aria-labelledby="eventsTitle">
+    <div class="ph"><h2 id="eventsTitle">Events</h2><span class="rev" id="evCount">0</span>
+      <button class="ico" id="evToggle" aria-expanded="true" aria-controls="log" title="Minimise the event log" aria-label="Minimise the event log">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10l4-4 4 4"/></svg></button></div>
+    <div class="chips" id="chips" role="group" aria-label="Show events of kind">
+      <button class="chip on" data-f="all" aria-pressed="true">All</button>
+      <button class="chip" data-f="attack" aria-pressed="false">Attack</button>
+      <button class="chip" data-f="detect" aria-pressed="false">Detect</button>
+      <button class="chip" data-f="fleet" aria-pressed="false">Fleet</button>
+      <button class="chip" data-f="operator" aria-pressed="false">Operator</button>
+    </div>
+    <div class="log" id="log" aria-live="polite"></div>
+  </section>
+
+  <div class="mapctl">
+    <div class="glass">
+      <button class="ico" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+      <button class="ico" id="zoomFit" title="Centre on the base and fit the sector and drones" aria-label="Centre on the base and fit the sector and drones">◎</button>
+      <button class="ico" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+      <label class="opacity" id="mapField" hidden title="">Map <input type="range" id="mapAlpha" min="0" max="100" step="5" value="65"></label>
+    </div>
+    <div class="legend glass">
+      <span id="legendQuad">Defender</span>
+      <span><i style="width:8px;height:8px;border:1.5px dashed var(--unknown);transform:rotate(45deg)"></i>Unknown</span>
+      <span><i style="width:8px;height:8px;border:1.5px solid var(--hostile);background:rgba(255,91,58,.3);transform:rotate(45deg)"></i>Hostile</span>
+      <span><i style="width:12px;height:8px;background:rgba(95,212,154,.12);border:1px solid var(--area)"></i>Sector</span>
+    </div>
+  </div>
+</div>
+
 <script>
 (() => {
   const POLL_MS = 200;
-  const STALE_S = 2.0;          // no PX4 message for this long: drone shown greyed out
-  const TRAIL_S = 15;           // gimbal heading history shown
+  const STALE_S = 2.0;           // no PX4 message for this long: drone shown greyed out (STALE_S in operator_ui.py)
+  const TRAIL_S = 10;            // gimbal heading history shown
   const CAMERA_HFOV_DEG = 114.6; // gz_x500_gimbal: 2.0 rad (detect/camera.py)
-  const TARGET_TRAIL_S = 20;    // where the attack saw the target, shown this long
-  const VELOCITY_LEAD_S = 2;    // the commanded velocity arrow: where the drone is in 2 s
-  const COLORS = ['#39d0ff', '#5ce1e6', '#6fa8ff', '#9ef0ff', '#4fb8ff', '#a8c8ff'];  // friendlies: blues, as in NATO symbols
-  const FONT = '11px system-ui, -apple-system, sans-serif', FONT_B = '600 ' + FONT;
-  // Attack states (intercept/attack.py) and the colour each one's badge gets.
-  const STATUS_COLORS = { searching: '--area', intercept: '--bad', 'target lost': '--warn', hit: '--ok' };  // others: --muted
+  const TARGET_TRAIL_S = 20;     // where the attack saw the target, shown this long
+  const VELOCITY_LEAD_S = 2;     // the commanded velocity arrow: where the drone is in 2 s
+  const HISTORY = 120;           // sparkline samples, one per poll: 24 s
+  const ENGAGED = ['intercept', 'target lost', 'hit'];  // statuses that put a drone's card on top
+  const TAGS = { searching: 'searching', intercept: 'intercept', 'target lost': 'lost', hit: 'hit', 'no link': 'nolink' };
+  const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // A quadcopter from above, nose up: X arms, four rotor rings, a body pointed at the nose.
+  const QUAD = `<svg class="quad" viewBox="0 0 48 48" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M14.5 14.5l19 19M33.5 14.5l-19 19"/>
+    ${[[11, 11], [37, 11], [11, 37], [37, 37]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="7"/>`).join('')}
+    <path d="M24 17l5 11h-10z" fill="currentColor" stroke-linejoin="round"/></g></svg>`;
 
   const $ = id => document.getElementById(id);
   const canvas = $('map'), ctx = canvas.getContext('2d');
-  let server = null;   // last /api/state
-  let draft = null;    // search area being edited, not yet applied
-  let drag = null;     // 'mid' | 'edge'
-  const trails = {};   // drone id -> [{t, h}] gimbal heading history
+  let server = null;    // last /api/state
+  let draft = null;     // search area being edited, not yet applied
+  let drag = null;      // 'mid' | 'edge' (sector handles) | {x, y} (panning: where the pointer was)
+  let pan = [0, 0];     // metres north, east from the base to the middle of the view
+  let zoom = 1;         // on top of the fit
+  let fitScale = null;  // pixels per metre at zoom 1; null: fit again on the next frame
+  const trails = {};    // drone id -> [{t, h}] gimbal heading history
   const targetTrails = {};  // drone id -> [{t, n, e}] target as the attack saw it
-  let mapImg = null, mapVersion = null;  // background picture from map_snapshot.py
+  const history = {};   // drone id -> [values] for the sparkline
+  const motion = {};    // drone id -> {from: [n, e], to: [n, e], t}: positions glide between polls
+  let mapImg = null, mapVersion = null;
   let view = { cx: 0, cy: 0, scale: 1 };
+  let events = [], lastEventId = 0, lastUptime = 0, filter = 'all', freshIds = new Set();
 
-  const tokens = {};  // one theme, so the CSS tokens can be read once
+  const tokens = {};
   const css = name => tokens[name] || (tokens[name] = getComputedStyle(document.documentElement).getPropertyValue(name).trim());
   const wrap = a => ((a + 180) % 360 + 360) % 360 - 180;
   const rad = d => d * Math.PI / 180;
-  const color = id => COLORS[id % COLORS.length];
-  const trackColor = d => d.hostile ? css('--bad') : color(d.id);
-  const callsign = d => (d.hostile ? 'Hostile ' : 'Drone ') + d.id;
+  // The target drone is unknown (grey) until a defender spots it: one sees it now, or is
+  // attacking it (intercept, target lost, hit). Then it is the hostile (red).
+  let spotted = false;
+  const isSpotted = ds => ds.some(d => !d.hostile && !stale(d) && (d.detection || ENGAGED.includes(d.status)));
+  const trackColor = d => d.hostile ? css(spotted ? '--hostile' : '--unknown') : css('--friend');
+  const callsign = d => (d.hostile ? (spotted ? 'Hostile ' : 'Unknown ') : 'Drone ') + d.id;
+  const MARK = `<svg class="quad mark" viewBox="0 0 48 48" aria-hidden="true"><path d="M24 7L41 24 24 41 7 24z" fill="currentColor" fill-opacity=".14" stroke="currentColor" stroke-width="1.6"/>
+    <circle class="dot" cx="24" cy="24" r="3" fill="currentColor"/><text class="q" x="24" y="29.5" text-anchor="middle" font-size="16" font-weight="600" fill="currentColor" font-family="system-ui, sans-serif">?</text></svg>`;
   const area = () => draft || (server && server.search_area);
   const fmt = (v, unit = '', digits = 0) => v == null ? '–' : v.toFixed(digits) + unit;
+  const stale = d => d.age_s == null || d.age_s > STALE_S;
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const tfmt = s => { s = Math.max(0, Math.floor(s)); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return (h ? h + ':' : '') + String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+  const overlay = () => getComputedStyle(canvas).position === 'fixed';  // wide layout: panels over the map
 
   // World NED (north, east) <-> canvas pixels, north up.
   const toPx = (n, e) => [view.cx + e * view.scale, view.cy - n * view.scale];
   const toWorld = (x, y) => [(view.cy - y) / view.scale, (x - view.cx) / view.scale];
   const bearing = (n, e, c) => (Math.atan2(e - c[1], n - c[0]) * 180 / Math.PI + 360) % 360;
 
+  // Where a drone is drawn, and where its nose and gimbal point: they glide from the last
+  // polled value to the new one, so nothing steps 5 times a second while the rest moves.
+  const glide = m => (!m || REDUCED) ? 1 : Math.min(1, (performance.now() - m.t) / POLL_MS);
+  function pos(d) {
+    const m = motion[d.id];
+    if (!m || !m.from || REDUCED) return [d.north, d.east];
+    const k = glide(m);
+    return [m.from[0] + (m.to[0] - m.from[0]) * k, m.from[1] + (m.to[1] - m.from[1]) * k];
+  }
+  function ang(d, key) {  // key: 'heading_deg' | 'gimbal_heading_deg'; the short way round
+    const m = motion[d.id], to = d[key], from = m && m[key];
+    if (to == null || from == null) return to;
+    return (from + wrap(to - from) * glide(m) + 360) % 360;
+  }
+
   function resize() {
     const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     canvas.width = r.width * dpr; canvas.height = r.height * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    draw();
   }
 
-  function fitView() {
-    const r = canvas.getBoundingClientRect(), a = area();
-    if (!a) return;
-    let reach = a.radius_m * 1.15;
-    for (const d of server.drones) {
-      if (d.north != null) reach = Math.max(reach, 1.1 * Math.hypot(d.north - a.centre[0], d.east - a.centre[1]));
+  // The part of the canvas the panels do not cover.
+  function freeRect() {
+    const r = canvas.getBoundingClientRect();
+    if (!overlay()) return { x: 0, y: 0, w: r.width, h: r.height };
+    const left = document.querySelector('.left').getBoundingClientRect().right + 20;
+    const ev = document.querySelector('.events');
+    const right = ev.classList.contains('collapsed') ? r.width - 20 : ev.getBoundingClientRect().left - 20;
+    const top = document.querySelector('header').getBoundingClientRect().bottom + 70;
+    const bottom = document.querySelector('.mapctl').getBoundingClientRect().top - 16;
+    return { x: left, y: top, w: Math.max(100, right - left), h: Math.max(100, bottom - top) };
+  }
+
+  // The scale is fitted to the sector and the drones once (at start, on ◎ and when the
+  // window is resized) and otherwise only changes when the operator zooms: no autozoom
+  // when the hostile comes in or the sector changes.
+  function fitView(f) {
+    const a = area();
+    if (fitScale == null) {
+      let reach = a.radius_m * 1.15;
+      for (const d of server.drones) {
+        if (d.north != null) reach = Math.max(reach, 1.1 * Math.hypot(d.north - a.centre[0], d.east - a.centre[1]));
+      }
+      fitScale = Math.min(f.w, f.h) / 2 / reach;
     }
-    // Keep the scale while dragging, so the handle stays under the pointer.
-    if (!drag) view.scale = Math.min(r.width, r.height) / 2 / reach;
-    [view.cx, view.cy] = [r.width / 2 - a.centre[1] * view.scale, r.height / 2 + a.centre[0] * view.scale];
+    view.scale = fitScale * zoom;
+    const mid = [a.centre[0] + pan[0], a.centre[1] + pan[1]];
+    [view.cx, view.cy] = [f.x + f.w / 2 - mid[1] * view.scale, f.y + f.h / 2 + mid[0] * view.scale];
   }
 
   function niceStep(span) {
@@ -174,161 +401,168 @@
 
   function arcHandles(a) {
     const at = (h, r) => toPx(a.centre[0] + r * Math.cos(rad(h)), a.centre[1] + r * Math.sin(rad(h)));
-    return {
-      mid: at(a.heading_deg, a.radius_m),
-      left: at(a.heading_deg - a.width_deg / 2, a.radius_m),
-      right: at(a.heading_deg + a.width_deg / 2, a.radius_m),
-    };
+    return { mid: at(a.heading_deg, a.radius_m), left: at(a.heading_deg - a.width_deg / 2, a.radius_m),
+             right: at(a.heading_deg + a.width_deg / 2, a.radius_m) };
   }
 
+  // ---- the map ------------------------------------------------------------------------
   function draw() {
-    const r = canvas.getBoundingClientRect();
-    ctx.clearRect(0, 0, r.width, r.height);
+    const r = canvas.getBoundingClientRect(), W = r.width, H = r.height;
+    ctx.fillStyle = css('--bg'); ctx.fillRect(0, 0, W, H);
     if (!server) return;
-    fitView();
-    const a = area(), [bx, by] = toPx(a.centre[0], a.centre[1]);
-
-    ctx.fillStyle = css('--bg'); ctx.fillRect(0, 0, r.width, r.height);
+    const f = freeRect();
+    fitView(f);
+    const a = area(), [bx, by] = toPx(a.centre[0], a.centre[1]), now = performance.now() / 1000;
+    const glow = ctx.createRadialGradient(bx, by, 0, bx, by, Math.max(W, H) * 0.7);  // a teal haze around the base
+    glow.addColorStop(0, 'rgba(60,120,125,.16)'); glow.addColorStop(1, 'rgba(60,120,125,0)');
+    ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
     drawMap();
-    ctx.font = FONT; ctx.textBaseline = 'alphabetic';
 
-    // Fine grid, range rings and the bearing ring.
-    const reach = Math.hypot(r.width, r.height) / view.scale;
-    const step = niceStep(reach / 2);
-    ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1;
-    ctx.globalAlpha = 1; ctx.fillStyle = css('--muted');
-    for (let d = step; d < reach; d += step) {
+    // Grid, range rings, bearing ring.
+    const step = niceStep(Math.min(f.w, f.h) / 2 / view.scale), g = step * view.scale;
+    ctx.strokeStyle = css('--grid'); ctx.lineWidth = 1; ctx.beginPath();
+    for (let x = ((bx % g) + g) % g; x < W; x += g) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = ((by % g) + g) % g; y < H; y += g) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+    const R = Math.min(f.w, f.h) / 2 - 4;
+    ctx.font = '10px ' + css('--mono'); ctx.fillStyle = css('--muted'); ctx.strokeStyle = css('--ring'); ctx.setLineDash([2, 4]);
+    for (let d = step; d * view.scale < R; d += step) {
       ctx.beginPath(); ctx.arc(bx, by, d * view.scale, 0, 2 * Math.PI); ctx.stroke();
-      ctx.fillText(d + ' m', bx + 4, by - d * view.scale - 3);
+      ctx.fillText(d + ' m', bx + 4, by - d * view.scale - 4);
     }
-    const R = Math.min(r.width, r.height) / 2 - 18;
-    ctx.strokeStyle = css('--grid'); ctx.beginPath(); ctx.arc(bx, by, R, 0, 2 * Math.PI); ctx.stroke();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.setLineDash([]);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.strokeStyle = css('--tick');
     for (let b = 0; b < 360; b += 10) {
-      const len = b % 30 === 0 ? 8 : 4, s = Math.sin(rad(b)), c = -Math.cos(rad(b));
+      const s = Math.sin(rad(b)), c = -Math.cos(rad(b)), len = b % 30 ? 4 : 9;
       ctx.beginPath(); ctx.moveTo(bx + R * s, by + R * c); ctx.lineTo(bx + (R - len) * s, by + (R - len) * c); ctx.stroke();
-      if (b % 30 === 0) ctx.fillText(String(b).padStart(3, '0'), bx + (R - 20) * s, by + (R - 20) * c);
+      if (b % 30 === 0) { ctx.fillStyle = b === 0 ? css('--text') : css('--muted'); ctx.fillText(b === 0 ? 'N' : String(b).padStart(3, '0'), bx + (R - 20) * s, by + (R - 20) * c); }
     }
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
-    const now = performance.now() / 1000;
-
-    // Search area: canvas angle 0 is east; heading 0 is north (up).
-    const a0 = rad(a.heading_deg - a.width_deg / 2 - 90), a1 = rad(a.heading_deg + a.width_deg / 2 - 90);
-    ctx.beginPath(); ctx.moveTo(bx, by); ctx.arc(bx, by, a.radius_m * view.scale, a0, a1); ctx.closePath();
-    ctx.fillStyle = css('--area-fill'); ctx.fill();
-    ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.5;
-    ctx.setLineDash(draft ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
+    // Search sector: canvas angle 0 is east; heading 0 is north (up).
+    const a0 = rad(a.heading_deg - a.width_deg / 2 - 90), a1 = rad(a.heading_deg + a.width_deg / 2 - 90), rr = a.radius_m * view.scale;
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.arc(bx, by, rr, a0, a1); ctx.closePath();
+    const fill = ctx.createRadialGradient(bx, by, 0, bx, by, rr);
+    fill.addColorStop(0, 'rgba(95,212,154,.02)'); fill.addColorStop(1, 'rgba(95,212,154,.13)');
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.3; ctx.setLineDash(draft ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
     const hs = arcHandles(a);
     for (const [x, y] of [hs.mid, hs.left, hs.right]) {
-      ctx.fillStyle = css('--handle'); ctx.fillRect(x - 5, y - 5, 10, 10);
-      ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.5; ctx.strokeRect(x - 5, y - 5, 10, 10);
+      ctx.fillStyle = css('--bg'); ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, 5.5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
     }
 
-    // Base: a square with a cross, like a ground unit.
-    ctx.strokeStyle = css('--text'); ctx.lineWidth = 1.5; ctx.strokeRect(bx - 6, by - 6, 12, 12);
-    ctx.beginPath(); ctx.moveTo(bx - 6, by - 6); ctx.lineTo(bx + 6, by + 6); ctx.moveTo(bx + 6, by - 6); ctx.lineTo(bx - 6, by + 6); ctx.stroke();
-    ctx.fillStyle = css('--text'); ctx.fillText('base', bx + 10, by + 16);
+    // Base.
+    ctx.strokeStyle = css('--text'); ctx.lineWidth = 1.4; ctx.strokeRect(bx - 7, by - 7, 14, 14);
+    ctx.fillStyle = css('--text'); ctx.beginPath(); ctx.arc(bx, by, 2, 0, 2 * Math.PI); ctx.fill();
+    ctx.font = '600 10px ' + css('--sans'); ctx.fillText('BASE', bx + 12, by + 18);
 
-    // Drones: camera field of view, gimbal sweep trail, body, detection.
-    const fovLen = Math.min(r.width, r.height) * 0.18;
+    // Drones: camera field of view, gimbal sweep trail, attack overlay, body, detection.
+    const fovLen = Math.min(f.w, f.h) * 0.16;
     for (const d of server.drones) {
       if (d.north == null) continue;
-      const [x, y] = toPx(d.north, d.east), c = trackColor(d), stale = d.age_s == null || d.age_s > STALE_S;
-      ctx.globalAlpha = stale ? 0.35 : 1;
-      for (const p of trails[d.id] || []) {
-        const age = now - p.t;
-        ctx.strokeStyle = c; ctx.globalAlpha = (stale ? 0.35 : 1) * 0.35 * (1 - age / TRAIL_S);
-        ctx.beginPath(); ctx.moveTo(x, y);
-        ctx.lineTo(x + fovLen * 1.3 * Math.sin(rad(p.h)), y - fovLen * 1.3 * Math.cos(rad(p.h))); ctx.stroke();
+      const [n, e] = pos(d), [x, y] = toPx(n, e), c = trackColor(d), dim = stale(d) ? 0.35 : 1;
+      ctx.globalAlpha = dim;
+      const gh = ang(d, 'gimbal_heading_deg');
+      // Where the gimbal pointed: one arc at the tip of the gimbal line, fading with age.
+      // The newest sample is where the gimbal is gliding to, so it ends at the drawn heading.
+      const tr = d.hostile ? [] : trails[d.id] || [], pts = gh == null || d.hostile ? tr : [...tr.slice(0, -1), { t: now, h: gh }];
+      ctx.lineWidth = 2; ctx.strokeStyle = c; ctx.lineCap = 'round';
+      for (let i = 1; i < pts.length; i++) {
+        const h0 = pts[i - 1].h, dh = wrap(pts[i].h - h0);
+        ctx.globalAlpha = dim * 0.55 * Math.max(0, 1 - (now - pts[i].t) / TRAIL_S);
+        ctx.beginPath(); ctx.arc(x, y, fovLen, rad(h0 - 90), rad(h0 + dh - 90), dh < 0); ctx.stroke();
       }
-      ctx.globalAlpha = stale ? 0.35 : 1;
-      if (d.gimbal_heading_deg != null) {
-        const g = d.gimbal_heading_deg;
+      ctx.lineCap = 'butt'; ctx.globalAlpha = dim;
+      if (gh != null && !d.hostile) {
         ctx.beginPath(); ctx.moveTo(x, y);
-        ctx.arc(x, y, fovLen, rad(g - CAMERA_HFOV_DEG / 2 - 90), rad(g + CAMERA_HFOV_DEG / 2 - 90)); ctx.closePath();
-        ctx.fillStyle = c; ctx.globalAlpha *= 0.12; ctx.fill(); ctx.globalAlpha = stale ? 0.35 : 1;
-        ctx.strokeStyle = c; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + fovLen * 1.3 * Math.sin(rad(g)), y - fovLen * 1.3 * Math.cos(rad(g))); ctx.stroke();
+        ctx.arc(x, y, fovLen, rad(gh - CAMERA_HFOV_DEG / 2 - 90), rad(gh + CAMERA_HFOV_DEG / 2 - 90)); ctx.closePath();
+        const fg = ctx.createRadialGradient(x, y, 0, x, y, fovLen);
+        fg.addColorStop(0, 'rgba(92,200,255,.22)'); fg.addColorStop(1, 'rgba(92,200,255,0)');
+        ctx.fillStyle = fg; ctx.fill();
+        ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.globalAlpha = dim * 0.8;
+        ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + fovLen * Math.sin(rad(gh)), y - fovLen * Math.cos(rad(gh))); ctx.stroke();
+        ctx.globalAlpha = dim;
       }
       if (d.attack) drawAttack(d, x, y, c, now);
-      drawSymbol(d, x, y, c);
-      // Friendly labels to the right, hostile ones to the left, so they do not pile up
-      // when the two close in.
-      const name = callsign(d), side = d.hostile ? -1 : 1, lx = x + side * 16;
-      const status = d.status && !d.hostile ? ' ' + d.status : '';
-      ctx.textAlign = d.hostile ? 'right' : 'left'; ctx.font = FONT_B;
-      const nameW = ctx.measureText(name).width, statusW = ctx.measureText(status).width;
-      const x0 = d.hostile ? lx - nameW - statusW : lx;
-      ctx.textAlign = 'left'; ctx.fillStyle = c; ctx.fillText(name, x0, y - 6);
-      if (status) { ctx.fillStyle = css(STATUS_COLORS[d.status] || '--muted'); ctx.fillText(status, x0 + nameW, y - 6); }
-      ctx.font = FONT; ctx.fillStyle = css('--muted'); ctx.textAlign = d.hostile ? 'right' : 'left';
-      ctx.fillText(`${fmt(d.altitude, ' m')} · ${fmt(d.speed, ' m/s', 1)}`, lx, y + 8);
-      ctx.textAlign = 'left';
+      if (!REDUCED && !stale(d) && spotted && d.hostile) {  // pulse ring on the hostile once spotted
+        const ph = (now * (d.hostile ? 1.1 : 0.6) + d.id * 0.3) % 1;
+        ctx.beginPath(); ctx.arc(x, y, (d.hostile ? 16 : 17) + ph * (d.hostile ? 26 : 16), 0, 2 * Math.PI);
+        ctx.strokeStyle = c; ctx.lineWidth = 1.2; ctx.globalAlpha = (1 - ph) * (d.hostile ? 0.7 : 0.35); ctx.stroke(); ctx.globalAlpha = dim;
+      }
+      drawSymbol(d, x, y, c, now);
+      if (!d.hostile) {
+        ctx.font = '600 11px ' + css('--sans'); ctx.fillStyle = c; ctx.fillText('D' + d.id, x + 21, y - 3);
+        ctx.font = '10px ' + css('--mono'); ctx.fillStyle = css('--muted'); ctx.fillText(fmt(d.altitude, ' m'), x + 21, y + 9);
+      }
       if (d.detection) {
         const [tx, ty] = toPx(d.detection.north, d.detection.east);
-        ctx.strokeStyle = css('--bad'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = css('--hostile'); ctx.lineWidth = 1; ctx.setLineDash([3, 4]);
         ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(tx, ty); ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = css('--bad'); ctx.beginPath(); ctx.arc(tx, ty, 2.5, 0, 2 * Math.PI); ctx.fill();
+        ctx.fillStyle = css('--hostile'); ctx.beginPath(); ctx.arc(tx, ty, 2.5, 0, 2 * Math.PI); ctx.fill();
       }
       ctx.globalAlpha = 1;
     }
-
-    drawNorth(r);
+    placeCallout(f);
   }
 
-  // Friendly: a chevron in a circle, pointing where it flies. Hostile: a red diamond
-  // (as in NATO symbols) with a heading tick.
-  function drawSymbol(d, x, y, c) {
-    ctx.save(); ctx.translate(x, y); ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5;
+  // A defender is a plain quadcopter from above, turned to its nose. The target is a diamond (as in NATO symbols) with a tick where it
+  // flies: grey, dashed, with a question mark until spotted, then red.
+  function drawSymbol(d, x, y, c, now) {
+    ctx.save(); ctx.translate(x, y);
     if (d.hostile) {
-      ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(10, 0); ctx.lineTo(0, 10); ctx.lineTo(-10, 0); ctx.closePath(); ctx.stroke();
-      ctx.globalAlpha *= 0.25; ctx.fill(); ctx.globalAlpha /= 0.25;
+      const r = 12;
+      ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.6;
+      if (spotted) { ctx.shadowColor = c; ctx.shadowBlur = 10; } else ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0); ctx.closePath();
+      const alpha = ctx.globalAlpha; ctx.globalAlpha = alpha * (spotted ? 0.3 : 0.12); ctx.fill(); ctx.globalAlpha = alpha; ctx.stroke();
+      ctx.setLineDash([]); ctx.shadowBlur = 0;
+      if (spotted) { ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, 2 * Math.PI); ctx.fill(); }
+      else { ctx.font = '600 11px ' + css('--sans'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('?', 0, 0.5); }
       if (d.heading_deg != null && d.speed > 0.3) {
-        ctx.rotate(rad(d.heading_deg)); ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(0, -22); ctx.stroke();
+        ctx.rotate(rad(ang(d, 'heading_deg'))); ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(0, -r - 10); ctx.stroke();
       }
-    } else {
-      ctx.beginPath(); ctx.arc(0, 0, 11, 0, 2 * Math.PI); ctx.stroke();
-      ctx.rotate(rad(d.heading_deg || 0));
-      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(5.5, 6); ctx.lineTo(0, 3); ctx.lineTo(-5.5, 6); ctx.closePath(); ctx.fill();
+      ctx.restore(); return;
     }
+    ctx.rotate(rad(ang(d, 'heading_deg') || 0));
+    ctx.fillStyle = 'rgba(10,17,19,.6)'; ctx.beginPath(); ctx.arc(0, 0, 14, 0, 2 * Math.PI); ctx.fill();
+    ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 1.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const k = 7, r = 3.8;
+    ctx.beginPath(); ctx.moveTo(-k, -k); ctx.lineTo(k, k); ctx.moveTo(k, -k); ctx.lineTo(-k, k); ctx.stroke();
+    for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+      ctx.fillStyle = 'rgb(10,17,19)'; ctx.beginPath(); ctx.arc(sx * k, sy * k, r, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(0, -4.5); ctx.lineTo(3.5, 3.5); ctx.lineTo(-3.5, 3.5); ctx.closePath(); ctx.fill();
     ctx.restore();
   }
 
-  // The world from above, under everything else, faded by the Map slider and darkened a
-  // little so the lines on top stay readable.
+  // The world from above, under everything else: desaturated, faded by the Map slider.
   function drawMap() {
     const m = server.map, alpha = $('mapAlpha').value / 100;
     if (!mapImg || !m || alpha === 0) return;
     const [x0, y0] = toPx(m.north_max, m.east_min), [x1, y1] = toPx(m.north_min, m.east_max);
-    ctx.globalAlpha = alpha; ctx.drawImage(mapImg, x0, y0, x1 - x0, y1 - y0);
-    ctx.globalAlpha = 1; ctx.fillStyle = 'rgba(13, 17, 19, 0.3)'; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.save(); ctx.globalAlpha = alpha; ctx.filter = 'grayscale(.7) brightness(.8) contrast(1.1)';
+    ctx.drawImage(mapImg, x0, y0, x1 - x0, y1 - y0); ctx.restore();
+    ctx.fillStyle = 'rgba(7, 9, 10, 0.25)'; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
   }
 
   function syncMap() {
     const m = server.map;
     $('mapField').hidden = !m;
+    $('world').textContent = m && m.world ? m.world.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) : 'Operator';
     if (!m) { mapImg = null; mapVersion = null; return; }
-    $('mapWorld').textContent = m.world || '';
+    $('mapField').title = 'Background map: ' + (m.world || '');
     if (m.version === mapVersion) return;
     mapVersion = m.version;
     const img = new Image();
-    img.onload = () => { mapImg = img; draw(); };
+    img.onload = () => { mapImg = img; };
     img.src = '/map.png?v=' + m.version;
   }
-  $('mapAlpha').addEventListener('input', () => draw());
 
-  // North arrow, top right.
-  function drawNorth(r) {
-    ctx.fillStyle = css('--area'); ctx.font = FONT_B; ctx.textAlign = 'center';
-    ctx.beginPath(); ctx.moveTo(r.width - 30, 18); ctx.lineTo(r.width - 36, 32); ctx.lineTo(r.width - 24, 32); ctx.closePath(); ctx.fill();
-    ctx.fillText('N', r.width - 30, 46); ctx.textAlign = 'left'; ctx.font = FONT;
-  }
-
-  // What the attack node is doing: the target's track, where it was last seen once the
-  // camera lost it, the velocity the pursuit commands, and range / time to impact.
+  // What the attack node is doing: the target's track, the velocity the pursuit
+  // commands, and lock brackets on the target (amber and dashed once the camera lost it).
   function drawAttack(d, x, y, c, now) {
-    const a = d.attack, bad = css('--bad'), alpha = ctx.globalAlpha;
+    const a = d.attack, bad = css('--hostile'), alpha = ctx.globalAlpha;
     for (const p of targetTrails[d.id] || []) {
       const [px, py] = toPx(p.n, p.e);
       ctx.globalAlpha = alpha * 0.6 * (1 - (now - p.t) / TARGET_TRAIL_S); ctx.fillStyle = bad;
@@ -336,8 +570,7 @@
     }
     ctx.globalAlpha = alpha;
     if (a.velocity) {
-      const vn = a.velocity.north * VELOCITY_LEAD_S, ve = a.velocity.east * VELOCITY_LEAD_S;
-      const len = Math.hypot(vn, ve) * view.scale;
+      const vn = a.velocity.north * VELOCITY_LEAD_S, ve = a.velocity.east * VELOCITY_LEAD_S, len = Math.hypot(vn, ve) * view.scale;
       if (len > 4) {
         const ang = Math.atan2(ve, vn), ex = x + len * Math.sin(ang), ey = y - len * Math.cos(ang);
         ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 2.5;
@@ -347,123 +580,213 @@
       }
     }
     if (!a.target) return;
-    const [tx, ty] = toPx(a.target.north, a.target.east);
-    // Seen now: a box round it. Not seen: a dashed amber box where it was.
-    const locked = !!d.detection, col = locked ? bad : css('--warn'), k = 13, b = 5;
-    ctx.save(); ctx.translate(tx, ty); ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+    const [tx, ty] = toPx(a.target.north, a.target.east), locked = !!d.detection, k = 17, b = 6;
+    ctx.save(); ctx.translate(tx, ty); ctx.strokeStyle = locked ? bad : css('--warn'); ctx.lineWidth = 1.5;
     if (!locked) ctx.setLineDash([2, 2]);
     ctx.beginPath();
-    for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
-      ctx.moveTo(sx * k, sy * (k - b)); ctx.lineTo(sx * k, sy * k); ctx.lineTo(sx * (k - b), sy * k);
-    }
+    for (const [sx, sy] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) { ctx.moveTo(sx * k, sy * (k - b)); ctx.lineTo(sx * k, sy * k); ctx.lineTo(sx * (k - b), sy * k); }
     ctx.stroke(); ctx.restore();
-    const lines = [locked ? 'seen' : (a.seen_s_ago != null ? `last seen ${a.seen_s_ago.toFixed(1)} s ago` : ''),
-                   [a.range_m != null ? `${a.range_m.toFixed(0)} m` : null,
-                    a.impact_s != null ? `impact in ${a.impact_s.toFixed(1)} s` : null].filter(Boolean).join(' · ')];
-    ctx.fillStyle = col; ctx.font = FONT_B; ctx.textAlign = 'center';  // under the box
-    ctx.fillText(lines[0], tx, ty + k + 13);
-    ctx.font = FONT; ctx.fillText(lines[1], tx, ty + k + 26); ctx.textAlign = 'left';
   }
 
-  // Gimbal dial in a drone card: compass with the search arc, the drone's nose, the
-  // gimbal's heading now and where it pointed over the last TRAIL_S seconds.
+  // The glass label next to the hostile: its range to whoever attacks it (and time to
+  // impact), else to the base.
+  function placeCallout(f) {
+    const co = $('callout'), h = server.drones.find(d => d.hostile && d.north != null && !stale(d));
+    if (!h || !overlay()) { co.hidden = true; return; }
+    const [x, y] = toPx(...pos(h));
+    if (x < f.x - 40 || x > f.x + f.w + 40 || y < f.y - 80 || y > f.y + f.h + 40) { co.hidden = true; return; }
+    const hunter = server.drones.find(d => d.attack && d.attack.target && ENGAGED.includes(d.status));
+    const a = area(), toBase = Math.hypot(h.north - a.centre[0], h.east - a.centre[1]);
+    const lost = hunter && hunter.status === 'target lost';
+    const html = `<div class="k" style="color:${lost ? 'var(--warn)' : trackColor(h)}">${hunter ? (lost ? 'Lost by D' : 'Tracked by D') + hunter.id : callsign(h)}</div>
+      <b>${hunter ? fmt(hunter.attack.range_m, '', 0) : toBase.toFixed(0)}<small> m ${hunter ? 'to D' + hunter.id : 'to base'}</small></b>
+      <p>${fmt(h.altitude, ' m')} · ${fmt(h.speed, ' m/s', 1)}${hunter && hunter.attack.impact_s != null ? ` · impact ${hunter.attack.impact_s.toFixed(1)} s` : ''}</p>`;
+    if (co.innerHTML !== html) co.innerHTML = html;
+    co.hidden = false;
+    const flip = x + 32 + co.offsetWidth > f.x + f.w + 20;
+    co.style.transform = `translate(${flip ? x - 32 - co.offsetWidth : x + 32}px, ${y - co.offsetHeight / 2}px)`;
+  }
+
+  // ---- cards --------------------------------------------------------------------------
+  function spark(cv, data, col) {
+    const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+    if (!w) return;
+    if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+    const vals = data.filter(v => v != null);
+    if (vals.length < 2) return;
+    const lo = Math.min(...vals), hi = Math.max(...vals), span = Math.max(hi - lo, 1);
+    const pts = []; data.forEach((v, i) => { if (v != null) pts.push([w - (data.length - 1 - i) / (HISTORY - 1) * w, h - 3 - (v - lo) / span * (h - 6)]); });
+    g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y));
+    g.strokeStyle = col; g.lineWidth = 1.3; g.stroke();
+    g.lineTo(pts[pts.length - 1][0], h); g.lineTo(pts[0][0], h); g.closePath();
+    const gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, col + '33'); gr.addColorStop(1, col + '00'); g.fillStyle = gr; g.fill();
+    const [lx, ly] = pts[pts.length - 1]; g.fillStyle = col; g.beginPath(); g.arc(lx, ly, 2.2, 0, 2 * Math.PI); g.fill();
+  }
+
+  // Gimbal dial: compass with the search sector, the drone's nose, the gimbal's heading
+  // now and where it pointed over the last TRAIL_S seconds.
   function drawDial(cv, d) {
-    const dpr = window.devicePixelRatio || 1, s = 96;
-    if (cv.width !== s * dpr) { cv.width = cv.height = s * dpr; }
+    const dpr = window.devicePixelRatio || 1, s = 64;
+    if (cv.width !== s * dpr) cv.width = cv.height = s * dpr;
     const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, s, s);
-    const c = s / 2, R = 38, a = area(), now = performance.now() / 1000;
-    g.strokeStyle = css('--line'); g.lineWidth = 1; g.beginPath(); g.arc(c, c, R, 0, 2 * Math.PI); g.stroke();
-    g.beginPath(); g.moveTo(c, c);
-    g.arc(c, c, R, rad(a.heading_deg - a.width_deg / 2 - 90), rad(a.heading_deg + a.width_deg / 2 - 90)); g.closePath();
-    g.fillStyle = css('--area-fill'); g.fill();
-    g.fillStyle = css('--muted'); g.font = '10px system-ui, sans-serif'; g.textAlign = 'center'; g.fillText('N', c, 9);
+    const c = s / 2, R = 27, a = area(), now = performance.now() / 1000, col = css('--friend');
     const ray = (h, len) => [c + len * Math.sin(rad(h)), c - len * Math.cos(rad(h))];
+    g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 1; g.beginPath(); g.arc(c, c, R, 0, 2 * Math.PI); g.stroke();
+    g.beginPath(); g.moveTo(c, c); g.arc(c, c, R, rad(a.heading_deg - a.width_deg / 2 - 90), rad(a.heading_deg + a.width_deg / 2 - 90)); g.closePath();
+    g.fillStyle = 'rgba(95,212,154,.13)'; g.fill();
+    for (let b = 0; b < 360; b += 30) { g.beginPath(); g.moveTo(...ray(b, R)); g.lineTo(...ray(b, R - 3)); g.stroke(); }
+    g.fillStyle = css('--muted'); g.font = '8px ' + css('--sans'); g.textAlign = 'center'; g.fillText('N', c, 7);
     for (const p of trails[d.id] || []) {
-      const [x, y] = ray(p.h, R - 4);
-      g.globalAlpha = 0.7 * (1 - (now - p.t) / TRAIL_S); g.fillStyle = color(d.id);
-      g.beginPath(); g.arc(x, y, 2, 0, 2 * Math.PI); g.fill();
+      g.globalAlpha = 0.6 * (1 - (now - p.t) / TRAIL_S); g.fillStyle = col;
+      g.beginPath(); g.arc(...ray(p.h, R - 4), 1.6, 0, 2 * Math.PI); g.fill();
     }
     g.globalAlpha = 1;
-    if (d.heading_deg != null) {
-      const [x, y] = ray(d.heading_deg, R + 1);
-      g.strokeStyle = css('--muted'); g.lineWidth = 3; g.beginPath(); g.moveTo(...ray(d.heading_deg, R - 7)); g.lineTo(x, y); g.stroke();
-    }
+    if (d.heading_deg != null) { g.strokeStyle = css('--muted'); g.lineWidth = 3; g.beginPath(); g.moveTo(...ray(d.heading_deg, R - 6)); g.lineTo(...ray(d.heading_deg, R + 1)); g.stroke(); }
     if (d.gimbal_heading_deg != null) {
-      g.strokeStyle = color(d.id); g.lineWidth = 2.5; g.beginPath(); g.moveTo(c, c); g.lineTo(...ray(d.gimbal_heading_deg, R - 2)); g.stroke();
+      g.strokeStyle = col; g.lineWidth = 2; g.beginPath(); g.moveTo(c, c); g.lineTo(...ray(d.gimbal_heading_deg, R - 3)); g.stroke();
+      g.fillStyle = col; g.beginPath(); g.arc(c, c, 2, 0, 2 * Math.PI); g.fill();
     } else {
-      g.fillStyle = css('--muted'); g.fillText('no gimbal', c, c + 4);
+      g.fillStyle = css('--faint'); g.font = '9px ' + css('--sans'); g.fillText('no gimbal', c, c + 3);
     }
   }
 
-  // The attack's numbers in a drone card, while it has a target.
-  function attackRows(a) {
-    if (!a || !a.target) return '';
-    const closing = a.closing_mps == null ? '–' : (a.closing_mps < 0 ? 'opening ' : '') + Math.abs(a.closing_mps).toFixed(1) + ' m/s';
-    const timeout = a.timeout ? `<dt>${a.timeout.to === 'lost' ? 'Lost in' : 'Search in'}</dt><dd style="color:var(--warn)">${a.timeout.in_s.toFixed(1)} s</dd>` : '';
-    return `<dt>Range</dt><dd>${fmt(a.range_m, ' m', 1)}</dd>
-      <dt>Closing</dt><dd>${closing}</dd>
-      <dt>Impact in</dt><dd>${fmt(a.impact_s, ' s', 1)}</dd>
-      <dt>Engaged</dt><dd>${fmt(a.engaged_s, ' s', 0)}</dd>${timeout}`;
+  function metrics(d) {
+    const a = d.attack || {};
+    const closing = a.closing_mps == null ? '–' : (a.closing_mps < 0 ? '−' : '') + Math.abs(a.closing_mps).toFixed(1) + ' m/s';
+    const last = d.detection ? 'now' : fmt(a.seen_s_ago, ' s', 1);
+    const fourth = a.timeout
+      ? `<div><span>${a.timeout.to === 'lost' ? 'Lost in' : 'Search in'}</span><b class="warn">${a.timeout.in_s.toFixed(1)} s</b></div>`
+      : `<div><span>Last seen</span><b>${last}</b></div>`;
+    return `<div><span>Closing</span><b>${closing}</b></div>
+      <div><span>Impact</span><b class="warn">${d.status === 'hit' ? '—' : fmt(a.impact_s, ' s', 1)}</b></div>
+      <div><span>Engaged</span><b>${fmt(a.engaged_s, ' s')}</b></div>${fourth}`;
   }
 
   function renderCards() {
-    const box = $('cards');
-    for (const d of server.drones) {
-      let card = box.querySelector(`[data-id="${d.id}"]`);
-      if (!card) {
-        card = document.createElement('div'); card.className = 'card'; card.dataset.id = d.id;
-        card.classList.toggle('hostile', !!d.hostile); card.style.setProperty('--edge', trackColor(d));
-        card.innerHTML = `<div><h3><span class="swatch" style="background:${trackColor(d)}"></span>${callsign(d)}
-          <span class="badge task"></span><span class="badge conn"></span></h3><dl></dl></div><canvas class="dial"></canvas>`;
-        box.appendChild(card);
+    const box = $('cards'), a = area();
+    // Engaged defenders first, then the others by id, the hostile last.
+    const rank = d => d.hostile ? 2 : ENGAGED.includes(d.status) ? 0 : 1;
+    const order = [...server.drones].sort((p, q) => rank(p) - rank(q) || p.id - q.id);
+    for (const d of order) {
+      let el = box.querySelector(`[data-id="${d.id}"]`);
+      if (!el) {
+        el = document.createElement('article'); el.dataset.id = d.id;
+        el.innerHTML = `<div class="top"><div class="id">${d.hostile ? MARK : QUAD}<div><h3 class="nm"></h3><span class="tag"></span></div></div></div><div class="sub"></div>
+          <div class="big"><div><span class="label lbl"></span><b></b></div><canvas class="dial"></canvas></div>
+          <div class="metrics" hidden></div><canvas class="spark"></canvas><div class="kv"></div>`;
       }
-      const stale = d.age_s == null || d.age_s > STALE_S;
-      card.classList.toggle('stale', stale);
-      const badge = card.querySelector('.badge.conn');
-      badge.textContent = d.armed == null ? 'no link' : (d.armed ? 'armed' : 'disarmed');
-      badge.classList.toggle('armed', !!d.armed);
-      const task = card.querySelector('.badge.task');
-      task.textContent = d.status;
-      task.style.background = css(STATUS_COLORS[d.status] || '--muted');
-      task.title = d.attack_state ? `Attack node state: ${d.attack_state}` : 'From PX4 (no attack node running)';
-      if (d.hostile) { task.textContent = 'hostile'; task.style.background = css('--bad'); task.title = 'The target drone (attack.target_id), from the simulation'; }
-      const inArea = d.gimbal_heading_deg != null && Math.abs(wrap(d.gimbal_heading_deg - area().heading_deg)) <= area().width_deg / 2;
-      card.querySelector('dl').innerHTML = `
-        <dt>Mode</dt><dd>${d.nav_state ? d.nav_state.toLowerCase().replace(/_/g, ' ') : '–'}</dd>
-        <dt>Altitude</dt><dd>${fmt(d.altitude, ' m', 1)}</dd>
-        <dt>Speed</dt><dd>${fmt(d.speed, ' m/s', 1)}</dd>
-        <dt>Gimbal</dt><dd>${fmt(d.gimbal_heading_deg, '°')}${d.gimbal_heading_deg != null ? (inArea ? '' : ' (outside)') : ''}</dd>
-        <dt>Pitch</dt><dd>${fmt(d.gimbal_pitch_deg, '°')}</dd>
-        <dt>Last msg</dt><dd>${d.age_s == null ? '–' : d.age_s < 1 ? 'now' : d.age_s.toFixed(0) + ' s ago'}</dd>
-        ${d.detection ? `<dt>Target</dt><dd style="color:var(--bad)">seen</dd>` : ''}
-        ${attackRows(d.attack)}`;
-      drawDial(card.querySelector('canvas'), d);
+      el.querySelector('.nm').textContent = callsign(d);
+      box.appendChild(el);  // keeps the order
+      const focus = !d.hostile && ENGAGED.includes(d.status);
+      el.className = 'card glass' + (focus ? ' focus' : '') + (d.hostile ? (spotted ? ' hostile' : ' unknown') : '') + (stale(d) ? ' stale' : '');
+      const mode = d.nav_state ? d.nav_state.toLowerCase().replace(/_/g, ' ') : 'no mode';
+      el.querySelector('.sub').textContent = d.armed == null ? 'no link' : `${d.armed ? 'armed' : 'disarmed'} · ${mode}`;
+      const tag = el.querySelector('.tag'), status = d.hostile && d.status !== 'no link' ? (spotted ? 'hostile' : 'unknown') : d.status;
+      tag.className = 'tag ' + (d.hostile && status !== 'no link' ? status : TAGS[status] || '');
+      tag.textContent = status;
+      tag.title = d.hostile ? `The target drone (attack.target_id), from the simulation; ${spotted ? 'a defender has spotted it' : 'no defender has spotted it yet'}`
+        : d.attack_state ? `Attack node state: ${d.attack_state}` : 'From PX4 (no attack node running)';
+      const lbl = el.querySelector('.lbl'), big = el.querySelector('.big b');
+      if (d.hostile) {
+        lbl.textContent = 'Range to base';
+        big.innerHTML = d.north == null ? '–' : `${Math.hypot(d.north - a.centre[0], d.east - a.centre[1]).toFixed(0)}<small>m</small>`;
+      } else if (focus) {
+        lbl.textContent = 'Range to target'; big.innerHTML = `${fmt(d.attack && d.attack.range_m, '', 1)}<small>m</small>`;
+      } else {
+        lbl.textContent = 'Altitude'; big.innerHTML = `${fmt(d.altitude, '', 1)}<small>m</small>`;
+      }
+      const dial = el.querySelector('.dial'); dial.hidden = !!d.hostile; if (!d.hostile) drawDial(dial, d);
+      const m = el.querySelector('.metrics'); m.hidden = !focus; if (focus) m.innerHTML = metrics(d);
+      spark(el.querySelector('.spark'), history[d.id] || [], d.hostile ? trackColor(d) : focus ? css('--warn') : css('--friend'));
+      const age = d.age_s == null ? '–' : d.age_s < 1 ? 'now' : d.age_s.toFixed(0) + ' s';
+      const inArea = d.gimbal_heading_deg != null && Math.abs(wrap(d.gimbal_heading_deg - a.heading_deg)) <= a.width_deg / 2;
+      el.querySelector('.kv').innerHTML = d.hostile
+        ? `<span>alt <b>${fmt(d.altitude, ' m')}</b></span><span>spd <b>${fmt(d.speed, '', 1)}</b></span><span>hdg <b>${fmt(d.heading_deg, '°')}</b></span>`
+        : `<span>spd <b>${fmt(d.speed, '', 1)}</b></span><span title="Gimbal heading, pitch ${fmt(d.gimbal_pitch_deg, '°')}; ${inArea ? 'inside' : 'outside'} the search sector">gmb <b style="${d.gimbal_heading_deg != null && !inArea ? 'color:var(--warn)' : ''}">${fmt(d.gimbal_heading_deg, '°')}</b></span><span>msg <b>${age}</b></span>`;
     }
+    for (const el of [...box.children]) if (!server.drones.some(d => String(d.id) === el.dataset.id)) el.remove();
   }
 
-  // Search area form: sliders and number boxes edit the draft; Apply sends it.
+  function renderSummary() {
+    const ds = server.drones, linked = ds.filter(d => !stale(d));
+    const air = linked.filter(d => !d.hostile && d.armed).length, hos = spotted ? linked.filter(d => d.hostile).length : 0;
+    const eng = ds.filter(d => d.status === 'intercept' || d.status === 'target lost').length, none = ds.length - linked.length;
+    $('tAir').textContent = air; $('tHos').textContent = hos; $('tEng').textContent = eng; $('tNo').textContent = none;
+    $('tHosBox').classList.toggle('hot', hos > 0); $('tEngBox').classList.toggle('hot', eng > 0); $('tNoBox').classList.toggle('warn', none > 0);
+    const hit = ds.some(d => d.status === 'hit'), phase = $('phase');
+    phase.textContent = !linked.length ? 'Waiting for drones' : eng ? '● Engagement' : hit ? '✓ Target hit' : ds.some(d => d.status === 'searching') ? 'Sector watch' : 'Monitoring';
+    phase.style.color = eng ? css('--hostile') : hit ? css('--ok') : '';
+    $('tplus').textContent = 'T+' + tfmt(server.uptime_s || 0);
+  }
+
+  // ---- event log ----------------------------------------------------------------------
+  function takeEvents(list) {
+    if (!list || !list.length) return;
+    for (const e of list) { if (e.id > lastEventId) { events.push(e); freshIds.add(e.id); lastEventId = e.id; } }
+    if (events.length > 500) events = events.slice(-500);
+    renderLog();
+  }
+  function eventHtml(e) {
+    let text = esc(e.text);
+    text = text.replace(/^Drone (\d+)/, (m, id) => {
+      const d = server && server.drones.find(o => String(o.id) === id);
+      return `<span class="who" style="color:${d ? trackColor(d) : 'var(--friend)'}">${m}</span>`;
+    });
+    return `<div class="ev ${e.kind} ${e.level || ''}${freshIds.has(e.id) ? ' new' : ''}"><time>T+${tfmt(e.t)}</time><i></i><p>${text}${e.detail ? `<em>${esc(e.detail)}</em>` : ''}</p></div>`;
+  }
+  function renderLog() {
+    const shown = events.filter(e => filter === 'all' || e.kind === filter);
+    $('log').innerHTML = shown.length ? shown.slice().reverse().map(eventHtml).join('') : '<div class="empty">Nothing yet.</div>';
+    const box = $('evCount');  // minimised: how many came in since, else the total
+    box.textContent = evCollapsed ? (events.length - seenEvents ? '+' + (events.length - seenEvents) : events.length) : events.length;
+    box.classList.toggle('unread', evCollapsed && events.length > seenEvents);
+    if (!evCollapsed) seenEvents = events.length;
+    freshIds.clear();
+  }
+  // Minimise the log to its header; remembered in this browser.
+  let evCollapsed = false, seenEvents = 0;
+  function setCollapsed(on) {
+    evCollapsed = on;
+    const b = $('evToggle'), label = on ? 'Show the event log' : 'Minimise the event log';
+    document.querySelector('.events').classList.toggle('collapsed', on);
+    b.setAttribute('aria-expanded', String(!on)); b.title = label; b.setAttribute('aria-label', label);
+    try { localStorage.setItem('hive.eventsCollapsed', on ? '1' : '0'); } catch (e) { /* no storage */ }
+    renderLog();
+  }
+  $('evToggle').onclick = () => setCollapsed(!evCollapsed);
+  try { evCollapsed = localStorage.getItem('hive.eventsCollapsed') === '1'; } catch (e) { /* no storage */ }
+  $('chips').addEventListener('click', ev => {
+    const b = ev.target.closest('.chip'); if (!b) return;
+    filter = b.dataset.f;
+    for (const c of document.querySelectorAll('.chip')) { c.classList.toggle('on', c === b); c.setAttribute('aria-pressed', c === b); }
+    renderLog();
+  });
+
+  // ---- search sector form: the boxes edit the draft; Apply sends it ---------------------
   const fields = { heading: 'heading_deg', width: 'width_deg', radius: 'radius_m' };
   function syncForm() {
-    const a = area();
+    const a = area(), s = server.search_area;
     for (const [k, f] of Object.entries(fields)) {
-      for (const el of [$(k), $(k + 'R')]) if (document.activeElement !== el) el.value = Math.round(a[f]);
+      if (document.activeElement !== $(k)) $(k).value = k === 'heading' ? String(Math.round(a[f])).padStart(3, '0') : Math.round(a[f]);
+      $(k + 'Box').classList.toggle('dirty', !!draft && Math.round(draft[f]) !== Math.round(s[f]));
     }
     $('apply').disabled = $('revert').disabled = !draft;
+    $('rev').textContent = 'rev ' + s.revision;
   }
+  function note(text, err = false) { $('note').textContent = text; $('note').className = 'note' + (err ? ' err' : ''); }
   function editDraft(changes) {
     draft = { ...(draft || server.search_area), ...changes };
-    $('note').textContent = 'Not applied yet.'; $('note').className = 'note';
-    syncForm(); draw();
+    note('not applied yet'); syncForm();
   }
   for (const [k, f] of Object.entries(fields)) {
-    for (const el of [$(k), $(k + 'R')]) {
-      el.addEventListener('input', () => {
-        const v = parseFloat(el.value);
-        if (Number.isFinite(v)) editDraft({ [f]: f === 'heading_deg' ? (v % 360 + 360) % 360 : v });
-      });
-    }
+    $(k).addEventListener('input', () => {
+      const v = parseFloat($(k).value);
+      if (Number.isFinite(v)) editDraft({ [f]: f === 'heading_deg' ? (v % 360 + 360) % 360 : v });
+    });
+    $(k).addEventListener('keydown', ev => { if (ev.key === 'Enter' && draft) $('apply').click(); if (ev.key === 'Escape' && draft) $('revert').click(); });
   }
-  $('revert').onclick = () => { draft = null; $('note').textContent = ''; syncForm(); draw(); };
+  $('revert').onclick = () => { draft = null; note('drag the sector’s handles on the map'); syncForm(); };
   $('apply').onclick = async () => {
     const body = {}; for (const f of Object.values(fields)) body[f] = draft[f];
     try {
@@ -471,28 +794,33 @@
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || res.statusText);
       server.search_area = out; draft = null;
-      $('note').textContent = `Applied (revision ${out.revision}).`; $('note').className = 'note';
+      note(`applied, revision ${out.revision}`);
     } catch (e) {
-      $('note').textContent = e.message; $('note').className = 'note err';
+      note(e.message, true);
     }
-    syncForm(); draw();
+    syncForm();
   };
 
-  // Dragging the arc's handles.
+  // ---- map interaction: drag the sector's handles, zoom ---------------------------------
+  const pointer = ev => { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
+  const handleAt = (x, y) => {
+    const hs = arcHandles(area()), near = ([hx, hy]) => Math.hypot(hx - x, hy - y) < 14;
+    return near(hs.mid) ? 'mid' : (near(hs.left) || near(hs.right)) ? 'edge' : null;
+  };
+  // Drag a sector handle to edit the sector; drag anywhere else to move the map.
   canvas.addEventListener('pointerdown', ev => {
     if (!server) return;
-    const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top, hs = arcHandles(area());
-    const near = ([hx, hy]) => Math.hypot(hx - x, hy - y) < 14;
-    drag = near(hs.mid) ? 'mid' : (near(hs.left) || near(hs.right)) ? 'edge' : null;
-    if (drag) canvas.setPointerCapture(ev.pointerId);
+    const [x, y] = pointer(ev);
+    drag = handleAt(x, y) || { x, y };
+    canvas.setPointerCapture(ev.pointerId);
+    canvas.style.cursor = 'grabbing';
   });
   canvas.addEventListener('pointermove', ev => {
-    const r = canvas.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
-    if (!drag) {
-      if (server) {
-        const hs = arcHandles(area());
-        canvas.style.cursor = [hs.mid, hs.left, hs.right].some(([hx, hy]) => Math.hypot(hx - x, hy - y) < 14) ? 'grab' : 'default';
-      }
+    const [x, y] = pointer(ev);
+    if (!drag) { if (server) canvas.style.cursor = handleAt(x, y) ? 'pointer' : 'grab'; return; }
+    if (typeof drag === 'object') {
+      pan = [pan[0] + (y - drag.y) / view.scale, pan[1] - (x - drag.x) / view.scale];
+      drag = { x, y };
       return;
     }
     const a = area(), [n, e] = toWorld(x, y), b = bearing(n, e, a.centre);
@@ -503,35 +831,73 @@
       editDraft({ width_deg: Math.max(10, Math.min(180, Math.round(2 * Math.abs(wrap(b - a.heading_deg))))) });
     }
   });
-  const endDrag = () => { if (drag) { drag = null; draw(); } };
+  const endDrag = () => { drag = null; canvas.style.cursor = 'grab'; };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+  // Zoom keeping the point at (x, y) where it is: the wheel zooms at the pointer, the
+  // buttons at the middle of the view.
+  function zoomTo(z, x, y) {
+    if (!server || fitScale == null) { zoom = z; return; }
+    const f = freeRect(), a = area(), [n, e] = toWorld(x, y);
+    zoom = Math.max(0.25, Math.min(8, z));
+    const s = fitScale * zoom;
+    pan = [n - a.centre[0] + (y - f.y - f.h / 2) / s, e - a.centre[1] - (x - f.x - f.w / 2) / s];
+  }
+  const middle = () => { const f = freeRect(); return [f.x + f.w / 2, f.y + f.h / 2]; };
+  canvas.addEventListener('wheel', ev => { ev.preventDefault(); zoomTo(zoom * Math.exp(-ev.deltaY * 0.0015), ...pointer(ev)); }, { passive: false });
+  $('zoomIn').onclick = () => zoomTo(zoom * 1.4, ...middle());
+  $('zoomOut').onclick = () => zoomTo(zoom / 1.4, ...middle());
+  $('zoomFit').onclick = () => { zoom = 1; fitScale = null; pan = [0, 0]; };
 
+  // ---- polling ------------------------------------------------------------------------
   async function poll() {
     try {
-      const res = await fetch('/api/state', { cache: 'no-store' });
-      server = await res.json();
-      const now = performance.now() / 1000;
-      for (const d of server.drones) {
-        const t = (trails[d.id] = (trails[d.id] || []).filter(p => now - p.t < TRAIL_S));
-        if (d.gimbal_heading_deg != null && d.age_s != null && d.age_s < STALE_S) t.push({ t: now, h: d.gimbal_heading_deg });
+      const res = await fetch('/api/state?events_after=' + lastEventId, { cache: 'no-store' });
+      const next = await res.json();
+      if (next.uptime_s != null && next.uptime_s + 1 < lastUptime) {  // the UI node restarted: its event ids start over
+        events = []; lastEventId = 0; lastUptime = 0; server = next; setTimeout(poll, 0); return;
+      }
+      lastUptime = next.uptime_s || 0;
+      const t = performance.now(), now = t / 1000;
+      for (const d of next.drones) {
+        // Start each glide where the drone is drawn now.
+        const old = server && server.drones.find(o => o.id === d.id);
+        motion[d.id] = { t, from: old && old.north != null && d.north != null ? pos(old) : null, to: [d.north, d.east],
+                         heading_deg: old ? ang(old, 'heading_deg') : null, gimbal_heading_deg: old ? ang(old, 'gimbal_heading_deg') : null };
+        // A new task (searching -> intercept and back) starts a new gimbal trail.
+        if (old && old.status !== d.status) trails[d.id] = [];
+        const tr = (trails[d.id] = (trails[d.id] || []).filter(p => now - p.t < TRAIL_S));
+        if (d.gimbal_heading_deg != null && !stale(d)) tr.push({ t: now, h: d.gimbal_heading_deg });
         const tt = (targetTrails[d.id] = (targetTrails[d.id] || []).filter(p => now - p.t < TARGET_TRAIL_S));
         const tg = d.attack && d.attack.target, last = tt[tt.length - 1];
         if (tg && d.attack.seen_s_ago < 0.5 && !(last && last.n === tg.north && last.e === tg.east)) tt.push({ t: now, n: tg.north, e: tg.east });
+        const hist = (history[d.id] = history[d.id] || []);
+        const a = next.search_area;
+        hist.push(d.hostile ? (d.north == null ? null : Math.hypot(d.north - a.centre[0], d.east - a.centre[1]))
+          : ENGAGED.includes(d.status) && d.attack ? d.attack.range_m : d.altitude);
+        if (hist.length > HISTORY) hist.shift();
       }
-      $('linkDot').classList.add('ok'); $('linkText').textContent = `${server.drones.length} drones`;
-      syncMap(); syncForm(); renderCards(); draw();
+      server = next;
+      spotted = isSpotted(next.drones);
+      $('linkDot').classList.add('ok');
+      $('linkText').textContent = `${server.drones.length} drone${server.drones.length === 1 ? '' : 's'} · ${Math.round(1000 / POLL_MS)} Hz`;
+      takeEvents(server.events); syncMap(); syncForm(); renderCards(); renderSummary();
+      if (REDUCED) draw();
     } catch (e) {
       $('linkDot').classList.remove('ok'); $('linkText').textContent = 'no connection to the UI node';
     }
     setTimeout(poll, POLL_MS);
   }
 
+  function frame() { draw(); requestAnimationFrame(frame); }
   setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11, 19) + 'Z'; }, 500);
-
-  window.addEventListener('resize', resize);
-    resize();
+  window.addEventListener('resize', () => { resize(); fitScale = null; draw(); });
+  $('mapAlpha').addEventListener('input', () => draw());
+  $('legendQuad').insertAdjacentHTML('afterbegin', QUAD);
+  resize();
+  setCollapsed(evCollapsed);
   poll();
+  if (!REDUCED) requestAnimationFrame(frame);
 })();
 </script>
 </body>

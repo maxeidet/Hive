@@ -20,14 +20,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from swarm_backend.config import DroneConfig, default_config_path, load_config
-from swarm_backend.ui.model import (SearchArea, attack_view, drone_home, drone_status,
-                                   drone_view, load_map, update_search_area, world_origin)
+from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
+                                   drone_status, drone_view, load_map, update_search_area,
+                                   world_origin)
 
 SEARCH_AREA_TOPIC = '/base/search_area'
 STATIC_DIR = Path(__file__).resolve().parent.parent / 'ui' / 'static'
 DETECTION_FRESH_S = 2.0  # a detection older than this is not shown
 ATTACK_STATE_FRESH_S = 3.0  # the attack node repeats its state every second
 STALE_S = 2.0  # no PX4 message for this long: status 'no link' (as STALE_S in index.html)
+EVENT_RATE_HZ = 5.0  # how often the event log compares the drones with how they were
 
 
 class DroneMonitor:
@@ -154,7 +156,7 @@ class OperatorUi:
 
     ROS callbacks run on the spin thread and the web server on its own threads; reads of
     the monitors' fields are single attribute loads, so they need no lock. The search area
-    does, since a change is read-modify-write.
+    does, since a change is read-modify-write, and so does the event log.
     """
 
     def __init__(self, node, drones: tuple[DroneConfig, ...], area: SearchArea,
@@ -173,27 +175,47 @@ class OperatorUi:
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._area_pub = node.create_publisher(String, SEARCH_AREA_TOPIC, latched)
         self._log = node.get_logger()
+        self.events = EventLog()
+        self.started = time.monotonic()
         self._publish_area()
+        node.create_timer(1.0 / EVENT_RATE_HZ, self._update_events)
 
-    def state(self) -> dict:
-        now = time.monotonic()
+    def _views(self, now: float) -> list[dict]:
         refs = {m.id: m.ref for m in self.monitors if m.ref is not None}
         origin = world_origin(refs, {m.id: m.spawn for m in self.monitors},
                               skip=(self.hostile_id,))
         for m in self.monitors:
             m.origin = origin
-        with self._lock:
-            area = self.area.to_dict()
         views = [m.view(now) for m in self.monitors]
         for view in views:
             view['hostile'] = view['id'] == self.hostile_id
-        return {'search_area': area, 'drones': views, 'map': load_map(STATIC_DIR)}
+        return views
+
+    def _update_events(self) -> None:
+        now = time.monotonic()
+        views = self._views(now)
+        with self._lock:
+            self.events.update(now - self.started, views)
+
+    def state(self, events_after: int = 0) -> dict:
+        """What the page shows; `events_after`: the last event id it already has."""
+        now = time.monotonic()
+        views = self._views(now)
+        with self._lock:
+            area = self.area.to_dict()
+            events = self.events.after(events_after)
+        return {'search_area': area, 'drones': views, 'map': load_map(STATIC_DIR),
+                'events': events, 'uptime_s': round(now - self.started, 1)}
 
     def set_search_area(self, data: dict) -> SearchArea:
         with self._lock:
             self.area = update_search_area(self.area, data)
             self._publish_area()
             area = self.area
+            self.events.add(time.monotonic() - self.started, 'operator',
+                            f'Search sector revision {area.revision}',
+                            detail=f'{area.heading_deg:03.0f}° ± {area.width_deg / 2:.0f}°, '
+                                   f'{area.radius_m:.0f} m')
         self._log.info(f'Search area {area.revision}: {area.heading_deg:.0f} deg '
                        f'± {area.width_deg / 2:.0f}, {area.radius_m:.0f} m')
         return area
@@ -202,7 +224,17 @@ class OperatorUi:
         self._area_pub.publish(self._string(data=json.dumps(self.area.to_dict())))
 
 
-def make_handler(ui: OperatorUi):
+def events_after(path: str) -> int:
+    """The `events_after` query parameter of a request path, 0 if missing or bad."""
+    from urllib.parse import parse_qs, urlsplit
+    try:
+        return max(0, int(parse_qs(urlsplit(path).query).get('events_after', ['0'])[0]))
+    except ValueError:
+        return 0
+
+
+def make_handler(ui):
+    """`ui`: anything with state(events_after) and set_search_area(data), like OperatorUi."""
 
     class Handler(BaseHTTPRequestHandler):
 
@@ -211,8 +243,8 @@ def make_handler(ui: OperatorUi):
                 self._send(200, (STATIC_DIR / 'index.html').read_bytes(), 'text/html')
             elif self.path.split('?')[0] == '/map.png' and (STATIC_DIR / 'map.png').is_file():
                 self._send(200, (STATIC_DIR / 'map.png').read_bytes(), 'image/png')
-            elif self.path == '/api/state':
-                self._json(200, ui.state())
+            elif self.path.split('?')[0] == '/api/state':
+                self._json(200, ui.state(events_after(self.path)))
             else:
                 self._json(404, {'error': 'not found'})
 
