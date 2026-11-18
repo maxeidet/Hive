@@ -10,8 +10,8 @@ from swarm_backend.config import DetectConfig, InterceptConfig, SurveillanceConf
 from swarm_backend.detect.metrics import score_run as score_detect
 from swarm_backend.intercept import arc_eval
 from swarm_backend.intercept.arc_eval import (
-    MAX_START_M, TruthPoint, frame_records, intercept_samples, make_detect_scenario,
-    make_intercept_scenario, slots)
+    MAX_START_M, TruthPoint, first_detection, frame_records, intercept_samples,
+    make_detect_scenario, make_intercept_scenario, sector_bearing_deg, slots)
 from swarm_backend.intercept.interceptor import Status
 from swarm_backend.intercept.metrics import Outcome, score_run
 from swarm_backend.intercept.scenario import make_scenario
@@ -70,6 +70,44 @@ def test_every_defender_gets_scenarios_and_the_start_is_out_of_reach():
     assert used == {0, 1, 2}
 
 
+def bearing_deg(point):
+    return math.degrees(math.atan2(point[1], point[0]))
+
+
+def test_a_sector_start_is_seeded_inside_the_middle_drones_30_degrees():
+    bearings = []
+    for seed in range(50):
+        scenario, index = make_intercept_scenario(0.0, 4.0, seed, ICONFIG, ARC, sector=1)
+        assert index == 1 and scenario.interceptor_start == pytest.approx(slots(ARC)[1])
+        b = bearing_deg(scenario.target_start)
+        assert -15.0 <= b <= 15.0
+        assert b == pytest.approx(sector_bearing_deg(seed, 1, ARC))
+        assert scenario.target_goal[:2] == (0.0, 0.0)
+        assert math.hypot(*scenario.target_start[:2]) == pytest.approx(
+            ARC.arc_radius + ICONFIG.detect_range + arc_eval.APPROACH_M)
+        bearings.append(b)
+    assert min(bearings) < -10 and max(bearings) > 10  # spread over the sector
+    # the same start every time, and at every altitude and speed
+    again, _ = make_intercept_scenario(0.0, 4.0, 7, ICONFIG, ARC, sector=1)
+    other, _ = make_intercept_scenario(0.0, 8.0, 7, ICONFIG, ARC, altitude=40.0, sector=1)
+    assert again.target_start == make_intercept_scenario(0.0, 4.0, 7, ICONFIG, ARC,
+                                                         sector=1)[0].target_start
+    assert other.target_start[:2] == again.target_start[:2]
+    lo, hi = sector_bearing_deg(3, 0, ARC), sector_bearing_deg(3, 2, ARC)
+    assert -45.0 <= lo <= -15.0 and 15.0 <= hi <= 45.0
+    with pytest.raises(ValueError):
+        sector_bearing_deg(0, 3, ARC)
+
+
+def test_the_altitude_replaces_the_drawn_one_and_nothing_else():
+    for altitude in (20.0, 30.0, 40.0):
+        ours, i = make_intercept_scenario(30.0, 8.0, 5, ICONFIG, ARC, altitude=altitude)
+        drawn, j = make_intercept_scenario(30.0, 8.0, 5, ICONFIG, ARC)
+        assert ours.target_start[2] == ours.target_goal[2] == -altitude
+        assert ours.target_start[:2] == drawn.target_start[:2] and i == j
+        assert ours.interceptor_start[2] == -30.0
+
+
 def test_detect_scenario_comes_from_inside_the_arc_and_starts_on_the_ground_plane():
     for seed in range(30):
         s = make_detect_scenario(seed, DCONFIG, ARC)
@@ -113,7 +151,9 @@ def flight(t_end=10.0, hit=True):
 def test_intercept_samples_score_with_his_metrics():
     truth, records, statuses = flight()
     samples = intercept_samples(truth, records, statuses, 1, 0.0, 10.0, HFOV, 0.5, 25.0)
-    assert len(samples) == 101
+    on_grid = [s for s in samples if abs(s.t * 10 - round(s.t * 10)) < 1e-6]
+    assert len(on_grid) == 101  # 10 Hz, plus every truth point of the last 0.2 s
+    assert len(samples) == 101 + 8
     assert samples[0].in_view and not samples[0].detected
     assert samples[20].detected and samples[20].status is Status.TRACKING
     scenario, _ = make_intercept_scenario(0.0, 4.0, 0, ICONFIG, ARC)
@@ -121,6 +161,40 @@ def test_intercept_samples_score_with_his_metrics():
     assert result.outcome is Outcome.HIT
     assert result.time_to_hit == pytest.approx(9.0 - 0.375, abs=0.15)  # 1.5 m before contact
     assert result.lock_on  # in view, confirmed, within 20 m for 3 s
+
+
+def test_a_hit_after_the_last_10_hz_sample_is_scored():
+    """As on gish (seed 1): the run ends at the hit, between two 10 Hz samples. The last
+    one is 1.9 m off; the contact itself, 0.05 s later, must still count."""
+    truth, records, statuses = flight(t_end=9.9, hit=False)
+    me = (150.0, 0.0, -30.0)
+
+    def closing(t):  # 1.9 m at t = 9.9, closing at 20 m/s
+        return (150.0 + 1.9 - 20.0 * (t - 9.9), 0.0, -30.0)
+
+    truth = [TruthPoint(p.stamp, p.bodies, p.cameras, closing(p.stamp)) for p in truth]
+    truth += [TruthPoint(t, {1: me}, {1: camera_north(me)}, closing(t)) for t in (9.92, 9.95)]
+    samples = intercept_samples(truth, records, statuses, 1, 0.0, 9.95, HFOV, 0.5, 25.0)
+    scenario, _ = make_intercept_scenario(0.0, 4.0, 0, ICONFIG, ARC)
+    result = score_run(samples, scenario, ICONFIG)
+    assert result.outcome is Outcome.HIT
+    on_grid = [s for s in samples if abs(s.t * 10 - round(s.t * 10)) < 1e-6]
+    assert score_run(on_grid, scenario, ICONFIG).outcome is not Outcome.HIT  # the old bug
+
+
+def test_the_first_detection_gives_the_3d_distance_to_the_hostile():
+    truth, records, _ = flight()
+    # 10 m above the defender: the 3-D distance is the space diagonal
+    truth = [TruthPoint(p.stamp, p.bodies, p.cameras, (p.hostile[0], p.hostile[1], -40.0))
+             for p in truth]
+    first = first_detection(truth, records, 0.0, 10.0, HFOV, 0.5, 2000.0)
+    assert first.defender == 1 and first.t == pytest.approx(1.0)
+    assert first.horizontal == pytest.approx(36.0, abs=0.1)
+    assert first.height == pytest.approx(10.0)
+    assert first.distance == pytest.approx(math.hypot(36.0, 10.0), abs=0.1)
+    # a confirmed track somewhere else in the picture is not the hostile
+    assert first_detection(truth, records, 0.0, 10.0, HFOV, 0.5, 3.0) is None
+    assert first_detection(truth, {1: []}, 0.0, 10.0, HFOV, 0.5, 25.0) is None
 
 
 def test_frame_records_give_his_detection_metrics():
@@ -156,9 +230,9 @@ def test_missing_truth_is_skipped():
 
 
 def test_saved_runs_load_back_and_summarize(tmp_path):
-    from baseline_eval_test import as_detect, as_intercept, load_runs, save_run, summary_text
-
     from swarm_backend.config import load_config
+    from swarm_backend.scenarios.baseline_eval import (
+        as_detect, as_intercept, load_runs, save_run, summary_text)
 
     truth, records, statuses = flight()
     scenario, _ = make_intercept_scenario(0.0, 4.0, 3, ICONFIG, ARC)
@@ -174,3 +248,8 @@ def test_saved_runs_load_back_and_summarize(tmp_path):
     assert as_detect(load_runs(tmp_path / 'detect.jsonl')[0]) == dmetrics
     text = summary_text(tmp_path, load_config('scenarios/surveillance.yaml'))
     assert 'hit=1' in text and 'missed drones' in text and '3 defenders' in text
+    save_run(tmp_path / 'intercept.jsonl', metrics,
+             {'hostile_altitude': 40.0, 'detect_distance': 37.4, 'detect_horizontal': 36.0,
+              'detect_height': 10.0})
+    text = summary_text(tmp_path, load_config('scenarios/surveillance.yaml'))
+    assert 'detect 3-D' in text and '37.4' in text

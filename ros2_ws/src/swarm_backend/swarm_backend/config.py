@@ -107,6 +107,8 @@ class DetectConfig:
     size_bins_px: tuple = (0.0, 2.0, 4.0, 8.0, 20.0, 50.0, 100.0)  # px, edges
     eval_runs: int = 30  # seeded runs
     eval_timeout: float = 300.0  # seconds
+    body_mask: bool = False  # Gazebo scenarios: the real detectors ignore what lies on the
+    # drone's own airframe in the picture (detect/airframe.py, live.py --body-mask)
 
 
 @dataclass(frozen=True)

@@ -16,7 +16,7 @@ from swarm_backend.intercept.metrics import Outcome, score_run, summarize
 from swarm_backend.intercept.scenario import run_scenario, scenario_grid
 from swarm_backend.intercept.target_detector import NoisyTruthDetector
 
-from sim import FastSim
+from swarm_backend.fast_sim import FastSim
 
 CONFIG = InterceptConfig()
 

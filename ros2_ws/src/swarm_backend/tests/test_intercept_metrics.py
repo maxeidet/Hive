@@ -14,7 +14,7 @@ from swarm_backend.intercept.scenario import Scenario, make_scenario, run_scenar
 from swarm_backend.intercept.target import PositionFix
 from swarm_backend.intercept.target_detector import Detector
 
-from sim import FastSim
+from swarm_backend.fast_sim import FastSim
 
 CONFIG = InterceptConfig()
 DT = 0.1

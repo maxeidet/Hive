@@ -9,20 +9,42 @@ reproduced and compared. Read this before adding a test. Code lives in
 > but there is no shared recorder yet: until there is, a test writes those files
 > itself. Flight tests still copy their connect/takeoff/land code (§6).
 
-## 1. Three kinds of test
+## 1. Tests and scenarios
+
+A **test** checks something and passes or fails. A **scenario** flies a scripted
+situation from start to end and scores it (hits, ranges, times); it does not pass or
+fail by itself. Scenarios live in `swarm_backend/scenarios/` (their YAML configs and
+shell launchers in `scenarios/`) and run on two backends: Gazebo, with or without its
+GUI, or `--sim`, the fast simulation (`swarm_backend/fast_sim.py`: no ROS, no PX4).
 
 | Kind | What it checks | Needs | Where | How to run |
 |---|---|---|---|---|
 | **Unit** | One piece of pure logic: math, config, scoring | pytest, PyYAML, numpy. No ROS | `tests/test_*.py` | `python3 -m pytest tests/test_*.py` |
 | **Sweep** (fast sim) | A method on *all* scenarios of a report section, many seeds; prints the report's metrics | Same as unit | `tests/test_<component>_baseline.py` etc. | `python3 -m pytest tests/test_intercept_baseline.py -s` |
-| **Flight** (Gazebo) | One scenario with real PX4 drones, sensors and timing | The `px4-gazebo-vnc` container, drones spawned | `tests/<name>_test.py` (no `test_` prefix, so pytest skips it) | `./mount-backend.sh <command> [args]` |
+| **Scenario test** | Every scenario sets up, flies, scores and saves its results (with `--sim`) | Same as unit | `tests/test_scenarios.py` | `python3 -m pytest tests/test_scenarios.py` |
+| **Scenario** (Gazebo) | One scenario with real PX4 drones, sensors and timing | The `px4-gazebo-vnc` container, drones spawned | `swarm_backend/scenarios/<name>.py` | `./mount-backend.sh scenario <name> [args]` |
+| **Scenario** (fast sim) | The same scenario, simpler drones and the fake detector | Same as unit | same | `./mount-backend.sh scenario <name> --sim [args]`, or on the host `python3 -m swarm_backend.scenarios <name> --sim` |
+
+The scenarios are `attack` (surveillance attack, was `tests/attack_test.py`),
+`baseline_eval` (was `tests/baseline_eval_test.py`) and `intercept_baseline` (was
+`tests/intercept_baseline_test.py`). `./mount-backend.sh scenario --help` lists them.
+The old commands (`attacktest`, `baseline-eval`, `baseline-intercept`) still work.
+
+Speed, slowest first: Gazebo with its GUI; Gazebo headless (`start-dev.sh --headless`,
+`start-dev-linux.sh --headless`, `start-stellar.sh --headless`: no GUI window, but the
+gimbal cameras still render offscreen for the real detector and PX4 runs in lockstep
+with Gazebo, so it gains less than you might hope); `--sim` (no Gazebo at all, well under
+a second per run, but with the fake detector instead of camera images).
 
 Rules of thumb:
 - Logic that can be tested without ROS **must** be, as a unit test. Keep ROS and PX4
   out of math modules (`formation.py`, `guidance.py`, `metrics.py`, `scenario.py`).
-- Sweeps give the numbers for the report (hundreds of runs, seconds). Flight tests
-  confirm that the sweep's simulation is not fooling us; run a few seeds of the same
-  scenarios and compare.
+- Sweeps and `--sim` scenarios give the numbers for the report (hundreds of runs,
+  seconds). Gazebo scenarios confirm that the simulation is not fooling us; run a few
+  seeds of the same scenarios and compare.
+- A new scenario uses only the `Drone` interface (and, for the surveillance ones,
+  `SurveillanceWorld`), so it gets `--sim` for free; add it to `SCENARIOS` in
+  `swarm_backend/scenarios/__init__.py` and to `tests/test_scenarios.py`.
 - Run unit tests in the container (`docker exec -it px4-gazebo-vnc bash -c "cd
   /workspace/ros2_ws/src/swarm_backend && python3 -m pytest tests/test_*.py"`) or
   any Python ≥ 3.10 with pytest, PyYAML and numpy.
@@ -63,10 +85,10 @@ score_run(samples, scenario, config) -> RunMetrics  metrics.py: one run, from th
 summarize([RunMetrics]) -> str                      the table, one row per scenario cell
 ```
 
-- `sim` is anything with the drones, `now()` and `advance(dt)`: `tests/sim.py`
-  (`FastSim`, `SimDrone`) for sweeps, a small PX4 wrapper for Gazebo
-  (`PX4Sim` in `tests/intercept_baseline_test.py`). The same scenario, loop and
-  metrics run in both.
+- `sim` is anything with the drones, `now()` and `advance(dt)`: `swarm_backend/fast_sim.py`
+  (`FastSim`, `SimDrone`) for sweeps and `--sim`, a small PX4 wrapper for Gazebo
+  (`PX4Sim` in `swarm_backend/scenarios/intercept_baseline.py`). The same scenario,
+  loop and metrics run in both.
 - A `Sample` is the truth at one step plus what the method reported (status,
   in view, detected). Metrics only ever see samples.
 - Test `metrics.py` with hand-built samples, and the loop with tiny test doubles
@@ -125,17 +147,19 @@ The bag's clock is simulation time, so it lines up with `samples.csv`.
 - [ ] The loop runs with test doubles before the real method exists.
 - [ ] Sweep test in `tests/test_<component>_*.py`, seeded, prints `summarize()`,
       asserts the report's expectations, skips while the method is a placeholder.
-- [ ] Flight test (if needed) in `tests/<name>_test.py`, with a `mount-backend.sh`
-      command and `--help`; reuses the same scenario/metrics; writes §4 output.
+- [ ] Scenario (if needed) in `swarm_backend/scenarios/<name>.py`, listed in
+      `SCENARIOS`, with `--help` and `--sim`; reuses the same scenario/metrics; writes
+      §4 output; a `--sim` run of it in `tests/test_scenarios.py`.
 - [ ] Flight safety: fails *before* takeoff if something is missing; lands both
       drones on any error or Ctrl-C (`finally`); separates drones before landing
       straight down.
 - [ ] Docs: the package README (how to run), [[Codebase map]] status table, §7 here.
 
-## 6. Flight tests: the common shape
+## 6. Gazebo scenarios: the common shape
 
-Until there is a shared helper, copy this order from `tests/intercept_test.py` /
-`tests/intercept_baseline_test.py`:
+The surveillance scenarios share `SurveillanceWorld` (`scenarios/surveillance.py`,
+`scenarios/common.py`). The others, until there is a shared helper, copy this order
+from `tests/intercept_test.py` / `swarm_backend/scenarios/intercept_baseline.py`:
 
 1. `rclpy.init(signal_handler_options=SignalHandlerOptions.NO)` so Ctrl-C reaches
    our code and we can still land.
@@ -150,7 +174,7 @@ Until there is a shared helper, copy this order from `tests/intercept_test.py` /
 
 | Report section | Measures (report names) | Code | Status |
 |---|---|---|---|
-| Interception > Evaluation | hit, time to hit, lock-on (held, time to, longest), distance to base at hit, target's closest distance to base, closest interceptor–target distance; outcome hit / reached base / lost / timeout | `intercept/scenario.py`, `intercept/metrics.py`; `tests/test_intercept_metrics.py`, `tests/test_intercept_baseline.py`, `mount-backend.sh baseline-intercept` | Harness built; pure pursuit and the stand-in detector are placeholders |
+| Interception > Evaluation | hit, time to hit, lock-on (held, time to, longest), distance to base at hit, target's closest distance to base, closest interceptor–target distance; outcome hit / reached base / lost / timeout | `intercept/scenario.py`, `intercept/metrics.py`; `tests/test_intercept_metrics.py`, `tests/test_intercept_baseline.py`, `mount-backend.sh scenario intercept_baseline [--sim]`, on the arc `scenario baseline_eval [--sim]` | Harness built; pure pursuit and the stand-in detector are placeholders |
 | System Evaluation | mission success / failure, mission time (spawn to interception) | — | Not started (needs detection + intercept together) |
 | Detection > Evaluation (scenarios) | missed drones (reach the ring undetected), detection probability vs range, birds flagged as drones, background false alarms per image; also warning distance/time at first detection | `detect/scenario.py`, `detect/metrics.py`, `detect/frame.py` (truth per image, on `detect/camera.py` and `ground_truth.py`); `tests/test_detect_metrics.py`, `tests/test_detect_baseline.py` | Harness built; `DarkObjectDetector`, `Yolo26Detector`, `PixelModelDetector` (fast-sim stand-in) and `SectorScan` are placeholders. No Gazebo runner yet (needs images bridged into `Frame.image`) |
 | Detection > Evaluation (labelled images) | recall vs target size (px), found and classified; background false alarms per image; inference time per image | `detect/dataset.py` (`split_by_run`, `evaluate_dataset`); `tests/test_detect_baseline.py` with `HIVE_DETECT_DATASET` (+ `HIVE_YOLO_WEIGHTS`) | Harness built; `GazeboImageDataset` (the data-collection format) is a placeholder |

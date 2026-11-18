@@ -253,6 +253,13 @@ Thumbs.db
 # Images saved from Gazebo (mount-backend.sh snap)
 /data/
 
+
+
+CLAUDE.md
+# YOLO training output and downloaded weights (training/README.md)
+training/runs/
+models/
+*.pt
 # Test run output (hive-vault/Testing.md)
 runs/
 

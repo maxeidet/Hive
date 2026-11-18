@@ -24,7 +24,7 @@ import cv2
 
 from swarm_backend.detect import detectors
 from swarm_backend.detect.camera import (
-    GIMBAL_HFOV, TARGET_SIZE_M, CameraModel, angle_deg, camera_roll, true_offset)
+    BOX_SIZE_M, GIMBAL_HFOV, TARGET_SIZE_M, CameraModel, angle_deg, camera_roll, true_offset)
 from swarm_backend.detect.detectors import Detection
 
 FIELDS = ['image', 'candidate', 'x', 'y', 'width', 'height', 'score', 'label',
@@ -38,6 +38,7 @@ FIELDS = ['image', 'candidate', 'x', 'y', 'width', 'height', 'score', 'label',
 DATA = Path('/workspace/data')  # /workspace is the repo on the host
 MATCH_PX = 40.0  # a detection this close to where a drone really shows is that drone
 RED, GREEN = (255, 0, 0), (0, 160, 0)  # estimated, true (RGB)
+BIRD = (0, 220, 0)  # box of a detection labelled bird (RGB)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         truth = load_truth(path)
         found: list[Detection] = detect(rgb, None)
-        image_rows = [describe(path.name, number, c, truth, rgb.shape[1], rgb.shape[0])
+        image_rows = [describe(path.name, number, c, truth, rgb.shape[1], rgb.shape[0], args.method)
                       for number, c in enumerate(found, start=1)]
         cv2.imwrite(str(out / path.name),
                     cv2.cvtColor(annotate(rgb, found, image_rows, truth), cv2.COLOR_RGB2BGR))
@@ -113,7 +114,7 @@ def load_truth(image: Path) -> dict | None:
 
 
 def describe(image: str, number: int, c: Detection, truth: dict | None,
-             width: int, height: int) -> dict:
+             width: int, height: int, method: str = 'baseline') -> dict:
     """One results.csv row: the detection, the distance and direction estimated from it,
     and, when the image has truth, the same for the drone it is and the errors."""
     size_px = c.size
@@ -122,7 +123,7 @@ def describe(image: str, number: int, c: Detection, truth: dict | None,
     # Without truth there is no camera orientation either, so only the distance.
     hfov = truth['camera']['hfov_rad'] if truth else GIMBAL_HFOV
     camera = CameraModel(hfov, width, height)
-    row['est_distance'] = round(camera.range_from_width(size_px), 2)
+    row['est_distance'] = round(camera.range_from_detection(method, c.width, c.height), 2)
     offset = camera.offset_angles(*c.centre)  # what the live node publishes today: no roll
     row['offset_x_deg'], row['offset_y_deg'] = (round(math.degrees(a), 2) for a in offset)
     if truth is None:
@@ -160,7 +161,8 @@ def describe(image: str, number: int, c: Detection, truth: dict | None,
         px4_direction = camera.direction(*c.centre, *axes)
         row['px4_direction_error_deg'] = round(
             angle_deg(px4_direction, tuple(target['direction'])), 2)
-        position = camera.position(*c.centre, size_px, *axes)
+        px, size = camera.box_scale(method, c.width, c.height)
+        position = camera.position(*c.centre, px, *axes, size=size)
         true_position = [t - p for t, p in zip(target['position'], cam['position'])]
         row['position_n'], row['position_e'], row['position_d'] = (round(v, 2) for v in position)
         row['position_error_m'] = round(math.dist(position, true_position), 2)
@@ -207,9 +209,12 @@ def annotate(rgb, found: list[Detection], rows: list[dict], truth: dict | None, 
         u, v = (round(p) for p in c.centre)
         if 'est_dir_x' in row:
             cv2.arrowedLine(out, centre, (u, v), RED, 1, cv2.LINE_AA, tipLength=0.04)
+        box = BIRD if c.label == 'bird' else RED  # drones red, birds green
         cv2.rectangle(out, (c.x - pad, c.y - pad), (c.x + c.width + pad, c.y + c.height + pad),
-                      RED, 2)
-        lines = [(f"est {row['est_distance']:.1f} m ({row['size_px']} px)", RED)]
+                      box, 2)
+        score = f'{c.score:.2f}' if c.score <= 1.0 else f'{c.score:.0f}'  # YOLO 0-1, baseline contrast
+        lines = [(f'{c.label} {score}', box),
+                 (f"est {row['est_distance']:.1f} m ({row['size_px']} px)", box)]
         if row.get('target') is not None:
             lines.append((f"true {row['true_distance']:.1f} m (drone {row['target']})", GREEN))
             lines.append((f"direction off {row['direction_error_deg']:.1f} deg", RED))
@@ -261,7 +266,8 @@ def plot(rows: list[dict], out: Path, method: str) -> None:
     ax.plot([0, limit], [0, limit], color='grey', linestyle='--', label='perfect')
     ax.scatter(true, est, color='tab:red', label=f'{method} ({n} detections)')
     ax.set(xlabel='True distance (m)', ylabel='Estimated distance (m)', xlim=(0, limit),
-           ylim=(0, limit), title=f'Distance from box size, assuming a {TARGET_SIZE_M} m drone')
+           ylim=(0, limit), title=('Distance from box size, 0.5 m / longer side' if method == 'baseline'
+                  else f'Distance from box size, {BOX_SIZE_M} m / sqrt(w*h)'))
     ax.legend()
     fig.savefig(out / 'distance_estimated_vs_true.png', dpi=150, bbox_inches='tight')
     plt.close(fig)
@@ -296,8 +302,9 @@ def plot(rows: list[dict], out: Path, method: str) -> None:
 
     # What the drone's real width would have to be for r = f s / p to give the true distance.
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.axhline(TARGET_SIZE_M, color='grey', linestyle='--', label=f'assumed {TARGET_SIZE_M} m')
-    ax.scatter(size, [TARGET_SIZE_M * t / e for t, e in zip(true, est)], color='tab:red',
+    assumed = TARGET_SIZE_M if method == 'baseline' else BOX_SIZE_M
+    ax.axhline(assumed, color='grey', linestyle='--', label=f'assumed {assumed} m')
+    ax.scatter(size, [assumed * t / e for t, e in zip(true, est)], color='tab:red',
                label='size that would fit')
     ax.set(xlabel='Box size (px)', ylabel='Drone size (m)', ylim=(0, None),
            title='Apparent size of the drone')

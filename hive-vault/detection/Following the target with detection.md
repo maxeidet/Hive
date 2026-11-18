@@ -1,6 +1,6 @@
 # Following the target with detection
 
-How the camera detection can steer the drone, so that it follows the hostile drone without the radar telling it where the target is. A design to discuss, written 13 Oct 2026. Nothing here is built yet. It is step 4 of [[Detection implementation plan]] ("lock-on") worked out in more detail, and follows the ideas in [[Lock-on brainstorm]].
+How the camera detection can steer the drone, so that it follows the hostile drone without the radar telling it where the target is. A design to discuss, written 13 Oct 2026. **Since then the baseline attack ([[Baseline attack work plan]]) took a simpler route:** Max's attack node flies pure pursuit on `target_position` and turns the gimbal by 0.5 × `target_offset`, camera only, with the states SEARCH → ATTACK → COAST → LOST and no radar hand-over. What is left here is the follow-at-a-distance idea, the direction filter and the radar hand-over, none of them built. It is step 4 of [[Detection implementation plan]] ("lock-on") worked out in more detail, and follows the ideas in [[Lock-on brainstorm]].
 
 Back to [[Home]].
 
@@ -12,15 +12,18 @@ The detector gives, for each image, where the target is in the picture and how b
 
 ## What we have and what is missing
 
+Status 17 Oct.
+
 | Piece | Status |
 |---|---|
-| Find the target in an image (`detect/candidates.py`) | Works against the sky |
-| Confirm it over several images (`detect/tracking.py`) | Works, in pixels |
-| Run on the camera in flight (`detect/live.py`) | Works, about 4 images per second on the Mac |
-| Pixel → direction, size → distance (`detect/camera.py`) | Works, but only tested with the camera's true orientation |
-| Camera orientation from PX4's gimbal status | Missing |
-| Gimbal loop that centres the target | Missing (the chase aims the gimbal from the radar estimate) |
-| Guidance that flies on a direction | Missing (the chase flies to a position) |
+| Find the target in an image (`detect/candidates.py`, behind `detect/detectors.py`) | Works against the sky |
+| Confirm it over several images (`detect/tracking.py`) | Works, matched by world direction |
+| Run on the camera in flight (`detect/live.py`) | Works, about 30 ms per image |
+| Pixel → direction, size → distance (`detect/camera.py`) | Works, with PX4's camera orientation |
+| Camera orientation from PX4's gimbal status (`detect/orientation.py`) | Works: 0.35° median, 1.6° worst |
+| Gimbal loop that centres the target | Built by Max in the attack (P: 0.5 × `target_offset` per message) |
+| Guidance that flies on a direction | Built by Max in the attack (pure pursuit at full speed); no distance keeping |
+| Direction filter | Missing |
 | Hand-over between radar and camera | Missing |
 
 ## The loops
@@ -77,9 +80,7 @@ This is also the report's lock-on measure: target in view, confirmed, within 20 
 
 - **The detector only works against the sky.** In scenario 1 the chaser flew level with the target and mostly saw it against trees. Follow from **behind and a few metres below**, so the camera looks slightly up and the target has sky behind it. This is a setting in the guidance (a height offset), and the biggest single thing for making the baseline usable.
 - **Too close is also bad.** Above 40 px (closer than about 5 m) the detector drops the target. Keep the wanted distance at 10–15 m, where the target is 14–20 px.
-- **Tracking in pixels breaks when the gimbal turns.** The confirmation should match detections by world direction instead. `tracking.py` already allows this; it needs the camera orientation.
-- **The camera orientation comes from PX4, not from the truth.** First measure how good it is: compare the orientation PX4 reports with the one in the `.json` files that `snap` saves.
-- **Speed.** About 4 images per second on the Mac. Enough for following at a distance, slow for a target crossing close by. The gimbal can be turned by the filter between images.
+- **The lock drops when the target crosses the view** (14 Oct crossing runs, cause not known yet). A direction filter that predicts through short losses is the likely help.
 - **The drone's own propellers are in the picture** when the gimbal looks up. Candidates touching the image edge are already ignored; a fixed mask for the own arms may be needed.
 - **Distance from size is rough.** It is good enough to hold a distance, not for a position. Radar range, or a second drone (triangulation), fixes that later.
 
@@ -87,9 +88,9 @@ This is also the report's lock-on measure: target in view, confirmed, within 20 
 
 | Step | What | Done when |
 |---|---|---|
-| 1 | Camera orientation from PX4's gimbal status, as forward / right / down vectors | The direction error against the truth files is known (aim: under 2°) |
-| 2 | Gimbal loop on the detection | Target hovering in view: the gimbal brings it to the image centre and holds it while the camera drone is moved by hand |
-| 3 | Direction filter, and tracking by world direction | The target stays confirmed while the gimbal turns; short losses are bridged |
+| 1 | Camera orientation from PX4's gimbal status, as forward / right / down vectors | **Done 14 Oct** (0.35° median) |
+| 2 | Gimbal loop on the detection | **Done** in Max's attack node |
+| 3 | Direction filter, and tracking by world direction | Tracking by world direction **done 14 Oct**; the filter is not built |
 | 4 | Guidance A with a distance and a height offset | Drone 2 follows drone 1 flying a circle at 4 m/s on the camera alone, 10–15 m behind and below |
 | 5 | States: radar cue → locked → coast → cue | Scenario 1 with hand-over: starts on radar, switches to the camera, falls back when the target is hidden |
 | 6 | Score it | Share of the time locked, longest lock, distance kept, against the radar-only chase on the same scenario |
@@ -98,6 +99,6 @@ Steps 1–3 do not fly the drone on the camera, so they are safe to try early. E
 
 ## Open questions
 
-- [ ] A first (camera only), then B, or straight to B because the tracker is needed anyway for the base station?
+- [x] A first (camera only), then B? A (pure pursuit on the camera) is what the baseline attack does. B is still open for the later methods.
 - [ ] Should LOCKED still use the radar's distance when there is one?
 - [ ] Follow from below: how far below, and does that fit the report's fixed patrol altitude?

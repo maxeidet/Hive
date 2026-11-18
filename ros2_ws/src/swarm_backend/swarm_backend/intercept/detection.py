@@ -18,6 +18,7 @@ The fake detector below makes the same two messages from where the drones really
 (Gazebo), with the camera's field of view, a range limit, a blind zone, noise and a delay
 that can each be turned on. Pure math, no ROS: nodes/fake_detection.py runs it.
 """
+import dataclasses
 import math
 import random
 from collections import deque
@@ -35,6 +36,14 @@ MIN_RANGE_M = 0.1  # a noisy distance is never shorter than this
 # Max task 1): 0.25 s late, 1 degree and 20 % noise, nothing seen closer than 5 m.
 REALISTIC = {'fake_delay': 0.25, 'fake_angle_noise_deg': 1.0, 'fake_range_noise': 0.2,
              'fake_blind_range': 5.0}
+
+
+def fake_config(config: AttackConfig, realistic: bool = False, **overrides) -> AttackConfig:
+    """The attack config with the fake detector's errors: REALISTIC first, then the
+    overrides that are not None."""
+    changes = dict(REALISTIC) if realistic else {}
+    changes.update({k: v for k, v in overrides.items() if v is not None})
+    return dataclasses.replace(config, **changes)
 
 
 def topic(drone_id: int, name: str) -> str:

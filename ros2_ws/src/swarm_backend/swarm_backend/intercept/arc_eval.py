@@ -14,6 +14,11 @@ their arc (surveillance: in swarm.yaml), so the result is a baseline of the syst
              when it is `detect_range` away. The track goes straight to the base, and
              starts `approach_m` further out along it, so the hostile drone is first
              seen by the real detector instead of being placed inside its range.
+             Two options (compare_paths.sh uses both): `altitude` flies the hostile at
+             that altitude instead of the drawn one, and `sector` (a defender's index)
+             starts it at a seeded random bearing inside that defender's sector of the
+             arc (the middle drone's 30 degrees), as far out as the aspect would, and
+             flies it straight at the base; the aspect is then only nominal.
   detect     his make_scenario draws (the hostile's altitude, then its bearing), the
              bearing squeezed onto the arc's span (the arc only watches the threat
              side), no birds; it starts start_margin outside the arc, capped at
@@ -35,7 +40,7 @@ from swarm_backend.detect.scenario import HOSTILE_ID, DetectScenario, FrameRecor
 from swarm_backend.intercept.interceptor import Status
 from swarm_backend.intercept.metrics import Sample
 from swarm_backend.intercept.scenario import Scenario
-from swarm_backend.swarm.arc import arc_points
+from swarm_backend.swarm.arc import arc_points, sectors
 
 APPROACH_M = 60.0  # the intercept track starts this much before first possible detection
 MAX_START_M = 450.0  # hive_base's ground plane is 1000 x 1000 m around the base
@@ -50,19 +55,37 @@ def slots(config: SurveillanceConfig, altitude: float | None = None) -> list[Vec
                       len(config.drone_ids), config.arc_deg)
 
 
+def sector_bearing_deg(seed: int, index: int, surveillance: SurveillanceConfig) -> float:
+    """A seeded random bearing (degrees from the threat heading) inside defender `index`'s
+    sector of the full arc (-15..15 for the middle one of three on 90 degrees). Its own
+    random stream, so it is the same for a seed whatever the altitude, path or speed."""
+    n = len(surveillance.drone_ids)
+    if not 0 <= index < n:
+        raise ValueError(f'No defender {index} on the arc (0..{n - 1}, left to right)')
+    lo, hi = sectors(range(n), surveillance.arc_deg)[index]
+    return random.Random(f'sector-start-{seed}').uniform(lo, hi)
+
+
 def make_intercept_scenario(aspect_deg: float, speed: float, seed: int,
                             config: InterceptConfig, surveillance: SurveillanceConfig,
-                            approach_m: float = APPROACH_M) -> tuple[Scenario, int]:
+                            approach_m: float = APPROACH_M, altitude: float | None = None,
+                            sector: int | None = None) -> tuple[Scenario, int]:
     """His intercept scenario on the arc, and the index of the defender it is built
-    around (left to right). Raises ValueError for an aspect the arc cannot give."""
+    around (left to right). `altitude` (m) replaces the drawn one; `sector` (a defender's
+    index) starts the track at sector_bearing_deg. Raises ValueError for an aspect the arc
+    cannot give."""
     rng = random.Random(seed)
     ring = rng.uniform(-math.pi, math.pi)  # same draws, same order as scenario.make_scenario
     side = rng.choice((-1.0, 1.0))
     target_z = -rng.uniform(config.hostile_altitude_min, config.hostile_altitude_max)
+    if altitude is not None:
+        target_z = -altitude
 
     points = slots(surveillance)
     n = len(points)
     index = min(n - 1, int((ring + math.pi) / (2 * math.pi) * n))
+    if sector is not None:
+        index = sector
     interceptor = points[index]
     bx, by = surveillance.base_position
     big_r = math.hypot(interceptor[0] - bx, interceptor[1] - by)
@@ -74,6 +97,9 @@ def make_intercept_scenario(aspect_deg: float, speed: float, seed: int,
     distance = r * math.cos(aspect) + math.sqrt(big_r ** 2 - (r * math.sin(aspect)) ** 2)
     start = min(distance + approach_m, MAX_START_M)
     bearing = math.atan2(interceptor[1] - by, interceptor[0] - bx) + side * at_base
+    if sector is not None:
+        bearing = math.radians(surveillance.threat_heading_deg
+                               + sector_bearing_deg(seed, sector, surveillance))
     scenario = Scenario(
         aspect_deg=aspect_deg, speed=speed, seed=seed, base=(bx, by, 0.0),
         interceptor_start=interceptor,
@@ -120,6 +146,7 @@ def make_detect_scenario(seed: int, config: DetectConfig, surveillance: Surveill
 
 SAMPLE_DT = 0.1  # 10 Hz, as scenario.STEP_S
 MAX_TRUTH_GAP_S = 0.2  # an image or sample further than this from any truth is skipped
+END_DENSE_S = 2 * SAMPLE_DT  # the end of a run is sampled at every truth point
 MAX_IMAGE_AGE_S = 0.3  # a sample uses its defender's latest image at most this old
 
 
@@ -196,10 +223,16 @@ def intercept_samples(truth: list[TruthPoint], records: dict, statuses: list, dr
     rec_stamps = [r['stamp'] for r in recs]
     status_stamps = [s for s, _ in statuses]
     samples = []
+    times = []
     k = 0
     while t0 + k * SAMPLE_DT <= t_end + 1e-9:
-        t = t0 + k * SAMPLE_DT
+        times.append(t0 + k * SAMPLE_DT)
         k += 1
+    # A run ends at the hit, usually between two 10 Hz samples: every truth point of the
+    # last END_DENSE_S too, so the contact the referee saw is scored (it was dropped
+    # before, and a hit at 1.2 m was saved as a miss at 1.9 m).
+    times += [s for s in stamps if t_end - END_DENSE_S <= s <= t_end + 1e-9]
+    for t in sorted(set(times)):
         point, gap = nearest(truth, stamps, t)
         if point is None or gap > MAX_TRUTH_GAP_S or point.hostile is None \
                 or drone not in point.bodies:
@@ -222,3 +255,44 @@ def intercept_samples(truth: list[TruthPoint], records: dict, statuses: list, dr
         samples.append(Sample(t=t - t0, interceptor=point.bodies[drone], target=point.hostile,
                               in_view=in_view, detected=detected, status=status))
     return samples
+
+
+@dataclass(frozen=True)
+class FirstDetection:
+    t: float  # seconds since t0
+    defender: int  # index, left to right
+    distance: float  # metres, 3-D (the space diagonal) from the defender to the hostile
+    horizontal: float  # metres, the same on the ground
+    height: float  # metres, the hostile above (+) or below (-) the defender
+
+
+def first_detection(truth: list[TruthPoint], records: dict, t0: float, t_end: float,
+                    hfov: float, target_size: float,
+                    match_radius_px: float) -> FirstDetection | None:
+    """The first image in which any defender's detector confirmed the hostile drone (a
+    confirmed track within match_radius_px of where the truth projects it), with the true
+    distance from that defender to the hostile at that image. None if nobody did."""
+    stamps = [p.stamp for p in truth]
+    best = None
+    for drone, recs in records.items():
+        for record in sorted(recs, key=lambda r: r['stamp']):
+            if not t0 <= record['stamp'] <= t_end or not record['confirmed']:
+                continue
+            if best is not None and record['stamp'] - t0 >= best.t:
+                break
+            point, gap = nearest(truth, stamps, record['stamp'])
+            if point is None or gap > MAX_TRUTH_GAP_S or point.hostile is None \
+                    or drone not in point.cameras or drone not in point.bodies:
+                continue
+            frame = _frame(point, drone, record, record['stamp'] - t0, hfov, target_size,
+                           friendlies=False)
+            hostile = [o for o in frame.objects if o.id == HOSTILE_ID]
+            if not any(o is not None for o in match(detections(record, drone), hostile,
+                                                    match_radius_px)):
+                continue
+            me, it = point.bodies[drone], point.hostile
+            best = FirstDetection(
+                t=record['stamp'] - t0, defender=drone, distance=math.dist(me, it),
+                horizontal=math.hypot(it[0] - me[0], it[1] - me[1]), height=me[2] - it[2])
+            break
+    return best

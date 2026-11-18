@@ -33,9 +33,9 @@ def test_baseline_takes_its_options():
     assert detectors.make('baseline', options('--contrast', '250'))(sky_with_drone(), None) == []
 
 
-def test_yolo_is_not_there_yet():
-    with pytest.raises(NotImplementedError):
-        detectors.make('yolo', options())
+def test_yolo_without_weights_says_what_to_do(tmp_path):
+    with pytest.raises(NotImplementedError, match='training/README.md'):
+        detectors.make('yolo', options('--weights', str(tmp_path / 'none.onnx')))
 
 
 def test_every_detector_has_a_name():

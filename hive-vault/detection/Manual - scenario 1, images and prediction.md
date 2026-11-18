@@ -18,8 +18,6 @@ docker/start-dev.sh
 
 This builds the image, starts the container and opens a terminal with PX4 and Gazebo (drone 0). The Gazebo desktop is at http://localhost:6080/vnc.html; the password is printed by the script. Wait until Gazebo shows the world and drone 0.
 
-The first start after 13 Oct rebuilds the image, because OpenCV was added to it.
-
 ## 2. Fly scenario 1
 
 ```bash
@@ -100,10 +98,10 @@ Other folders: `./mount-backend.sh predict baseline --images /workspace/data/X -
 
 To start clean, delete `data/results/baseline/` first; old result images are not removed by a new run.
 
-> [!note] `predict` does more than a detector needs
-> `predict` is an evaluation tool for now. Besides detecting, it reads the truth files, matches each detection to the real drone, computes the errors, draws text and arrows on every image, writes the CSV and makes the plots. None of that is needed to detect a drone during flight, and it is slow. This will be addressed later: the detection itself (find the drone, estimate distance and direction) will be separated from the evaluation, so the same detection code runs live on the drone and the evaluation is an optional step on top.
+> [!note] `predict` and `detect` share the detector
+> `predict` is the evaluation on top: it reads the truth files, matches each detection to the real drone, computes the errors, draws on every image and makes the plots. The detection itself is `detect/detectors.py`, the same code the live detector runs, so `predict baseline` scores exactly what flies.
 
-## 5. Run the detector live (publishes target_offset)
+## 5. Run the detector live (publishes target_offset and target_position)
 
 While a scenario or the shell flies, in another terminal:
 
@@ -112,13 +110,13 @@ While a scenario or the shell flies, in another terminal:
 ./mount-backend.sh detect 2 --detector yolo      # once YOLO is trained
 ```
 
-It publishes, for the best confirmed target, `/px4_2/detection/target_offset` (the angles from the image centre, see [[Baseline attack work plan]]) and a debug picture on `/px4_2/detection/debug` with the boxes, a white cross at the image centre and the offset in degrees next to the target. Watch the angles with `ros2 topic echo /px4_2/detection/target_offset` inside the container. The angles are not corrected for camera roll yet.
+It publishes, for the best confirmed target, `/px4_2/detection/target_offset` (the angles from the image centre, roll-corrected) and `/px4_2/detection/target_position` (metres from the drone), see [[Baseline attack work plan]], and a debug picture on `/px4_2/detection/debug`. Options, the debug picture and how to read the topics: [[Tutorial - live detector (detect)]].
 
 ## How to read the results
 
 - **The baseline only finds a drone against the sky.** A drone in front of trees or ground is missed; that is the detector's limit, not a bug. It also misses a drone wider than 40 px or cut off by the image edge.
 - **Distance** is estimated from the box width, assuming the drone is 0.5 m wide. Expect errors of 20 % or more.
-- **Direction** is estimated from where the box is in the image, using the camera's true orientation from the `.json`. So the direction error shown is from the detection alone.
+- **Direction** is estimated from where the box is in the image, using the camera's true orientation from the `.json`. So the direction error shown is from the detection alone. When the `.json` also has PX4's orientation (`px4_camera`, saved by `snap` since 14 Oct), `predict` also gives the direction and the target_position with PX4's orientation, as the live detector computes them.
 - **The truth itself** is good to about 0.7°, so direction errors below 1° cannot be told apart.
 - A detection with the text "no drone here" is a false alarm: nothing was within 40 px of where a drone really was.
 

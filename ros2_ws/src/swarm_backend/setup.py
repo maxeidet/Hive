@@ -8,6 +8,7 @@ setup(
     name=package_name,
     version='0.0.1',
     packages=find_packages(exclude=['test', 'tests']),
+    package_data={'swarm_backend.ui': ['static/*']},
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -35,6 +36,8 @@ setup(
             'patrol_node = swarm_backend.nodes.patrol_node:main',
             'daep_bridge = swarm_backend.explore.daep_bridge:main',
             'save_map = swarm_backend.explore.save_map:main',
+            'operator_ui = swarm_backend.nodes.operator_ui:main',
+            'hivemind_node = swarm_backend.nodes.hivemind_node:main',
         ],
     },
 )

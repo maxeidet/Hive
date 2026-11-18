@@ -57,7 +57,7 @@ Results: one row per run in `data/surveillance_attack_runs.csv`. Columns include
 
 | Where | Change |
 |---|---|
-| `tests/attack_test.py` | Rewritten: the whole chain (patrols, base station, detectors, referee) in one process, on Gazebo's clock. The one-on-one patterns (`crossing`, `headon`, `circle`, `offset`) are gone |
+| `swarm_backend/scenarios/attack.py` (was `tests/attack_test.py`; `./mount-backend.sh scenario attack [--sim]`) | Rewritten: the whole chain (patrols, base station, detectors, referee) in one process, on Gazebo's clock. The one-on-one patterns (`crossing`, `headon`, `circle`, `offset`) are gone |
 | `intercept/attack_scenario.py` | `Inbound` / `inbound_path`: from `start_m` out, `bearing_deg` off the threat heading, straight at the base |
 | `intercept/base_station.py` | `on_kill`: the target is gone, and the attacker survives and returns. `on_hit` (attacker lost) stays for a defender that goes silent, and for `surveillance_sim.py` |
 | `nodes/base_station_node.py` | Handles the new `kill` event. `contact` (the detector saw the target within 3 m) is now only logged, no longer counted as a hit that loses the attacker. Takes a clock |

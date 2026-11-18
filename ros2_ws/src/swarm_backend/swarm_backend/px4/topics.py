@@ -34,6 +34,10 @@ class PX4Topics:
         return self._out('vehicle_odometry')
 
     @property
+    def vehicle_local_position(self) -> str:
+        return self._out('vehicle_local_position_v1')
+
+    @property
     def vehicle_status(self) -> str:
         return self._out('vehicle_status_v4')
 

@@ -20,11 +20,13 @@ RUN apt-get update && apt-get install -y \
 # rviz2 = 3D viewer for ROS 2 data, runs in the VNC desktop (mount-backend.sh lidar).
 # radar_msgs = the mock base-station radar's messages (swarm_backend/intercept/radar.py).
 # python3-opencv = image processing for the camera detector (swarm_backend/detect/).
+# python3-scipy = optimal (Hungarian) matching in ByteTrack (swarm_backend/detect/bytetrack.py).
 RUN apt-get update && apt-get install -y \
     ros-jazzy-ros-gz-bridge \
     ros-jazzy-rviz2 \
     ros-jazzy-radar-msgs \
     python3-opencv \
+    python3-scipy \
     && rm -rf /var/lib/apt/lists/*
 
 # 3D mapping (hive-vault/mapping/3D mapping plan.md): public ROS packages the DAEP
@@ -48,6 +50,26 @@ RUN apt-get update && apt-get install -y \
 # PX4 (whose entrypoint sources ROS) cannot start Gazebo. ROS prepends to this value, so
 # setting it here keeps the system Gazebo commands available.
 ENV GZ_CONFIG_PATH=/usr/share/gz
+
+# onnxruntime = runs the trained YOLO model (ONNX) for `--detector yolo`; OpenCV 4.6's own
+# ONNX reader cannot run YOLO26. --no-deps so pip leaves the apt numpy and protobuf alone
+# (cv2 and Gazebo's Python bindings are built against those); flatbuffers is the one
+# dependency it needs at run time.
+# On x86 (Stellar) the GPU build, with CUDA 12 and cuDNN 9 from pip (the base image has
+# no CUDA): YOLO at 1280 px takes ~9 ms per image on the RTX 3090 Ti instead of ~400 ms on
+# the CPU, where three detectors slowed Gazebo to 0.12x real time. detect/yolo_onnx.py
+# falls back to the CPU when no GPU is visible (start-stellar.sh without --gpu). Other
+# machines (arm64 Macs) keep the CPU build: there is no onnxruntime-gpu for them.
+ARG TARGETARCH
+RUN if [ "${TARGETARCH:-$(dpkg --print-architecture)}" = "amd64" ]; then \
+      pip3 install --break-system-packages --no-deps onnxruntime-gpu==1.22.0 \
+        nvidia-cudnn-cu12==9.10.2.21 nvidia-cublas-cu12==12.8.4.1 \
+        nvidia-cuda-runtime-cu12==12.8.90 nvidia-cufft-cu12==11.3.3.83 \
+        nvidia-curand-cu12==10.3.9.90 nvidia-cuda-nvrtc-cu12==12.8.93 \
+        nvidia-nvjitlink-cu12==12.8.93 flatbuffers==24.3.25; \
+    else \
+      pip3 install --break-system-packages --no-deps onnxruntime==1.20.1 flatbuffers==24.3.25; \
+    fi
 
 # Simulation only: the x500 airframe (and every x500 variant, they all source it) sets
 # NAV_DLL_ACT=2, "return home when the ground-station link is lost". With that on, PX4

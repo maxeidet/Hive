@@ -18,9 +18,12 @@ Start here, then follow the links.
 | [[px4_ros2_drone_swarm_development_roadmap]]   | Bottom-up build order for `swarm_backend` (one drone → swarm → formations → missions), with current status                                          |
 | [[1octstella]]                                 | Intercept and lock-on design notes (1 Oct 2026): chase algorithm, radar model, sensor ranges, the real scenario                                     |
 | [[Detection implementation plan]]              | How to build the report's detection section: camera math, dark-object baseline, YOLO26 + ByteTrack, Gazebo training data, evaluation, order of work |
+| [[Training data and YOLO training]] | Detection: how training data is collected in Gazebo (placed stills + flown sequences), labels, rendering checks, YOLO26 training and open questions |
+| [[Candidate detector v2 (blob2)]] | Plan (not built): a better first-stage blob detector for YOLO on cut-outs: contrast vs local noise, both polarities, several sizes, top-N, tuned on the labelled generated images |
 | [[Progress 2026-10-13]]                        | Detection, day 1: what was built (image capture with truth, scenario 1, baseline detector, predict), first results and what we learned              |
 | [[Manual - scenario 1, images and prediction]] | Step by step: fly scenario 1, take camera images with the truth saved, run the detector on them                                                     |
 | [[Tutorial - live detector (detect)]]          | How to run `./mount-backend.sh detect`: options, the debug picture, what it publishes (target_offset), known limits. Updated as it grows            |
+| [[Threshold tuning 2026-11-11]] | Recorded scenario 2 flights replayed over YOLO/ByteTrack/lock thresholds: detector range, results and the proposed thresholds |
 | [[Manual tests to do]]                         | Checklist of tests that need a person and the running simulation, kept up to date as things are built                                               |
 | [[Following the target with detection]]        | Design: how the detection steers the gimbal and the drone so it follows the target on the camera, with the radar as cue and fallback                |
 | [[Baseline attack work plan]]                  | Oskar/Max agreement (13 Oct): the two shared ROS topics (target_position, target_offset), who builds what, the attack states, open points           |
@@ -50,6 +53,7 @@ Setup docs that live in the repo, outside the vault:
 - `docker/README.md`: the dev container, the `start-dev.sh` flags, worlds and drone sensor variants
 - `docker/README-stellar.md`: running on the Stellar lab computers (rules, `start-stellar.sh`, cleanup)
 - `ros2_ws/src/swarm_backend/README.md`: the backend, `mount-backend.sh` commands, intercept
+- **YOLO models** are not in git. Download the `.onnx` files from the repo's GitHub Releases (`github.com/maxeidet/Hive/releases`: `model-gazebo-only`, `model-dvb-gazebo-v1`, `model-dvb-v1`; the repo is private, so log in) and put them in `models/` in the repo root. The detector uses the newest file in `models/` (by modification time, any subfolder) unless `--weights` names one, so the model you downloaded or copied last is the active one.
 
 ## Research
 

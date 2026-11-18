@@ -12,7 +12,6 @@ swarm.yaml; flags override them. All errors are off by default (a perfect detect
 It cheats on purpose (true positions, true camera orientation), and says so in the log.
 """
 import argparse
-import dataclasses
 import subprocess
 import sys
 import threading
@@ -20,7 +19,7 @@ import threading
 from swarm_backend import ground_truth
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.intercept.detection import (
-    FRAME_ID, OFFSET_TOPIC, POSITION_TOPIC, REALISTIC, FakeDetector, topic)
+    FRAME_ID, OFFSET_TOPIC, POSITION_TOPIC, FakeDetector, fake_config, topic)
 from swarm_backend.save_images import drone_names
 from swarm_backend.sensor_view import find_sensors
 
@@ -109,13 +108,6 @@ class FakeDetectionNode:
         self._position_pub.publish(position)
         self._offset_pub.publish(offset)
         self.last_seen = (stamp, sum(c * c for c in found.position) ** 0.5)
-
-
-def fake_config(config, realistic: bool = False, **overrides):
-    """The attack config with the fake detector's errors: --realistic first, then flags."""
-    changes = dict(REALISTIC) if realistic else {}
-    changes.update({k: v for k, v in overrides.items() if v is not None})
-    return dataclasses.replace(config, **changes)
 
 
 def find_scene(config) -> tuple[str, dict[int, str], str]:

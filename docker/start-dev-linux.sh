@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
+# LOCAL DEV ON LINUX (and WSL). Builds and starts the Gazebo-VNC container and opens a
+# second terminal that starts PX4 + Gazebo (drone 0) inside it.
+#
+# Usage:
+#   ./start-dev-linux.sh                  # gz_x500 in hive_base
+#   ./start-dev-linux.sh -m gz_x500_gimbal -w hive_base
+#   ./start-dev-linux.sh --headless       # Gazebo without its GUI window: faster (the
+#                                         # cameras still render, offscreen)
 set -e
 
 WORLD_TIMEOUT="${WORLD_TIMEOUT:-180}"
 MODEL="gz_x500"
 WORLD="hive_base"
+HEADLESS=""
 
 # ============================================================
 # PX4 terminal mode
@@ -14,6 +23,7 @@ if [[ "${1:-}" == "--px4-terminal" ]]; then
 
     MODEL="${1:-gz_x500}"
     WORLD="${2:-hive_base}"
+    HEADLESS="${3:-}"
 
     echo "Waiting for PX4 container..."
 
@@ -40,6 +50,7 @@ if [[ "${1:-}" == "--px4-terminal" ]]; then
         export PX4_SIM_MODEL='${MODEL}'
         export PX4_GZ_WORLD_TIMEOUT='${WORLD_TIMEOUT}'
         export PX4_GZ_MODEL_POSE=0,5,0,0,0,0
+        if [ -n '${HEADLESS}' ]; then export HEADLESS=1; fi
 
         echo
         echo 'PX4_GZ_WORLD='\${PX4_GZ_WORLD}
@@ -68,8 +79,13 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
 
+        --headless)
+            HEADLESS=1
+            shift
+            ;;
+
         -h|--help)
-            grep '^#' "$0" | sed 's/^#//'
+            grep '^#' "$0" | tail -n +2 | sed 's/^# \{0,1\}//'
             exit 0
             ;;
 
@@ -107,32 +123,32 @@ if [[ -n "${WSL_DISTRO_NAME:-}" ]] && command -v wt.exe >/dev/null 2>&1; then
     wt.exe new-tab \
         --title "PX4 + Gazebo" \
         wsl.exe -d "$WSL_DISTRO_NAME" \
-        -- bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD"
+        -- bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD" "$HEADLESS"
 
 elif command -v gnome-terminal >/dev/null 2>&1; then
 
     gnome-terminal \
         --title="PX4 + Gazebo" \
-        -- bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD"
+        -- bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD" "$HEADLESS"
 
 elif command -v konsole >/dev/null 2>&1; then
 
     konsole \
         --new-tab \
-        -e bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD"
+        -e bash "$SCRIPT_PATH" --px4-terminal "$MODEL" "$WORLD" "$HEADLESS"
 
 elif command -v xfce4-terminal >/dev/null 2>&1; then
 
     xfce4-terminal \
         --title="PX4 + Gazebo" \
-        --command="bash $SCRIPT_PATH --px4-terminal $MODEL $WORLD"
+        --command="bash $SCRIPT_PATH --px4-terminal $MODEL $WORLD $HEADLESS"
 
 else
     echo "ERROR: Could not find a supported terminal emulator."
     echo
     echo "Start the container, then run:"
     echo
-    echo "  $SCRIPT_PATH --px4-terminal $MODEL $WORLD"
+    echo "  $SCRIPT_PATH --px4-terminal $MODEL $WORLD $HEADLESS"
     exit 1
 fi
 
@@ -149,6 +165,7 @@ docker run --rm -it \
     --name px4-gazebo-vnc \
     -p 6080:6080 \
     -p 5900:5900 \
+    -p 127.0.0.1:8090:8090 \
     -v "$(pwd)/..":/workspace \
     hive-px4-vnc \
     MicroXRCEAgent udp4 -p 8888

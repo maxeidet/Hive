@@ -1,6 +1,6 @@
 # Tutorial: the live detector (`./mount-backend.sh detect`)
 
-How to run the detector on a drone's camera while the simulation flies, see what it finds, and read what it publishes for the attack node. This note is updated as the detector grows. Last updated 14 Oct 2026 (task 3: target_position).
+How to run the detector on a drone's camera while the simulation flies, see what it finds, and read what it publishes for the attack node. This note is updated as the detector grows. Last updated 17 Oct 2026 (all five tasks of the work plan done).
 
 Back to [[Home]]. Related: [[Baseline attack work plan]] (the topics agreed with Max), [[Manual - scenario 1, images and prediction]] (scenario 1, `snap`, `predict`).
 
@@ -11,7 +11,7 @@ Back to [[Home]]. Related: [[Baseline attack work plan]] (the topics agreed with
 For every camera image (as fast as it can, up to `--rate` per second):
 
 1. **Detect:** the chosen detector finds candidate targets in the image (boxes with a score).
-2. **Confirm:** a candidate seen in `--k` images in a row, moving at most `--gate` pixels between images, becomes a confirmed target.
+2. **Confirm:** a candidate seen in `--k` images in a row, moving at most `--gate-deg` degrees in the world between images (`--gate` pixels until PX4's camera orientation is known), becomes a confirmed target.
 3. **Publish:** for the best confirmed target (highest score), it publishes the topics below. With no confirmed target it publishes nothing.
 4. **Debug picture:** the image with everything drawn on it, on its own topic.
 
@@ -54,7 +54,7 @@ When it starts it prints the camera topic, the topics it publishes and whether t
 | `confirmed: T4 at (692, 352) 9x7px score 104` | Confirmed track 4: its centre pixel, box size and score. `none` if nothing is confirmed |
 | `offset x +4.6 y +0.6 deg` | The published target_offset, in degrees: right and up positive, roll-corrected |
 | `position N +14.8 E -0.1 D -8.6 m (17.1 m away)` | The published target_position: metres north, east and down (negative = above) from the drone, and the distance |
-| `camera roll +0 deg` | The camera's roll from PX4 (right side down positive). `camera roll unknown` = PX4 has not reported yet, and the offset is sent uncorrected |
+| `camera roll +0 deg` | The camera's roll from PX4 (right side down positive). `camera roll unknown` = PX4 has not reported yet (or its clock just jumped, see Known limits), and the offset is sent uncorrected |
 | `241 ms/image` | Time per image (this example is from before task 5; now about 30 ms). Under 200 ms = more than 5 images per second |
 
 Ctrl-C stops it.
@@ -91,6 +91,9 @@ Open RViz on the drone: `./mount-backend.sh view 2`. Click **Add → By topic �
 | Red box with `T<id> <size>px` | Confirmed target |
 | Red text `x … y … deg` | The offset that was published for it |
 | White cross | The image centre |
+| Grey box `T<id> lost <n>` | ByteTrack: a lost track, drawn where its filter predicts it |
+| Green box `bird <score>` | YOLO: a box classed as a bird. Shown only: never tracked, locked or published (added 11 Nov) |
+| Blue box `friend <drone> T<id>` | A track on one of our own drones, from the hivemind's positions (`/hive/friendlies`). Tracked, but never locked or published (added 11 Nov) |
 
 ## Read what it publishes
 
@@ -137,6 +140,8 @@ point: {x: 14.82, y: -0.13, z: -8.58}   # 14.8 m north, 0.1 m west, 8.6 m above
 
 - **Sky only.** The baseline finds the target against the sky, not in front of trees or ground. In scenario 1 the chaser flies level with the target, so it is mostly against trees and there are long gaps.
 - **Not closer than about 5 m.** The target is then wider than 40 px and dropped.
+- **The lock drops when the target crosses the view.** In the 14 Oct crossing runs the attack spent as long coasting or lost as attacking; why is not known yet ([[Join test results 2026-10-14]]).
+- **PX4's clock jumps by 60–79 s now and then** ("PX4 clock jumped … (time sync?)"). The camera orientation is then unknown for about one image. Proposed fix: `UXRCE_DDS_SYNCT` = 0 in the container.
 
 ## Troubleshooting
 

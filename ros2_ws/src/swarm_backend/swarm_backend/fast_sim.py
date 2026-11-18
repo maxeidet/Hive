@@ -1,10 +1,12 @@
-"""A fast stand-in for PX4 in Gazebo, for closed-loop unit tests. No ROS."""
+"""A fast stand-in for PX4 in Gazebo: for closed-loop unit tests and for running the
+scenarios without Gazebo (`--sim`, swarm_backend/scenarios). No ROS."""
 import math
 
 from swarm_backend.config import DetectConfig
 from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect.frame import aimed_camera, make_frame
 from swarm_backend.detect.scenario import DetectScenario
+from swarm_backend.intercept.mpc import PX4_VELOCITY_GAIN
 from swarm_backend.intercept.scenario import Scenario
 from swarm_backend.px4.drone import Drone
 
@@ -12,28 +14,42 @@ from swarm_backend.px4.drone import Drone
 class SimDrone(Drone):
     """Flies like a speed- and acceleration-limited position controller with
     feed-forward, which is roughly what PX4 does with our setpoints. A velocity
-    setpoint is followed directly, within the same limits."""
+    setpoint is followed directly, within the same limits, unless `velocity_gain` is
+    given: then like PX4's velocity controller, accelerating by velocity_gain x
+    (setpoint - velocity) per axis (mpc.PX4_VELOCITY_GAIN), within max_accel. The nose
+    turns to a commanded yaw at once, and the gimbal points where it is aimed at once."""
 
     MAX_SPEED = 12.0
     MAX_ACCEL = 4.0
     GAIN = 1.0
 
-    def __init__(self, drone_id, position, max_speed=MAX_SPEED, max_accel=MAX_ACCEL):
+    def __init__(self, drone_id, position, max_speed=MAX_SPEED, max_accel=MAX_ACCEL,
+                 velocity_gain=None):
         super().__init__(drone_id, home=(position[0], position[1], 0.0))
         self.position = position
         self.velocity = (0.0, 0.0, 0.0)
         self.max_speed = max_speed
         self.max_accel = max_accel
+        self.velocity_gain = velocity_gain
         self._feed_forward = (0.0, 0.0, 0.0)
         self._velocity_setpoint = None
         self.gimbal_aim = None
+        self.yaw = 0.0  # radians from north
+        self.attitude = (1.0, 0.0, 0.0, 0.0)
+
+    def _turn(self, yaw):
+        if yaw is not None:
+            self.yaw = yaw
+            self.attitude = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
 
     def set_position(self, x, y, z, yaw=None, velocity=None):
+        self._turn(yaw)
         self.target = (x, y, z)
         self._feed_forward = velocity or (0.0, 0.0, 0.0)
         self._velocity_setpoint = None
 
     def set_velocity(self, vx, vy, vz, yaw=None):
+        self._turn(yaw)
         self.target = None
         self._velocity_setpoint = (vx, vy, vz)
 
@@ -57,7 +73,12 @@ class SimDrone(Drone):
         else:
             return
         wanted = _limit(wanted, self.max_speed)
-        change = _limit([w - v for w, v in zip(wanted, self.velocity)], self.max_accel * dt)
+        if self._velocity_setpoint is not None and self.velocity_gain is not None:
+            accel = _limit([g * (w - v) for g, w, v in zip(self.velocity_gain, wanted,
+                                                           self.velocity)], self.max_accel)
+            change = [a * dt for a in accel]
+        else:
+            change = _limit([w - v for w, v in zip(wanted, self.velocity)], self.max_accel * dt)
         self.velocity = tuple(v + c for v, c in zip(self.velocity, change))
         self.position = tuple(p + v * dt for p, v in zip(self.position, self.velocity))
 
@@ -76,8 +97,11 @@ class FastSim:
         self.hostile = SimDrone(0, scenario.target_start, max_speed=scenario.speed + 5,
                                 max_accel=20.0)
         self.hostile.velocity = scenario.velocity
+        # Velocity setpoints followed like PX4's velocity controller (its P gains), as
+        # the MPC's velocity_command assumes.
         self.interceptor = SimDrone(1, scenario.interceptor_start,
-                                    max_speed=interceptor_max_speed)
+                                    max_speed=interceptor_max_speed,
+                                    velocity_gain=PX4_VELOCITY_GAIN)
         self.time = 0.0
 
     def now(self):

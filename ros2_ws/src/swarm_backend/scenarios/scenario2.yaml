@@ -1,0 +1,64 @@
+# Scenario 2: one gimbal defender hovers right above the base with the YOLO detector
+# running on its camera, two hostile drones fly straight in toward the base, and the
+# defender attacks what the detector reports (the baseline attack, attack: below).
+# Run with scenarios/yolo.sh (world: hive_base, the docker/start-stellar.sh default).
+# Same format as config/swarm.yaml (see the comments there); the scenario2: section at the
+# bottom is read only by tests/scenario2_test.py.
+
+swarm:
+  rate_hz: 10.0
+  takeoff_altitude: 5.0
+  position_tolerance: 0.3
+  formation_spacing: 4.0
+
+# Spawn poses are Gazebo ENU (x east, y north). In hive_base only a 7 m circle around the
+# origin is free of camp objects, so the defender starts 4 m south of drone 0 (as in
+# surveillance.yaml) and flies over the base once it is above the trees.
+drones:
+  # Drone 0 is the one the start script already runs. It stays parked at the base.
+  - id: 0
+    spawn_pose: [0.0, 0.0, 0.0]
+
+  - id: 1                     # the defender, with the YOLO detector on its camera
+    spawn_pose: [-2.0, -4.0, 0.0]
+    model: gz_x500_gimbal
+
+  # The two hostile drones: 150 m from the base, 20 deg left and right of north, past
+  # hive_base's forest (trees up to 120 m from the base). 150 m * (sin, cos) 20 deg.
+  - id: 2
+    spawn_pose: [-51.3, 141.0, 0.0]
+    model: gz_x500
+
+  - id: 3
+    spawn_pose: [51.3, 141.0, 0.0]
+    model: gz_x500
+
+# The defender attacks with the baseline attack (intercept/attack.py, as `attack` and the
+# surveillance patrols): it hovers at its guard point right above the base (SEARCH), and
+# on the detector's target_position flies straight at the target (ATTACK).
+attack:
+  attacker_id: 1
+  target_id: 2              # only used by the fake detector; the real one sees both
+  guard_altitude: 30.0      # m above the defender's start point; hive_base's trees reach 20 m
+  search_heading_deg: 0.0   # nose and camera toward the threat (north); both hostiles are in
+                            # the 115 deg wide picture
+  search_pitch_deg: 5.0     # gimbal tilted up a little: the hostiles are above the defender
+  max_speed: 5.0            # m/s, as in surveillance.yaml
+  min_altitude: 25.0        # m; no attack command takes the defender into the trees
+
+scenario2:
+  defender_id: 1            # = attack.attacker_id
+  hostile_ids: [2, 3]
+  base_position: [0.0, 0.0] # world NED x, y: the guard point is right above it
+  # Metres above the defender's guard height, one per hostile: against the sky for the
+  # camera, and at different heights so the two never meet.
+  hostile_heights: [10.0, 14.0]
+  hostile_speed: 5.0        # m/s
+  # The hostiles stop this far from the base, each on its own line in, and hover there.
+  # With 40 deg between the lines they end 2 * 20 m * sin 20 deg = 14 m apart.
+  stop_m: 20.0
+  stagger_s: 0.0            # the second hostile starts this many seconds after the first
+  hit_radius: 1.5           # m, defender to hostile from Gazebo's true positions; a hit
+                            # hostile is taken out (moved far away, its PX4 stopped)
+  detector: yolo            # detect/detectors.py: yolo (newest models/**/*.onnx) or baseline
+  detect_rate: 10.0         # images per second through the detector

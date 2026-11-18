@@ -10,7 +10,8 @@ agreed with the attack node (vault: detection/Baseline attack work plan):
     /<ns>/detection/target_position geometry_msgs/PointStamped: where the target is relative
                                     to the drone (its camera), world NED, metres: direction
                                     from the pixel and PX4's camera orientation, times the
-                                    distance from the box size (a 0.5 m drone)
+                                    distance from the box size (baseline: a 0.5 m drone, longer side;
+                                    others: 0.8 m / sqrt(w*h), see camera.box_scale)
 
 stamped with the image's time, frame_id = the drone's Gazebo name. Nothing is published
 while there is no confirmed target. The angles are corrected for the camera's roll, which
@@ -29,13 +30,34 @@ world); gate --gate-deg. Until PX4's camera orientation is known they are matche
 (gate --gate), and switching between the two starts the tracks over. --horizon ROW can cut off
 everything below a fixed image row, e.g. 360 for a level gimbal at 1280x720. LiveDetector
 is also used by tests/detection_test.py.
+
+--tracker bytetrack uses ByteTrack (bytetrack.py) instead of that k-in-a-row matching: a
+Kalman filter per track in pixels, moved along when the camera turns (from PX4's
+orientation in this image and the last), and low-score detections used to continue
+tracks but never to start them. Its score thresholds depend on the detector (--high,
+--low, --new; defaults in TRACK_SCORES); for the baseline the detector's own --contrast
+is lowered to --low so that it reports the weak candidates too. In the debug image a
+track is drawn with its id: red = confirmed, yellow = tentative (images seen), grey =
+lost (where the filter predicts it, with the images since it was last seen).
+
+Birds: YOLO (two classes, drone and bird) always reports its bird boxes here (it runs as
+with --yolo-birds). They are drawn green ("bird 0.62") and never go to the tracker, the
+lock or the topics: only boxes YOLO calls a drone can become the target. A bird that YOLO
+calls a drone is drawn and tracked like a drone; nothing here can tell it apart.
+
+Friendly drones: the hivemind (nodes/hivemind_node.py) broadcasts where all our drones
+are on /hive/friendlies. A track whose box points at one of them, with a box-size distance
+that roughly fits, is marked friendly for the rest of its life (hive/friendlies.py): it
+is drawn blue ("friend 0 T5"), the lock never picks it, and a lock on a track that turns
+out to be friendly is released at once. Without the hivemind nothing is marked;
+--no-friendlies turns it off.
 """
 import argparse
 import math
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -44,11 +66,17 @@ import numpy as np
 
 from swarm_backend.config import default_namespace
 from swarm_backend.detect import detectors
+from swarm_backend.detect.airframe import airframe_mask, body_axes
 from swarm_backend.detect.camera import GIMBAL_HFOV, CameraModel, camera_roll
 from swarm_backend.detect.orientation import Axes
 from swarm_backend.detect.candidates import above_line
+from swarm_backend.detect.bytetrack import ByteTracker, Settings, State
 from swarm_backend.detect.detectors import Detection, Detector, draw
+from swarm_backend.detect.kalman import Noise, rotation_homography
 from swarm_backend.detect.tracking import Confirmer, Track, angle_between
+from swarm_backend.hive.friendlies import TOPIC as FRIENDLIES_TOPIC
+from swarm_backend.hive.friendlies import FriendlyBook, friendly_for
+from swarm_backend.hive.friendlies import decode as decode_friendlies
 from swarm_backend.sensor_view import (
     bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
 
@@ -56,6 +84,18 @@ CANDIDATE = (255, 220, 0)
 CONFIRMED = (255, 0, 0)
 HORIZON = (0, 160, 255)
 CENTRE = (255, 255, 255)
+LOST = (170, 170, 170)
+BIRD = (0, 220, 0)  # YOLO's bird class: shown, never tracked
+FRIEND = (0, 120, 255)  # a track on one of our own drones (the hivemind): never locked
+
+# ByteTrack's score thresholds per detector (high, low, new), in the detector's own score:
+# the baseline's is contrast in grey levels (it reports nothing under its --contrast, 60 by
+# default, so with ByteTrack that is lowered to `low`), YOLO's a confidence 0-1.
+# (high, low, new). YOLO's from the threshold replay of 11 Nov 2026 (detect/replay_eval.py,
+# vault: detection/Threshold tuning 2026-11-11): high/new 0.3/0.4 instead of 0.5/0.6 start
+# tracks at ~62 m instead of ~49 m, with the same switches under --lock.
+TRACK_SCORES = {'baseline': (60.0, 30.0, 60.0), 'yolo': (0.3, 0.1, 0.4)}
+AIRFRAME = (255, 0, 255)
 
 
 @dataclass
@@ -72,14 +112,112 @@ class Result:
     offset: tuple[float, float] | None = None  # its target_offset (x, y), radians
     axes: Axes | None = None  # camera forward, right, down (world NED) from PX4, if known
     roll: float | None = None  # camera roll used for the offset, radians (None = uncorrected)
-    matching: str = 'pixels'  # how detections were matched to tracks: 'world' or 'pixels'
+    matching: str = 'pixels'  # how detections were matched to tracks: 'world', 'pixels',
+    # or with ByteTrack 'pixels+gimbal' (compensated for the camera turning)
     position: tuple[float, float, float] | None = None  # target_position, world NED, metres
+    locked_id: int | None = None  # --lock: the track id locked on (None: no lock, or off)
+    lock_event: str | None = None  # --lock: what changed with this image (locked, handover...)
+    birds: list[Detection] = field(default_factory=list)  # YOLO's bird boxes: drawn only
+    airframe: np.ndarray | None = None  # True where the drone's own airframe is (--body-mask)
+    friendly: dict = field(default_factory=dict)  # track id -> the friendly drone it is
+
+
+def split_birds(found: list[Detection]) -> tuple[list[Detection], list[Detection]]:
+    """(boxes that can become a target, YOLO's bird boxes, which are only drawn)."""
+    return ([b for b in found if b.label != 'bird'], [b for b in found if b.label == 'bird'])
 
 
 def best_target(tracks: list[Track]) -> Track | None:
     """The track to publish: confirmed, detected in this image, highest score."""
     seen = [t for t in tracks if t.confirmed and t.detection is not None]
     return max(seen, key=lambda t: t.detection.score, default=None)
+
+
+LOCK_GATE_DEG = 4.0  # a new track this close to where the locked one should be is it
+LOCK_GATE_GROWTH_DEG_S = 5.0  # ... widened by this per second it has not been seen
+LOCK_GATE_MAX_DEG = 10.0  # the two hostiles of scenario 2 stay about 40 deg apart
+LOCK_TIMEOUT_S = 1.0  # unseen this long, the lock is released (ByteTrack keeps the track 3 s)
+
+Direction = tuple[float, float, float]  # unit vector, world NED
+
+
+class TargetLock:
+    """--lock: stay on one drone, also when the tracker gives it a new id.
+
+    Each image (update) it publishes the locked track while that is confirmed and seen.
+    When it is not, a confirmed track within `gate_deg` (+ `growth_deg_s` per second unseen,
+    at most `max_deg`) of where the locked one should be is taken as the same drone with a
+    new id, and the lock is handed over to it. "Should be": ByteTrack's prediction of the
+    lost track (its grey box, compensated for the camera turning), else the direction it
+    was last seen in. Otherwise nothing is published, until it has been unseen for
+    `timeout` s; then the lock is released and goes to the best target (best_target), even
+    though the tracker may still keep the old track. Another drone that scores higher never
+    takes the lock while it holds.
+
+    `direction(track, predicted)` gives a track's world direction: from its detection in
+    this image, or with predicted=True from the tracker's prediction (None when unknown,
+    e.g. before PX4 has reported the camera's orientation: then there is no handover)."""
+
+    def __init__(self, gate_deg: float = LOCK_GATE_DEG,
+                 growth_deg_s: float = LOCK_GATE_GROWTH_DEG_S,
+                 max_deg: float = LOCK_GATE_MAX_DEG, timeout: float = LOCK_TIMEOUT_S):
+        self.gate_deg = gate_deg
+        self.growth_deg_s = growth_deg_s
+        self.max_deg = max_deg
+        self.timeout = timeout
+        self.reset()
+
+    def reset(self) -> None:
+        self.locked_id: int | None = None
+        self.seen_at: float | None = None  # image time the locked drone was last published
+        self.where: Direction | None = None  # its direction then
+        self.event: str | None = None  # what changed in the last update, for the log
+
+    def gate(self, unseen_s: float) -> float:
+        return min(self.max_deg, self.gate_deg + self.growth_deg_s * max(0.0, unseen_s))
+
+    def update(self, tracks: list, stamp: float,
+               direction: Callable[[object, bool], Direction | None]):
+        """The track to publish for this image (None: nothing)."""
+        self.event = None
+        seen = [t for t in tracks if t.confirmed and t.detection is not None]
+        if self.locked_id is not None:
+            locked = next((t for t in tracks if t.id == self.locked_id), None)
+            if locked is not None and locked in seen:
+                return self._publish(locked, stamp, direction)
+            unseen = stamp - self.seen_at
+            expected = (direction(locked, True) if locked is not None else None) or self.where
+            if expected is not None:
+                gate = math.radians(self.gate(unseen))
+                close = []
+                for t in seen:
+                    d = direction(t, False)
+                    if d is not None and angle_between(d, expected) <= gate:
+                        close.append((angle_between(d, expected), t))
+                if close:
+                    old = self.locked_id
+                    track = min(close, key=lambda c: c[0])[1]
+                    self.locked_id = track.id
+                    published = self._publish(track, stamp, direction)
+                    self.event = f'T{old} -> T{track.id} (handover: the same drone, a new id)'
+                    return published
+            if unseen <= self.timeout:
+                return None  # a short gap: the attack coasts or predicts through it
+            self.event = f'T{self.locked_id} released (not seen for {unseen:.1f} s)'
+            self.locked_id = None
+        best = best_target(seen)
+        if best is None:
+            return None
+        released = self.event
+        self.locked_id = best.id
+        published = self._publish(best, stamp, direction)
+        self.event = (f'{released}; ' if released else '') + f'T{best.id} locked'
+        return published
+
+    def _publish(self, track, stamp: float, direction) -> object:
+        self.seen_at = stamp
+        self.where = direction(track, False) or self.where
+        return track
 
 
 def directions(boxes: list[Detection], camera: CameraModel, axes: Axes) -> list:
@@ -122,15 +260,34 @@ def image_to_array(msg) -> np.ndarray:
 
 
 def annotate(img: np.ndarray, result: Result) -> np.ndarray:
-    seen = [t for t in result.tracks if t.detection is not None]
-    tracked = {id(t.detection) for t in seen}
-    out = draw(img, [b for b in result.boxes if id(b) not in tracked], CANDIDATE)
+    friends = [t for t in result.tracks if t.detection is not None and t.id in result.friendly]
+    seen = [t for t in result.tracks if t.detection is not None and t.id not in result.friendly]
+    tracked = {id(t.detection) for t in seen + friends}
+    if result.airframe is not None and result.airframe.any():
+        # Shade the own airframe the detector ignores, and outline it.
+        img = img.copy()
+        img[result.airframe] = (img[result.airframe] * 0.5 + np.array(AIRFRAME) * 0.5
+                                ).astype(img.dtype)
+        contours, _ = cv2.findContours(result.airframe.astype(np.uint8), cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(img, contours, -1, AIRFRAME, 1)
+    out = draw(img, result.birds, BIRD,
+               labels=[f'bird {b.score:.2f}' for b in result.birds])
+    out = draw(out, [t.detection for t in friends], FRIEND,
+               labels=[f'friend {result.friendly[t.id]} T{t.id}' for t in friends])
+    out = draw(out, [b for b in result.boxes if id(b) not in tracked], CANDIDATE)
+    byte = any(hasattr(t, 'state') for t in result.tracks)  # ByteTrack's tracks
     confirmed = [t for t in seen if t.confirmed]
     out = draw(out, [t.detection for t in confirmed], CONFIRMED,
-               labels=[f'T{t.id} {t.detection.width}px' for t in confirmed])
+               labels=[f'T{t.id} {t.detection.width}px'
+                       + (f' s{t.detection.score:.3g}' if byte else '') for t in confirmed])
     unconfirmed = [t for t in seen if not t.confirmed]
     out = draw(out, [t.detection for t in unconfirmed], CANDIDATE,
-               labels=[str(t.streak) for t in unconfirmed])
+               labels=[f'T{t.id} {t.streak}' if byte else str(t.streak) for t in unconfirmed])
+    lost = [t for t in result.tracks if getattr(t, 'state', None) == State.LOST
+            and t.id not in result.friendly]
+    out = draw(out, [predicted_box(t) for t in lost], LOST,
+               labels=[f'T{t.id} lost {t.misses}' for t in lost])
     if result.horizon is not None and 0 <= result.horizon < out.shape[0]:
         row = int(result.horizon)
         cv2.line(out, (0, row), (out.shape[1] - 1, row), HORIZON, 1)
@@ -150,13 +307,80 @@ def annotate(img: np.ndarray, result: Result) -> np.ndarray:
     return out
 
 
+def predicted_box(track) -> Detection:
+    """A ByteTrack track's Kalman box (where it should be now) as a Detection, to draw."""
+    u, v, w, h = track.box
+    return Detection(round(u - w / 2), round(v - h / 2), round(w), round(h), 0.0)
+
+
+def add_tracker_options(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_argument_group('tracker')
+    group.add_argument('--tracker', choices=('confirmer', 'bytetrack'), default='confirmer',
+                       help='k-in-a-row matching (tracking.py) or ByteTrack (bytetrack.py); '
+                            'default %(default)s')
+    group.add_argument('--high', type=float,
+                       help='ByteTrack: lowest score of a sure detection (default per detector, '
+                            'TRACK_SCORES)')
+    group.add_argument('--low', type=float,
+                       help='ByteTrack: lowest score used at all, to continue tracks')
+    group.add_argument('--new', type=float, help='ByteTrack: lowest score that starts a track')
+    group.add_argument('--max-lost', type=float, default=Settings.max_lost,
+                       help='ByteTrack: how long a lost track is kept, in images at --rate '
+                            '(default %(default)s = 3 s at 10 per second), real time')
+    group.add_argument('--gate-sigma', type=float, default=Settings.gate,
+                       help='ByteTrack: largest distance from the prediction, in standard '
+                            'deviations (default %(default)s)')
+    group.add_argument('--min-px', type=float, default=Noise.min_px,
+                       help="ByteTrack: floor of the Kalman filter's noise, px (default "
+                            '%(default)s; covers the camera orientation error)')
+    group.add_argument('--recover-low', action=argparse.BooleanOptionalAction,
+                       default=Settings.recover_low,
+                       help='ByteTrack: lost tracks may come back on a low-score detection '
+                            '(default %(default)s)')
+
+
+def make_tracker(args: argparse.Namespace, argv: list[str] | None = None
+                 ) -> ByteTracker | None:
+    """The ByteTracker the options ask for, or None for the Confirmer. Call it before
+    making the detector: it lowers the detector's own threshold to --low (unless it was
+    given), so that the detector also reports the weak candidates ByteTrack can use: the
+    baseline's --contrast, YOLO's --conf (its default 0.25 would drop everything between
+    low and 0.25 before ByteTrack sees it)."""
+    if args.tracker != 'bytetrack':
+        return None
+    high, low, new = TRACK_SCORES.get(args.detector, TRACK_SCORES['yolo'])
+    high = high if args.high is None else args.high
+    low = low if args.low is None else args.low
+    new = new if args.new is None else args.new
+    given = sys.argv[1:] if argv is None else argv
+    if args.detector == 'baseline' and not any(a.startswith('--contrast') for a in given):
+        args.contrast = min(args.contrast, low)
+    if args.detector == 'yolo' and not any(a.startswith('--conf') for a in given):
+        args.conf = min(args.conf, low)
+    return ByteTracker(Settings(high=high, low=low, new=new, k=args.k, max_lost=args.max_lost,
+                                rate_hz=getattr(args, 'rate', Settings.rate_hz),
+                                gate=args.gate_sigma, gate_low=args.gate_sigma,
+                                recover_low=args.recover_low,
+                                noise=Noise(min_px=args.min_px)))
+
+
+def describe_tracker(tracker: ByteTracker | None) -> str:
+    if tracker is None:
+        return 'Confirmer (k in a row)'
+    s = tracker.settings
+    return (f'ByteTrack (high >= {s.high:g}, low >= {s.low:g}, new >= {s.new:g}, k {s.k}, '
+            f'gate {s.gate:g} sigma, lost kept {s.max_lost} images)')
+
+
 class LiveDetector:
     """Detection on one drone's camera, inside an existing ROS node.
 
     detector: any detector from detectors.py. horizon: callable giving the image row of the
     horizon for the next image (or None to search the whole image). use_px4: read the
     camera's orientation from PX4 (roll for the offset); off, the offset is not
-    roll-corrected. on_result is called with every Result.
+    roll-corrected. body_mask: ignore what lies on the drone's own airframe (airframe.py;
+    needs use_px4, and is off until PX4 has reported the attitudes). on_result is called
+    with every Result. tracker: a ByteTracker to use instead of the confirmers (make_tracker).
     """
 
     def __init__(self, node, drone_id: int, detector: Detector,
@@ -165,7 +389,10 @@ class LiveDetector:
                  on_result: Callable[[Result], None] | None = None,
                  save: Path | None = None, save_every: float = 1.0,
                  use_px4: bool = True, hfov: float = GIMBAL_HFOV,
-                 direction_confirmer: Confirmer | None = None):
+                 direction_confirmer: Confirmer | None = None,
+                 tracker: ByteTracker | None = None,
+                 detector_name: str = 'baseline', lock: TargetLock | None = None,
+                 body_mask: bool = False, friendlies: bool = True):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -183,14 +410,25 @@ class LiveDetector:
         self.offset_topic = offset_topic(drone_id, 'target_offset')
         self.position_topic = offset_topic(drone_id, 'target_position')
         self.detector = detector
+        self.detector_name = detector_name  # picks the range rule (camera.box_scale)
         self.px4 = None
         if use_px4:
             from swarm_backend.detect.px4_camera import PX4Camera
             self.px4 = PX4Camera(node, drone_id)
         self.hfov = hfov
+        self.body_mask = body_mask and self.px4 is not None
         self.confirmer = confirmer or Confirmer()  # in pixels, while the orientation is unknown
         self.world_confirmer = direction_confirmer or world_confirmer(self.confirmer.k)
         self._matching = None
+        self.tracker = tracker
+        self.lock = lock  # stay on one drone (TargetLock), or None: best score every image
+        self.drone_id = drone_id
+        self.friend_book = FriendlyBook()  # the hivemind's latest positions
+        self.friendly: dict[int, int] = {}  # track id -> friendly drone id, for its life
+        if friendlies:
+            from std_msgs.msg import String
+            node.create_subscription(String, FRIENDLIES_TOPIC, self._on_friendlies, 10)
+        self._last_axes: Axes | None = None  # the camera's orientation in the last image
         self.horizon = horizon
         self.on_result = on_result
         self.save = save
@@ -225,6 +463,33 @@ class LiveDetector:
             self._bridge.terminate()
             self._bridge.wait()
 
+    def _on_friendlies(self, msg) -> None:
+        try:
+            self.friend_book.update(*decode_friendlies(msg.data))
+        except (ValueError, KeyError, TypeError):
+            pass  # a malformed message: keep the last good one
+
+    def _mark_friendlies(self, tracks, camera: CameraModel, axes, stamp: float) -> None:
+        """Mark the tracks that are one of our own drones (see the module docstring)."""
+        live = {t.id for t in tracks}
+        self.friendly = {i: f for i, f in self.friendly.items() if i in live}
+        if axes is None:
+            return
+        positions = self.friend_book.at(stamp)
+        me = positions.pop(self.drone_id, None)
+        if me is None or not positions:
+            return  # where we are, or anyone else is, is not known
+        age = self.friend_book.age(stamp)
+        for t in tracks:
+            if t.id in self.friendly or t.detection is None:
+                continue
+            d = t.detection
+            direction = camera.direction(d.u, d.v, *axes)
+            box_range = camera.range_from_detection(self.detector_name, d.width, d.height)
+            friend = friendly_for(direction, box_range, me, positions, age)
+            if friend is not None:
+                self.friendly[t.id] = friend
+
     def _on_image(self, msg) -> None:
         with self._lock:
             self._latest = msg
@@ -237,6 +502,15 @@ class LiveDetector:
             self._mask_key, self._mask = key, above_line(shape, horizon)
         return self._mask
 
+    def _airframe(self, shape, camera: CameraModel, axes, stamp: float):
+        """The own airframe in this picture (airframe.py), or None (off, or no attitude)."""
+        if not self.body_mask or axes is None:
+            return None
+        drone_q = self.px4.drone_attitude(stamp)
+        if drone_q is None:
+            return None
+        return airframe_mask(shape, camera, body_axes(axes, drone_q))
+
     def _process(self) -> None:
         with self._lock:
             msg, self._latest = self._latest, None
@@ -245,21 +519,51 @@ class LiveDetector:
         img = image_to_array(msg)
         start = time.perf_counter()
         horizon = self.horizon()
-        boxes = self.detector(img, self._sky_mask(img.shape, horizon))
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         axes = None if self.px4 is None else self.px4.axes(stamp)
         roll = None if axes is None else camera_roll(axes[0], axes[1])
         camera = CameraModel(self.hfov, msg.width, msg.height)
-        matching = 'pixels' if axes is None else 'world'
-        if matching != self._matching:  # positions of the two kinds can't be compared
-            self.confirmer.tracks.clear()
-            self.world_confirmer.tracks.clear()
-            self._matching = matching
-        if axes is None:
-            tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
+        search = self._sky_mask(img.shape, horizon)
+        own = self._airframe(img.shape, camera, axes, stamp)
+        if own is not None:
+            search = ~own if search is None else search & ~own
+        boxes, birds = split_birds(self.detector(img, search))
+        if self.tracker is not None:
+            tracks, matching = self._byte_track(boxes, camera, axes, stamp)
         else:
-            tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
-        target = best_target(tracks)
+            matching = 'pixels' if axes is None else 'world'
+            if matching != self._matching:  # positions of the two kinds can't be compared
+                self.confirmer.tracks.clear()
+                self.world_confirmer.tracks.clear()
+                self._matching = matching
+                if self.lock is not None:
+                    self.lock.reset()  # the other confirmer numbers its tracks itself
+                self.friendly = {}
+            if axes is None:
+                tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
+            else:
+                tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
+        self._mark_friendlies(tracks, camera, axes, stamp)
+        all_tracks, tracks = tracks, [t for t in tracks if t.id not in self.friendly]
+        released = None
+        if self.lock is not None and self.lock.locked_id in self.friendly:
+            released = (f'T{self.lock.locked_id} released: it is friendly drone '
+                        f'{self.friendly[self.lock.locked_id]}')
+            self.lock.locked_id = None
+        if self.lock is not None:
+            def direction(track, predicted: bool):
+                if axes is None:
+                    return None
+                if predicted:
+                    if not hasattr(track, 'kalman'):
+                        return None  # the Confirmer predicts nothing: use where it was seen
+                    u, v = track.box[:2]  # ByteTrack's prediction, also for a lost track
+                else:
+                    u, v = track.detection.u, track.detection.v
+                return camera.direction(u, v, *axes)
+            target = self.lock.update(tracks, stamp, direction)
+        else:
+            target = best_target(tracks)
         offset = position = None
         if target is not None:
             offset = camera.offset_angles(target.detection.u, target.detection.v, roll or 0.0)
@@ -270,14 +574,20 @@ class LiveDetector:
             self._offset_pub.publish(out_msg)
             if axes is not None:  # the direction needs the camera's orientation
                 d = target.detection
-                position = camera.position(d.u, d.v, d.size, *axes)
+                px, size = camera.box_scale(self.detector_name, d.width, d.height)
+                position = camera.position(d.u, d.v, px, *axes, size=size)
                 pos_msg = self._PointStamped()
                 pos_msg.header = out_msg.header  # same image, same stamp
                 pos_msg.point.x, pos_msg.point.y, pos_msg.point.z = position
                 self._position_pub.publish(pos_msg)
         ms = (time.perf_counter() - start) * 1000
-        result = Result(stamp, msg.width, msg.height, boxes, tracks, horizon, ms, target, offset,
-                        axes, roll, matching, position)
+        event = None if self.lock is None else self.lock.event
+        if released:
+            event = released + (f'; {event}' if event else '')
+        result = Result(stamp, msg.width, msg.height, boxes, all_tracks, horizon, ms, target,
+                        offset, axes, roll, matching, position,
+                        None if self.lock is None else self.lock.locked_id, event, birds,
+                        airframe=own, friendly=dict(self.friendly))
 
         out = annotate(img, result)
         debug = self._Image()
@@ -295,6 +605,19 @@ class LiveDetector:
         if self.on_result is not None:
             self.on_result(result)
 
+    def _byte_track(self, boxes: list[Detection], camera: CameraModel, axes: Axes | None,
+                    stamp: float | None = None):
+        """ByteTrack on this image; the tracks are moved along for the camera's turning since
+        the last image when the orientation is known in both, and by the real time since
+        then (`stamp`, the image's sim time). Returns all tracks (lost ones too, to draw
+        them) and how they were matched."""
+        homography = None
+        if axes is not None and self._last_axes is not None:
+            homography = rotation_homography(camera, self._last_axes, axes)
+        self._last_axes = axes
+        self.tracker.update(boxes, homography, stamp)
+        return list(self.tracker.tracks), 'pixels' if homography is None else 'pixels+gimbal'
+
 
 def result_record(result: Result) -> dict:
     """One image as a JSON-able dict, for --record (the baseline evaluation scores these
@@ -308,6 +631,11 @@ def result_record(result: Result) -> dict:
                       if t.confirmed and t.detection is not None],
         'target': None if result.target is None else result.target.id,
         'oriented': result.axes is not None,
+        # For replaying the tracker offline (detect/replay_eval.py): every box exactly as
+        # the detector gave it (x, y, width, height, score) and PX4's camera orientation.
+        'raw': [[d.x, d.y, d.width, d.height, round(float(d.score), 4)] for d in result.boxes],
+        'axes': None if result.axes is None else [[round(c, 6) for c in a] for a in result.axes],
+        'birds': [[d.x, d.y, d.width, d.height, round(float(d.score), 4)] for d in result.birds],
     }
 
 
@@ -332,14 +660,36 @@ def main(argv: list[str] | None = None) -> int:
                         help='which detector to run (default %(default)s)')
     parser.add_argument('--no-px4', action='store_true',
                         help="don't read the camera orientation from PX4 (offset not roll-corrected)")
+    parser.add_argument('--body-mask', action='store_true',
+                        help="ignore what lies on the drone's own airframe in the picture "
+                             '(arms, propellers, landing gear; shaded in the debug image)')
     parser.add_argument('--save', type=Path, default=None, help='folder for raw + annotated PNGs')
     parser.add_argument('--save-every', type=float, default=1.0,
                         help='seconds (sim time) between saves')
     parser.add_argument('--record', type=Path, default=None,
                         help='append one JSON line per processed image to this file (boxes, '
                              'confirmed tracks; used by the baseline evaluation)')
+    parser.add_argument('--lock', action='store_true',
+                        help='stay on one drone (TargetLock): publish only the locked one, also '
+                             'when another scores higher; a new track where it should be takes '
+                             'the lock over; unseen for --lock-timeout, the lock goes to the '
+                             'best target')
+    parser.add_argument('--lock-timeout', type=float, default=LOCK_TIMEOUT_S,
+                        help='--lock: seconds unseen before the lock is released '
+                             '(default %(default)s)')
+    parser.add_argument('--no-friendlies', action='store_true',
+                        help='do not mark our own drones from the hivemind '
+                             '(/hive/friendlies); they could then be locked onto')
+    parser.add_argument('--lock-gate-deg', type=float, default=LOCK_GATE_DEG,
+                        help='--lock: degrees from where the locked drone should be that a new '
+                             'track may be and take the lock over (default %(default)s, '
+                             f'+{LOCK_GATE_GROWTH_DEG_S:g} per second unseen, at most '
+                             f'{LOCK_GATE_MAX_DEG:g})')
     detectors.add_options(parser)
+    add_tracker_options(parser)
     args = parser.parse_args(argv)
+    tracker = make_tracker(args, argv)  # before the detector: may lower --contrast
+    args.yolo_birds = True  # birds are drawn green and kept out of tracking (_process)
     try:
         detector = detectors.make(args.detector, args)
     except NotImplementedError as e:
@@ -362,11 +712,14 @@ def main(argv: list[str] | None = None) -> int:
             record.write(json.dumps(result_record(result)) + '\n')
         stats['frames'] += 1
         stats['ms'] += result.ms
+        if result.lock_event:
+            print(f'[{result.stamp:.2f}] lock: {result.lock_event}', flush=True)
         now = time.monotonic()
         if now - stats['last_log'] < 1.0:
             return
         confirmed = ', '.join(describe(t) for t in result.tracks
-                              if t.confirmed and t.detection is not None) or 'none'
+                              if t.confirmed and t.detection is not None
+                              and t.id not in result.friendly) or 'none'
         offset = '' if result.offset is None else (
             f', offset x {math.degrees(result.offset[0]):+.1f} y '
             f'{math.degrees(result.offset[1]):+.1f} deg')
@@ -376,15 +729,26 @@ def main(argv: list[str] | None = None) -> int:
                        f'({math.hypot(n, e, down):.1f} m away)')
         camera = ('camera roll unknown (offset not roll-corrected, no position, matching in pixels)'
                   if result.roll is None else f'camera roll {math.degrees(result.roll):+.0f} deg')
-        print(f'[{result.stamp:.2f}] {len(result.boxes)} candidates, confirmed: {confirmed}'
-              f'{offset}; {camera}  ({stats["ms"] / stats["frames"]:.0f} ms/image)', flush=True)
+        locked = '' if not args.lock else (
+            f', locked T{result.locked_id}' if result.locked_id is not None else ', locked none')
+        birds = f', {len(result.birds)} birds' if result.birds else ''
+        friends = ', '.join(f'T{t} = drone {f}' for t, f in sorted(result.friendly.items()))
+        birds += f', friendly: {friends}' if friends else ''
+        print(f'[{result.stamp:.2f}] {len(result.boxes)} candidates{birds}, confirmed: {confirmed}'
+              f'{locked}{offset}; {camera}  ({stats["ms"] / stats["frames"]:.0f} ms/image)', flush=True)
         stats.update(last_log=now, frames=0, ms=0.0)
 
     try:
         live = LiveDetector(node, args.id, detector, Confirmer(k=args.k, gate=args.gate),
                             args.rate, lambda: args.horizon, log, args.save, args.save_every,
                             use_px4=not args.no_px4,
-                            direction_confirmer=world_confirmer(args.k, args.gate_deg))
+                            direction_confirmer=world_confirmer(args.k, args.gate_deg),
+                            tracker=tracker,
+                            detector_name=args.detector,
+                            lock=TargetLock(args.lock_gate_deg, timeout=args.lock_timeout)
+                            if args.lock else None,
+                            body_mask=args.body_mask,
+                            friendlies=not args.no_friendlies)
     except RuntimeError as e:
         print(e)
         return 1
@@ -392,7 +756,12 @@ def main(argv: list[str] | None = None) -> int:
           f'{live.camera.gz_topic}\n  -> {live.camera.ros_topic}\n'
           f'  target_offset on {live.offset_topic}\n'
           f'  target_position on {live.position_topic}\n  debug image on {live.debug_topic}\n'
-          f'  camera orientation from PX4: {"off" if args.no_px4 else "on"}')
+          f'  camera orientation from PX4: {"off" if args.no_px4 else "on"}\n'
+          f'  tracker: {describe_tracker(tracker)}\n'
+          '  lock on one drone: ' + (
+              f'on (handover within {args.lock_gate_deg:g} deg, released after '
+              f'{args.lock_timeout:g} s unseen)' if args.lock else 'off (best score in every image)')
+          + f'\n  own airframe ignored: {"yes" if live.body_mask else "no"}')
     if live._bridge is None:
         print('  using the camera bridge another program (e.g. view) already runs: '
               'closing that stops the images here too')
