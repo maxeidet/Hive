@@ -60,7 +60,8 @@ def nodes(context):
 
     return [
         ExecuteProcess(
-            cmd=['python3', '-m', 'swarm_backend.mapping', '--id', drone_id, '--ns', map_ns],
+            cmd=['python3', '-m', 'swarm_backend.mapping', '--id', drone_id, '--ns', map_ns,
+                 '--max-range', arg('map_range')],
             output='screen', condition=IfCondition(arg('mapping'))),
         daep_node('pig.py', extra_params=[[config, '/pig_config.yaml']]),
         daep_node('dfm.py', extra_params=[[config, '/dfm_config.yaml']]),
@@ -94,5 +95,8 @@ def generate_launch_description():
                               description='namespace of octomap_server (the map is <map_ns>/octomap_full)'),
         DeclareLaunchArgument('mapping', default_value='true',
                               description='start the map here; false when `mount-backend.sh map` runs'),
+        DeclareLaunchArgument('map_range', default_value='8.0',
+                              description='how far from the sensor points go into the map, metres '
+                                          '(the depth camera sees 19.1 m)'),
         OpaqueFunction(function=nodes),
     ])
