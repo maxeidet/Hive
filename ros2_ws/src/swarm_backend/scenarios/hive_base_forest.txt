@@ -1,0 +1,30 @@
+# Areas for scenarios/explore_areas.sh in hive_base: one DAEP exploration each, in this order.
+# Columns: centre x,y (Gazebo ENU, m)  radius (m)  alt (m)  z_min (m)  z_max (m)
+#
+# Only the camp clearing, the access road and the east-west road leave room to fly low (2.5 m
+# from every tree's collision cylinder); between them the trees stand too close. DAEP sees
+# into the forest from there. alt 23 is above the tallest tree (20 m), so the straight flight
+# to each centre cannot hit anything; DAEP then goes as low as the box (z_min) allows.
+
+# The camp
+0,0      10  23  2  24
+12,7     10  23  2  24
+-3,15    10  23  2  24
+-15,7    10  23  2  24
+-21,-11  10  23  2  24
+0,-13    10  23  2  24
+# The access road south to the main road
+13,-15   10  23  2  24
+19,-36   10  23  2  24
+# The main road, east
+29,-30   10  23  2  24
+49,-29   10  23  2  24
+70,-32   10  23  2  24
+94,-32   10  23  2  24
+# The main road, west
+-2,-36   10  23  2  24
+-21,-41  10  23  2  24
+-42,-44  10  23  2  24
+-65,-41  10  23  2  24
+-86,-43  10  23  2  24
+-96,-44  10  23  2  24
