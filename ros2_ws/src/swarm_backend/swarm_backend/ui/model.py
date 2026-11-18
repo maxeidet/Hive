@@ -205,3 +205,114 @@ def load_map(folder) -> dict | None:
     if not (extent['north_max'] > extent['north_min'] and extent['east_max'] > extent['east_min']):
         return None
     return {**extent, 'world': info.get('world'), 'version': int(png.stat().st_mtime)}
+
+
+# --- Event log -------------------------------------------------------------------------
+# What happened during the run, for the operator: found by comparing each drone's view
+# with the one before, so no other node has to send anything. Kinds, for the page's
+# filters: 'fleet' (link, arming, flight mode), 'detect', 'attack', 'operator'. Level
+# 'good' / 'bad' / None colours the entry.
+
+ENGAGED = ('intercept', 'target lost')  # statuses that belong to an attack
+FLIGHT_EVENTS = {'taking off': 'taking off', 'landing': 'landing', 'returning': 'returning home'}
+
+
+@dataclass(frozen=True)
+class Event:
+    id: int  # 1, 2, ... so the page can ask for the ones after the last it has
+    t: float  # seconds since the log started
+    kind: str  # 'fleet' | 'detect' | 'attack' | 'operator'
+    text: str
+    drone: int | None = None  # the drone it is about, if any
+    detail: str = ''  # numbers that go with it, shown smaller
+    level: str | None = None  # 'good' | 'bad' | None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+def _who(view: dict) -> str:
+    # The target too is just 'Drone N': the UI shows it as unknown until a defender spots it.
+    return f"Drone {view['id']}"
+
+
+class EventLog:
+    """Keeps the last `size` events. Feed it every drone view (update) about as often as
+    the page polls; add() is for events that do not come from the views (search area)."""
+
+    def __init__(self, size: int = 500):
+        self.size = size
+        self.events: list[Event] = []
+        self._next_id = 1
+        self._last: dict[int, dict] = {}  # drone id -> the view update() saw last
+        self._seen_at: dict[int, float] = {}  # drone id -> when it first saw this target
+
+    def add(self, t: float, kind: str, text: str, drone: int | None = None, detail: str = '',
+            level: str | None = None) -> Event:
+        event = Event(self._next_id, round(t, 1), kind, text, drone, detail, level)
+        self._next_id += 1
+        self.events.append(event)
+        del self.events[:-self.size]
+        return event
+
+    def after(self, event_id: int = 0, limit: int = 200) -> list[dict]:
+        """The events newer than event_id, oldest first, at most the last `limit`."""
+        return [e.to_dict() for e in self.events if e.id > event_id][-limit:]
+
+    def update(self, t: float, views: list[dict]) -> None:
+        for view in views:
+            before = self._last.get(view['id'])
+            self._compare(t, before, view)
+            self._last[view['id']] = view
+
+    def _compare(self, t: float, before: dict | None, now: dict) -> None:
+        who, drone = _who(now), now['id']
+        linked = now.get('status') != 'no link'
+        was_linked = before is not None and before.get('status') != 'no link'
+        if linked and not was_linked:
+            self.add(t, 'fleet', f'{who} link up' if before is None or before.get('armed') is None
+                     else f'{who} link back', drone, level='good')
+        elif was_linked and not linked:
+            self.add(t, 'fleet', f'{who} link lost', drone,
+                     f'last message {now.get("age_s") or 0:.0f} s ago', level='bad')
+        if not linked or before is None or not was_linked:
+            return
+
+        if now.get('armed') and not before.get('armed'):
+            self.add(t, 'fleet', f'{who} armed', drone)
+        elif before.get('armed') and now.get('armed') is False:
+            self.add(t, 'fleet', f'{who} landed and disarmed', drone)
+
+        status, old = now.get('status'), before.get('status')
+        if status != old and status in FLIGHT_EVENTS:
+            self.add(t, 'fleet', f'{who} {FLIGHT_EVENTS[status]}', drone)
+
+        if now.get('detection') and not before.get('detection'):
+            if drone not in self._seen_at:
+                self._seen_at[drone] = t
+            d = now['detection']
+            self.add(t, 'detect', f'{who} sees the target', drone,
+                     f'{d["altitude"]:.0f} m up' if d.get('altitude') is not None else '')
+        elif before.get('detection') and not now.get('detection'):
+            self.add(t, 'detect', f'{who} lost sight of the target', drone)
+
+        if status != old:
+            self._attack_change(t, who, drone, old, status, now.get('attack') or {})
+
+    def _attack_change(self, t, who, drone, old, status, attack) -> None:
+        range_m = attack.get('range_m')
+        rng = f'range {range_m:.0f} m' if range_m is not None else ''
+        if status == 'intercept':
+            self._seen_at.setdefault(drone, t)
+            self.add(t, 'attack', f'{who} {old} → intercept', drone, rng, 'bad')
+        elif status == 'target lost':
+            seen_ago = attack.get('seen_s_ago')
+            self.add(t, 'attack', f'{who} lost the target', drone,
+                     f'last seen {seen_ago:.1f} s ago' if seen_ago is not None else '', 'bad')
+        elif status == 'hit':
+            seen = self._seen_at.pop(drone, None)
+            self.add(t, 'attack', f'{who} hit the target', drone,
+                     f'{t - seen:.1f} s after it first saw it' if seen is not None else '', 'good')
+        elif status == 'searching' and old in ENGAGED + ('hit',):
+            self._seen_at.pop(drone, None)
+            self.add(t, 'attack', f'{who} back to searching', drone)

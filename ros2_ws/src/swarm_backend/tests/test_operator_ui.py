@@ -2,9 +2,9 @@ import math
 
 import pytest
 
-from swarm_backend.ui.model import (SearchArea, attack_view, drone_home, drone_status,
-                                   drone_view, latlon_offset_m, load_map, update_search_area,
-                                   world_origin)
+from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
+                                   drone_status, drone_view, latlon_offset_m, load_map,
+                                   update_search_area, world_origin)
 
 
 def yaw_q(deg: float) -> tuple[float, float, float, float]:
@@ -168,3 +168,81 @@ def test_spawn_point_until_px4_reports_its_origin():
     assert drone_home((150.0, 0.0, 0.0), None, WORLD) == (150.0, 0.0, 0.0)
     assert drone_home((150.0, 0.0, 0.0), ref_at(1, 1), None) == (150.0, 0.0, 0.0)
     assert world_origin({4: ref_at(0, 0)}, {4: (0.0, 0.0, 0.0)}, skip=(4,)) is None
+
+
+# --- event log ---------------------------------------------------------------------------
+
+def view(drone_id=2, status='searching', armed=True, detection=None, attack=None, hostile=False,
+         age_s=0.1):
+    return {'id': drone_id, 'status': status, 'armed': armed, 'detection': detection,
+            'attack': attack, 'hostile': hostile, 'age_s': age_s}
+
+
+def texts(log):
+    return [e.text for e in log.events]
+
+
+def test_events_link_up_lost_and_back():
+    log = EventLog()
+    log.update(0.0, [view(), view(0, 'flying', hostile=True)])
+    assert texts(log) == ['Drone 2 link up', 'Drone 0 link up']
+    log.update(1.0, [view(status='no link', age_s=3.0)])
+    log.update(2.0, [view()])
+    assert texts(log)[2:] == ['Drone 2 link lost', 'Drone 2 link back']
+    assert log.events[2].level == 'bad' and log.events[2].kind == 'fleet'
+
+
+def test_nothing_new_nothing_logged():
+    log = EventLog()
+    for t in range(5):
+        log.update(float(t), [view()])
+    assert texts(log) == ['Drone 2 link up']
+
+
+def test_events_of_an_attack_from_detection_to_hit():
+    log = EventLog()
+    target = {'north': 50.0, 'east': 0.0, 'altitude': 30.0}
+    log.update(0.0, [view()])
+    log.update(10.0, [view(detection=target)])
+    log.update(10.2, [view(status='intercept', detection=target, attack={'range_m': 48.4})])
+    log.update(14.0, [view(status='target lost', attack={'seen_s_ago': 1.5})])
+    log.update(15.0, [view(status='intercept', detection=target, attack={'range_m': 9.0})])
+    log.update(17.5, [view(status='hit', detection=target)])
+    log.update(21.0, [view()])
+    assert texts(log)[1:] == [
+        'Drone 2 sees the target', 'Drone 2 searching → intercept',
+        'Drone 2 lost sight of the target',
+        'Drone 2 lost the target', 'Drone 2 sees the target', 'Drone 2 target lost → intercept',
+        'Drone 2 hit the target', 'Drone 2 lost sight of the target', 'Drone 2 back to searching']
+    hit = log.events[7]
+    assert hit.kind == 'attack' and hit.level == 'good'
+    assert hit.detail == '7.5 s after it first saw it'  # counted from the first sighting at 10 s
+    assert log.events[2].detail == 'range 48 m'
+
+
+def test_flight_events():
+    log = EventLog()
+    log.update(0.0, [view(status='landed', armed=False)])
+    log.update(1.0, [view(status='taking off')])
+    log.update(9.0, [view(status='landing')])
+    log.update(12.0, [view(status='landed', armed=False)])
+    assert texts(log)[1:] == ['Drone 2 armed', 'Drone 2 taking off', 'Drone 2 landing',
+                              'Drone 2 landed and disarmed']
+
+
+def test_after_returns_newer_events_and_the_log_is_bounded():
+    log = EventLog(size=3)
+    for i in range(5):
+        log.add(float(i), 'operator', f'event {i}')
+    assert [e['text'] for e in log.after(0)] == ['event 2', 'event 3', 'event 4']
+    assert [e['id'] for e in log.after(4)] == [5]
+    assert log.after(5) == []
+
+
+@pytest.mark.parametrize('path,expected', [
+    ('/api/state', 0), ('/api/state?events_after=12', 12), ('/api/state?events_after=x', 0),
+    ('/api/state?events_after=-3', 0)])
+def test_events_after_query(path, expected):
+    pytest.importorskip('yaml')  # operator_ui imports the config loader
+    from swarm_backend.nodes.operator_ui import events_after
+    assert events_after(path) == expected
