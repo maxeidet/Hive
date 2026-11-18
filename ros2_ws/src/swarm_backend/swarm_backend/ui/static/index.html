@@ -7,7 +7,7 @@
 <style>
   /* One dark theme. The map fills the window; the panels float over it as frosted glass.
      Colour only where it means something: blue friendlies, red hostile, green search
-     sector, amber cautions. */
+     sector, lavender the area to map, amber cautions. */
   :root {
     color-scheme: dark;
     --bg: #0a1113;
@@ -18,7 +18,7 @@
     --edge-hi: rgba(200, 235, 235, 0.2);
     --text: #e4edec; --muted: #85979a; --faint: #57696c;
     --grid: rgba(190, 230, 230, 0.06); --ring: rgba(190, 230, 230, 0.15); --tick: rgba(190, 230, 230, 0.35);
-    --friend: #5cc8ff; --hostile: #ff5b3a; --unknown: #9aa6a8; --area: #5fd49a; --warn: #f0b04a; --ok: #5fd49a;
+    --friend: #5cc8ff; --hostile: #ff5b3a; --unknown: #9aa6a8; --area: #5fd49a; --warn: #f0b04a; --ok: #5fd49a; --scan: #c3a6ff;
     --r: 16px; --gap: 14px; --left: 372px; --right: 360px;
     --sans: "Inter", "SF Pro Display", system-ui, -apple-system, "Segoe UI", sans-serif;
     --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
@@ -52,6 +52,30 @@
     background: rgba(255, 255, 255, .06); border: 1px solid var(--edge); }
   .led { width: 7px; height: 7px; border-radius: 50%; background: var(--hostile); box-shadow: 0 0 0 3px rgba(255, 91, 58, .18); }
   .led.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(95, 212, 154, .18), 0 0 10px var(--ok); }
+
+  /* Tabs: the operations view and the area to map. */
+  .tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(0, 0, 0, .22); border: 1px solid var(--edge); }
+  .tab { all: unset; cursor: pointer; padding: 5px 14px; border-radius: 999px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected=true] { color: var(--text); background: rgba(255, 255, 255, .1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06); }
+  .tab:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  body.mapping .ops-only, body:not(.mapping) .map-only { display: none !important; }
+
+  /* Map area panel */
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 10px; }
+  .stats div { background: rgba(0, 0, 0, .22); border-radius: 10px; padding: 7px 10px; border: 1px solid transparent; }
+  .stats div.dirty { border-color: rgba(195, 166, 255, .45); }
+  .stats b { display: block; font: 300 22px/1.15 var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stats b small { font-size: 12px; color: var(--muted); margin-left: 2px; }
+  .btn.scan { background: var(--scan); color: #120b1f; font-weight: 600; border-color: transparent; }
+  .btn.scan:hover:not(:disabled) { background: #d4bfff; }
+  .tools { display: inline-flex; margin-bottom: 10px; }
+  .tools .tab { padding: 4px 12px; font-size: 11.5px; }
+  .hint [hidden] { display: none; }
+  .hint { margin: 10px 0 0; color: var(--faint); font-size: 11px; line-height: 1.5; }
+  .hint kbd { font: 10px var(--mono); color: var(--muted); padding: 0 4px; border-radius: 4px; border: 1px solid var(--edge); }
+  .planner { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--edge); font-size: 11.5px; color: var(--muted); }
+  .planner .led { background: var(--faint); box-shadow: none; }
 
   .title { grid-row: 2; grid-column: 2; align-self: start; padding: 4px; }
   .title h1 { margin: 0; font: 300 32px/1.1 var(--sans); letter-spacing: -.01em; text-shadow: 0 2px 20px rgba(0, 0, 0, .6); }
@@ -177,6 +201,7 @@
   .ico:hover { background: rgba(255, 255, 255, .1); }
   .legend { display: flex; gap: 14px; padding: 8px 14px; border-radius: 999px; font-size: 11px; color: var(--muted); }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend span[hidden] { display: none; }
   .opacity { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 10px; font-size: 11px; color: var(--muted); }
   .opacity[hidden] { display: none; }
   input[type=range] { accent-color: var(--text); width: 80px; }
@@ -219,6 +244,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z"/><path d="M12 8l3.5 2v4L12 16l-3.5-2v-4z" fill="currentColor" stroke="none" opacity=".85"/></svg>
       <div>HIVE<br><small>Operator</small></div>
     </div>
+    <div class="tabs" role="tablist" aria-label="View">
+      <button class="tab" role="tab" id="tabOps" data-mode="ops" aria-selected="true">Operations</button>
+      <button class="tab" role="tab" id="tabMap" data-mode="map" aria-selected="false">Map area</button>
+    </div>
     <div class="spacer"></div>
     <div class="readout"><b id="tplus">T+--:--</b><span>Since UI start</span></div>
     <div class="readout"><b id="clock">--:--:--Z</b><span>UTC</span></div>
@@ -231,7 +260,7 @@
   </div>
 
   <div class="left">
-    <div class="tiles">
+    <div class="tiles ops-only">
       <div class="tile glass"><span class="label">Airborne</span><b id="tAir">–</b>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><path d="M6 6L3.5 3.5M10 6l2.5-2.5M6 10l-2.5 2.5M10 10l2.5 2.5"/><circle cx="3.5" cy="3.5" r="2.2"/><circle cx="12.5" cy="3.5" r="2.2"/><circle cx="3.5" cy="12.5" r="2.2"/><circle cx="12.5" cy="12.5" r="2.2"/><rect x="6" y="5.5" width="4" height="5" rx="1.5"/></svg></div>
       <div class="tile glass" id="tHosBox"><span class="label">Hostile</span><b id="tHos">–</b>
@@ -242,7 +271,7 @@
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><path d="M2 6.5a8.5 8.5 0 0 1 12 0M4.3 9a5.2 5.2 0 0 1 7.4 0M8 12.3h.01M2.5 2.5l11 11"/></svg></div>
     </div>
 
-    <section class="panel glass" aria-labelledby="sectorTitle">
+    <section class="panel glass ops-only" aria-labelledby="sectorTitle">
       <div class="ph"><h2 id="sectorTitle">Search sector</h2><span class="rev" id="rev"></span></div>
       <div class="sector">
         <label id="headingBox"><span class="label">Bearing</span><span class="val"><input id="heading" type="number" min="0" max="359" step="1"><small>°</small></span></label>
@@ -250,6 +279,22 @@
         <label id="radiusBox"><span class="label">Range</span><span class="val"><input id="radius" type="number" min="10" max="5000" step="5"><small>m</small></span></label>
       </div>
       <div class="row"><button class="btn primary" id="apply" disabled>Apply</button><button class="btn" id="revert" disabled>Revert</button><span class="note" id="note">drag the sector’s handles on the map</span></div>
+    </section>
+
+    <section class="panel glass map-only" aria-labelledby="scanTitle">
+      <div class="ph"><h2 id="scanTitle">Area to map</h2><span class="rev" id="scanRev"></span></div>
+      <div class="tabs tools" role="radiogroup" aria-label="Shape to draw">
+        <button class="tab" role="radio" data-tool="polygon" aria-checked="true" aria-selected="true">Polygon</button>
+        <button class="tab" role="radio" data-tool="circle" aria-checked="false" aria-selected="false">Circle</button>
+      </div>
+      <div class="stats">
+        <div id="scanPtsBox"><span class="label" id="scanPtsLbl">Corners</span><b id="scanPts">0</b></div>
+        <div id="scanAreaBox"><span class="label">Area</span><b id="scanArea">–</b></div>
+        <div id="scanSpanBox"><span class="label" id="scanSpanLbl">Span</span><b id="scanSpan">–</b></div>
+      </div>
+      <div class="row"><button class="btn scan" id="scanSend" disabled>Send</button><button class="btn" id="scanUndo" disabled>Undo</button><button class="btn" id="scanClear" disabled>Clear</button><span class="note" id="scanNote">click the map to add corners</span></div>
+      <p class="hint"><span id="hintPolygon">Polygon: click to add a corner, click the first one (or double-click) to close the area.</span><span id="hintCircle" hidden>Circle: click the centre, then click again where the edge should be.</span> Drag a handle to change the area, drag elsewhere to move the map. <kbd>⌫</kbd> removes the last corner, <kbd>Enter</kbd> sends, <kbd>Esc</kbd> reverts.</p>
+      <div class="planner" title="No mapping planner takes the area yet: Send only stores it in the UI node"><span class="led"></span>Mapping planner not connected · the area is stored only</div>
     </section>
 
     <div class="cards" id="cards"></div>
@@ -281,6 +326,7 @@
       <span><i style="width:8px;height:8px;border:1.5px dashed var(--unknown);transform:rotate(45deg)"></i>Unknown</span>
       <span><i style="width:8px;height:8px;border:1.5px solid var(--hostile);background:rgba(255,91,58,.3);transform:rotate(45deg)"></i>Hostile</span>
       <span><i style="width:12px;height:8px;background:rgba(95,212,154,.12);border:1px solid var(--area)"></i>Sector</span>
+      <span id="legendScan" hidden><i style="width:12px;height:8px;background:rgba(195,166,255,.14);border:1px solid var(--scan)"></i>Map area</span>
     </div>
   </div>
 </div>
@@ -318,6 +364,18 @@
   let mapImg = null, mapVersion = null;
   let view = { cx: 0, cy: 0, scale: 1 };
   let events = [], lastEventId = 0, lastUptime = 0, filter = 'all', freshIds = new Set();
+  // Map area tab: the polygon or circle a drone should scan into the 3D map. A circle is
+  // kept like a polygon of two points, the centre and a point on the edge, so the same
+  // code adds, drags and undoes its handles.
+  const MAX_SCAN_POINTS = 64;   // MAX_MAP_POINTS in ui/model.py
+  const CORNER_PX = 10;         // how near the pointer must be to grab or close on a corner
+  let mode = 'ops';             // 'ops' | 'map': which tab
+  let tool = 'polygon';         // 'polygon' | 'circle': what a new area is drawn as
+  let scanDraft = null;         // {shape, points: [[n, e], ...], closed} being drawn or edited, not yet sent
+  let scanCorner = null;        // index of the corner being dragged
+  let press = null;             // {x, y, moved}: where a press on the map started (map tab)
+  let hoverPx = null;           // the pointer over the map (map tab), for the line to the next corner
+  let scanMsg = null;           // {text, err}: what the last Send said, until the next edit
 
   const tokens = {};
   const css = name => tokens[name] || (tokens[name] = getComputedStyle(document.documentElement).getPropertyValue(name).trim());
@@ -387,6 +445,8 @@
       for (const d of server.drones) {
         if (d.north != null) reach = Math.max(reach, 1.1 * Math.hypot(d.north - a.centre[0], d.east - a.centre[1]));
       }
+      const sc = scanShown(), extra = sc && sc.shape === 'circle' && sc.points.length === 2 ? radiusOf(sc) : 0;
+      for (const [n, e] of sc ? sc.points : []) reach = Math.max(reach, 1.1 * (Math.hypot(n - a.centre[0], e - a.centre[1]) + extra));
       fitScale = Math.min(f.w, f.h) / 2 / reach;
     }
     view.scale = fitScale * zoom;
@@ -439,7 +499,9 @@
     }
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
 
-    // Search sector: canvas angle 0 is east; heading 0 is north (up).
+    // Search sector: canvas angle 0 is east; heading 0 is north (up). Faded on the map tab.
+    const mapping = mode === 'map';
+    ctx.globalAlpha = mapping ? 0.3 : 1;
     const a0 = rad(a.heading_deg - a.width_deg / 2 - 90), a1 = rad(a.heading_deg + a.width_deg / 2 - 90), rr = a.radius_m * view.scale;
     ctx.beginPath(); ctx.moveTo(bx, by); ctx.arc(bx, by, rr, a0, a1); ctx.closePath();
     const fill = ctx.createRadialGradient(bx, by, 0, bx, by, rr);
@@ -447,10 +509,12 @@
     ctx.fillStyle = fill; ctx.fill();
     ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.3; ctx.setLineDash(draft ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
     const hs = arcHandles(a);
-    for (const [x, y] of [hs.mid, hs.left, hs.right]) {
+    for (const [x, y] of mapping ? [] : [hs.mid, hs.left, hs.right]) {
       ctx.fillStyle = css('--bg'); ctx.strokeStyle = css('--area'); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(x, y, 5.5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
     }
+    ctx.globalAlpha = 1;
+    drawScan();
 
     // Base.
     ctx.strokeStyle = css('--text'); ctx.lineWidth = 1.4; ctx.strokeRect(bx - 7, by - 7, 14, 14);
@@ -504,6 +568,87 @@
       ctx.globalAlpha = 1;
     }
     placeCallout(f);
+  }
+
+  // ---- the area to map ----------------------------------------------------------------
+  // The draft while the operator draws or edits it, else the one sent to the UI node.
+  function scanShown() {
+    if (scanDraft) return scanDraft;
+    const m = server && server.map_area;
+    if (!m || !m.shape) return null;
+    if (m.shape === 'circle') {
+      const [n, e] = m.circle.centre;
+      return { shape: 'circle', points: [[n, e], [n, e + m.circle.radius_m]], closed: true };
+    }
+    return { shape: 'polygon', points: m.points, closed: true };
+  }
+  const radiusOf = s => Math.hypot(s.points[1][0] - s.points[0][0], s.points[1][1] - s.points[0][1]);
+  const isCircle = s => s && s.shape === 'circle';
+  const shoelace = pts => pts.length < 3 ? 0 : Math.abs(pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
+  const span = pts => { let m = 0; for (const p of pts) for (const q of pts) m = Math.max(m, Math.hypot(p[0] - q[0], p[1] - q[1])); return m; };
+  // True if any two edges that do not share a corner cross (as _segments_cross in ui/model.py).
+  function selfCrossing(pts, closed) {
+    const side = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    const cross = (p1, p2, q1, q2) => side(q1, q2, p1) * side(q1, q2, p2) < 0 && side(p1, p2, q1) * side(p1, p2, q2) < 0;
+    const edges = []; for (let i = 0; i < pts.length - (closed ? 0 : 1); i++) edges.push([pts[i], pts[(i + 1) % pts.length]]);
+    for (let i = 0; i < edges.length; i++) for (let j = i + 2; j < edges.length; j++) if (cross(...edges[i], ...edges[j])) return true;
+    return false;
+  }
+  const cornerAt = (x, y) => {
+    const s = scanShown(); if (!s) return null;
+    const i = s.points.findIndex(([n, e]) => { const [px, py] = toPx(n, e); return Math.hypot(px - x, py - y) < CORNER_PX; });
+    return i < 0 ? null : i;
+  };
+
+  // Lavender: filled once closed, dashed while not sent. On the operations tab only a faint outline.
+  function drawScan() {
+    const s = scanShown(), edit = mode === 'map';
+    if (!s || !s.points.length) return;
+    const px = s.points.map(([n, e]) => toPx(n, e)), col = css('--scan');
+    ctx.save(); ctx.globalAlpha = edit ? 1 : 0.5;
+    if (isCircle(s)) { drawCircle(s, px, col, edit); ctx.restore(); return; }
+    ctx.beginPath(); px.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    if (s.closed) { ctx.closePath(); ctx.fillStyle = 'rgba(195,166,255,.13)'; ctx.fill(); }
+    ctx.strokeStyle = selfCrossing(s.points, s.closed) ? css('--hostile') : col; ctx.lineWidth = 1.5;
+    ctx.setLineDash(scanDraft ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
+    if (!edit) { ctx.restore(); return; }
+    const closable = !s.closed && px.length >= 3 && hoverPx && Math.hypot(hoverPx[0] - px[0][0], hoverPx[1] - px[0][1]) < CORNER_PX;
+    if (!s.closed && hoverPx && scanCorner == null && !(press && press.moved)) {  // where the next corner would go
+      const [lx, ly] = px[px.length - 1];
+      ctx.strokeStyle = col; ctx.globalAlpha = 0.6; ctx.setLineDash([2, 4]);
+      ctx.beginPath(); ctx.moveTo(lx, ly); ctx.lineTo(...(closable ? px[0] : hoverPx)); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+    px.forEach(([x, y], i) => {
+      const big = i === 0 && closable;
+      ctx.fillStyle = big ? col : css('--bg'); ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, big ? 7 : 4.5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    });
+    ctx.restore();
+  }
+  // The circle: while only the centre is placed, a dashed circle out to the pointer.
+  function drawCircle(s, px, col, edit) {
+    const [cx, cy] = px[0], rim = s.closed ? px[1] : (hoverPx && !(press && press.moved) ? hoverPx : null);
+    if (rim) {
+      const r = Math.hypot(rim[0] - cx, rim[1] - cy);
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      if (s.closed) { ctx.fillStyle = 'rgba(195,166,255,.13)'; ctx.fill(); }
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.globalAlpha = s.closed ? ctx.globalAlpha : 0.6;
+      ctx.setLineDash(scanDraft ? [6, 4] : []); ctx.stroke(); ctx.setLineDash([]);
+      if (edit) {
+        ctx.globalAlpha = 0.6; ctx.setLineDash([2, 4]);
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(...rim); ctx.stroke(); ctx.setLineDash([]);
+        ctx.font = '10px ' + css('--mono'); ctx.fillStyle = col;
+        ctx.fillText(Math.round(r / view.scale) + ' m', (cx + rim[0]) / 2 + 6, (cy + rim[1]) / 2 - 6);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (!edit) return;
+    px.forEach(([x, y]) => {
+      ctx.fillStyle = css('--bg'); ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, 4.5, 0, 2 * Math.PI); ctx.fill(); ctx.stroke();
+    });
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(cx, cy, 1.8, 0, 2 * Math.PI); ctx.fill();
   }
 
   // A defender is a plain quadcopter from above, turned to its nose. The target is a diamond (as in NATO symbols) with a tick where it
@@ -801,23 +946,161 @@
     syncForm();
   };
 
-  // ---- map interaction: drag the sector's handles, zoom ---------------------------------
+  // ---- area to map panel: Send stores the draft in the UI node -------------------------
+  const areaText = m2 => m2 >= 10000 ? `${(m2 / 10000).toFixed(m2 >= 1e5 ? 1 : 2)}<small>ha</small>` : `${Math.round(m2)}<small>m²</small>`;
+  function scanNote(text, err = false) { $('scanNote').textContent = text; $('scanNote').className = 'note' + (err ? ' err' : ''); }
+  function syncScan() {
+    if (!server) return;
+    const s = scanShown(), m = server.map_area, pts = s ? s.points : [], circle = s ? isCircle(s) : tool === 'circle';
+    const crossing = s && !circle && selfCrossing(pts, s.closed);
+    const r = circle && pts.length === 2 ? radiusOf(s) : null;
+    $('scanPtsLbl').textContent = circle ? 'Radius' : 'Corners';
+    $('scanSpanLbl').textContent = circle ? 'Diameter' : 'Span';
+    $('scanPts').innerHTML = circle ? (r == null ? '–' : `${Math.round(r)}<small>m</small>`) : pts.length;
+    $('scanArea').innerHTML = s && s.closed ? areaText(circle ? Math.PI * r * r : shoelace(pts)) : '–';
+    $('scanSpan').innerHTML = circle ? (r == null ? '–' : `${Math.round(2 * r)}<small>m</small>`)
+      : pts.length >= 2 ? `${Math.round(span(pts))}<small>m</small>` : '–';
+    for (const id of ['scanPtsBox', 'scanAreaBox', 'scanSpanBox']) $(id).classList.toggle('dirty', !!scanDraft);
+    $('scanRev').textContent = m.shape ? 'rev ' + m.revision : '';
+    $('scanSend').disabled = !(scanDraft && scanDraft.closed && (circle ? r >= 3 : pts.length >= 3 && !crossing));
+    $('scanUndo').disabled = !pts.length;
+    $('scanClear').disabled = !scanDraft && !m.shape;
+    $('legendScan').hidden = !s && mode !== 'map';
+    for (const b of document.querySelectorAll('.tools .tab')) { const on = b.dataset.tool === tool; b.setAttribute('aria-checked', String(on)); b.setAttribute('aria-selected', String(on)); }
+    $('hintPolygon').hidden = tool !== 'polygon'; $('hintCircle').hidden = tool !== 'circle';
+    const start = tool === 'circle' ? 'click the map to place the centre' : 'click the map to add corners';
+    if (scanMsg) scanNote(scanMsg.text, scanMsg.err);
+    else if (crossing) scanNote('edges cross each other', true);
+    else if (scanDraft && !scanDraft.closed) scanNote(circle ? (pts.length ? 'click where the edge should be' : start)
+      : pts.length < 3 ? 'click the map to add corners' : 'click the first corner to close');
+    else if (scanDraft) scanNote(circle && r < 3 ? 'the radius must be at least 3 m' : 'not sent yet', circle && r < 3);
+    else if (m.shape) scanNote(`stored, drag a ${circle ? 'handle' : 'corner'} to change it`);
+    else scanNote(start);
+  }
+  // Start editing: a copy of what is shown, so the sent area stays as it was until Send.
+  function editScan() {
+    scanMsg = null;
+    if (!scanDraft) { const s = scanShown(); scanDraft = s ? { shape: s.shape, points: s.points.map(p => [...p]), closed: s.closed } : { shape: tool, points: [], closed: false }; }
+    return scanDraft;
+  }
+  function addCorner(x, y) {
+    const shown = scanShown();
+    if (shown && shown.closed) {
+      if (cornerAt(x, y) == null) { scanMsg = { text: 'Clear to draw a new area' }; syncScan(); }
+      return;
+    }
+    const d = editScan(), pts = d.points, px = pts.map(([n, e]) => toPx(n, e));
+    if (isCircle(d)) {  // first click the centre, second the edge
+      if (pts.length === 1 && Math.hypot(px[0][0] - x, px[0][1] - y) < CORNER_PX) return;  // on the centre itself
+      pts.push(toWorld(x, y).map(v => Math.round(v * 10) / 10));
+      d.closed = pts.length === 2;
+      syncScan(); return;
+    }
+    const near = q => q && Math.hypot(q[0] - x, q[1] - y) < CORNER_PX;
+    // On the first corner, or again on the last (the second click of a double-click): close.
+    if (pts.length >= 3 && (near(px[0]) || near(px[px.length - 1]))) d.closed = true;
+    else if (near(px[px.length - 1])) { /* same spot twice with too few corners: ignore */ }
+    else if (pts.length >= MAX_SCAN_POINTS) scanMsg = { text: `at most ${MAX_SCAN_POINTS} corners`, err: true };
+    else pts.push(toWorld(x, y).map(v => Math.round(v * 10) / 10));
+    syncScan();
+  }
+  function undoScan() {
+    if (!scanShown()) return;
+    const d = editScan();
+    if (isCircle(d)) { d.points.pop(); d.closed = false; }
+    else if (d.closed) d.closed = false; else d.points.pop();
+    if (!d.points.length && !server.map_area.shape) scanDraft = null;
+    syncScan();
+  }
+  // body: {points: [...]} or {circle: {centre, radius_m}}; {points: []} clears.
+  async function sendScan(body) {
+    try {
+      const res = await fetch('/api/map_area', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const out = await res.json();
+      if (!res.ok) throw new Error(out.error || res.statusText);
+      server.map_area = out; scanDraft = null;
+      scanMsg = { text: out.shape ? `stored, revision ${out.revision}` : 'cleared' };
+    } catch (e) {
+      scanMsg = { text: e.message, err: true };
+    }
+    syncScan();
+  }
+  $('scanSend').onclick = () => {
+    const d = scanDraft; if (!d || !d.closed) return;
+    sendScan(isCircle(d) ? { circle: { centre: d.points[0], radius_m: Math.round(radiusOf(d) * 10) / 10 } } : { points: d.points });
+  };
+  // Another shape drops a draft that was not sent; a stored area stays until Clear.
+  for (const b of document.querySelectorAll('.tools .tab')) b.onclick = () => {
+    if (tool === b.dataset.tool) return;
+    tool = b.dataset.tool; scanMsg = null;
+    if (scanDraft) scanDraft = null;
+    if (server && server.map_area.shape) scanMsg = { text: 'Clear to draw a new area' };
+    syncScan();
+  };
+  $('scanUndo').onclick = undoScan;
+  $('scanClear').onclick = () => { const had = server.map_area.shape; scanDraft = null; scanMsg = null; if (had) sendScan({ points: [] }); else syncScan(); };
+  document.addEventListener('keydown', ev => {
+    if (mode !== 'map' || ev.target.closest('input, textarea, [contenteditable]')) return;
+    if (ev.key === 'Backspace' || ev.key === 'Delete') { ev.preventDefault(); undoScan(); }
+    else if (ev.key === 'Enter' && !$('scanSend').disabled) $('scanSend').click();
+    else if (ev.key === 'Escape' && scanDraft) { scanDraft = null; scanMsg = null; syncScan(); }
+  });
+
+  // ---- tabs: Operations (search sector, drones) and Map area -----------------------------
+  function setMode(m) {
+    mode = m === 'map' ? 'map' : 'ops';
+    document.body.classList.toggle('mapping', mode === 'map');
+    for (const t of document.querySelectorAll('.tab[data-mode]')) t.setAttribute('aria-selected', String(t.dataset.mode === mode));
+    drag = null; press = null; scanCorner = null; hoverPx = null; canvas.style.cursor = mode === 'map' ? 'crosshair' : 'grab';
+    try { localStorage.setItem('hive.tab', mode); } catch (e) { /* no storage */ }
+    syncScan();
+  }
+  for (const t of document.querySelectorAll('.tab[data-mode]')) t.onclick = () => setMode(t.dataset.mode);
+
+  // ---- map interaction: drag the sector's handles (or the map area's corners), zoom ------
   const pointer = ev => { const r = canvas.getBoundingClientRect(); return [ev.clientX - r.left, ev.clientY - r.top]; };
   const handleAt = (x, y) => {
     const hs = arcHandles(area()), near = ([hx, hy]) => Math.hypot(hx - x, hy - y) < 14;
     return near(hs.mid) ? 'mid' : (near(hs.left) || near(hs.right)) ? 'edge' : null;
   };
   // Drag a sector handle to edit the sector; drag anywhere else to move the map.
+  // On the map tab a click adds a corner and a corner can be dragged instead.
   canvas.addEventListener('pointerdown', ev => {
-    if (!server) return;
+    if (!server || ev.button > 0) return;
     const [x, y] = pointer(ev);
+    if (mode === 'map') {
+      scanCorner = cornerAt(x, y);
+      press = { x, y, moved: false };
+      drag = scanCorner == null ? { x, y } : null;
+      canvas.setPointerCapture(ev.pointerId);
+      if (scanCorner == null) return;
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
     drag = handleAt(x, y) || { x, y };
     canvas.setPointerCapture(ev.pointerId);
     canvas.style.cursor = 'grabbing';
   });
   canvas.addEventListener('pointermove', ev => {
     const [x, y] = pointer(ev);
-    if (!drag) { if (server) canvas.style.cursor = handleAt(x, y) ? 'pointer' : 'grab'; return; }
+    if (mode === 'map') {
+      hoverPx = [x, y];
+      if (press && Math.hypot(x - press.x, y - press.y) > 4) press.moved = true;
+      if (scanCorner != null) {
+        if (press.moved) {
+          const d = editScan(), to = toWorld(x, y).map(v => Math.round(v * 10) / 10);
+          if (isCircle(d) && scanCorner === 0 && d.points.length === 2) {  // the centre: the edge comes along
+            const [dn, de] = [to[0] - d.points[0][0], to[1] - d.points[0][1]];
+            d.points[1] = [d.points[1][0] + dn, d.points[1][1] + de];
+          }
+          d.points[scanCorner] = to; syncScan();
+        }
+        return;
+      }
+      if (!drag) { if (server) canvas.style.cursor = cornerAt(x, y) != null ? 'move' : 'crosshair'; return; }
+      if (!press.moved) return;
+      canvas.style.cursor = 'grabbing';
+    } else if (!drag) { if (server) canvas.style.cursor = handleAt(x, y) ? 'pointer' : 'grab'; return; }
     if (typeof drag === 'object') {
       pan = [pan[0] + (y - drag.y) / view.scale, pan[1] - (x - drag.x) / view.scale];
       drag = { x, y };
@@ -831,9 +1114,14 @@
       editDraft({ width_deg: Math.max(10, Math.min(180, Math.round(2 * Math.abs(wrap(b - a.heading_deg))))) });
     }
   });
-  const endDrag = () => { drag = null; canvas.style.cursor = 'grab'; };
-  canvas.addEventListener('pointerup', endDrag);
+  const endDrag = () => { drag = null; press = null; scanCorner = null; canvas.style.cursor = mode === 'map' ? 'crosshair' : 'grab'; };
+  canvas.addEventListener('pointerup', ev => {
+    if (mode === 'map' && press && !press.moved) addCorner(...pointer(ev));  // also on a corner: it may close the area
+    endDrag();
+  });
   canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerleave', () => { hoverPx = null; });
+  canvas.addEventListener('contextmenu', ev => { if (mode === 'map') { ev.preventDefault(); undoScan(); } });
   // Zoom keeping the point at (x, y) where it is: the wheel zooms at the pointer, the
   // buttons at the middle of the view.
   function zoomTo(z, x, y) {
@@ -881,7 +1169,7 @@
       spotted = isSpotted(next.drones);
       $('linkDot').classList.add('ok');
       $('linkText').textContent = `${server.drones.length} drone${server.drones.length === 1 ? '' : 's'} · ${Math.round(1000 / POLL_MS)} Hz`;
-      takeEvents(server.events); syncMap(); syncForm(); renderCards(); renderSummary();
+      takeEvents(server.events); syncMap(); syncForm(); syncScan(); renderCards(); renderSummary();
       if (REDUCED) draw();
     } catch (e) {
       $('linkDot').classList.remove('ok'); $('linkText').textContent = 'no connection to the UI node';
@@ -896,6 +1184,7 @@
   $('legendQuad').insertAdjacentHTML('afterbegin', QUAD);
   resize();
   setCollapsed(evCollapsed);
+  try { setMode(localStorage.getItem('hive.tab') || 'ops'); } catch (e) { setMode('ops'); }
   poll();
   if (!REDUCED) requestAnimationFrame(frame);
 })();
