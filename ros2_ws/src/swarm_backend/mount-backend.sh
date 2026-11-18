@@ -102,6 +102,10 @@
 #                                      private DAEP forks in ros2_ws/src, built once with
 #                                      colcon build --packages-up-to daep (launch/
 #                                      daep_exploration.launch.py, e.g. explore 13.5,-14 7 alt:=4 z_max:=5)
+#   ./mount-backend.sh scanmap [args]  draw the scanned 3D map from above as the operator UI's
+#                                      background map (ui/static/map.png + map.json). Default
+#                                      data/map.bt; --watch 10 redraws the running map every 10 s
+#                                      while `map` or `explore` flies (octomap_snapshot.py --help)
 #   ./mount-backend.sh snap [ID] [args] save drone ID's camera images as PNGs in data/Manualimages/ of
 #                                      the repo, default drone 2, one per second until Ctrl-C
 #                                      (e.g. snap 2 --count 10 --label sky_30m; --help for more).
@@ -412,6 +416,7 @@ case "$cmd" in
   view|lidar|camera) view "$1" ;;
   map) mapping "$@" ;;
   maptest) run "python3 $PKG/tests/mapping_test.py --config $CONFIG $*" ;;
+  scanmap) run "python3 -m swarm_backend.octomap_snapshot $*" ;;
   explore) explore "$@" ;;
   predict) run "python3 -m swarm_backend.detect.predict $*" ;;
   snap)
