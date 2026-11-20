@@ -9,9 +9,6 @@
 #   ./mount-backend.sh spawn TYPE      start ONE more drone of TYPE (see below) at the next free id
 #   ./mount-backend.sh single [args]   Milestone 1 test (tests/single_drone_test.py --help)
 #   ./mount-backend.sh multi [args]    Milestone 2 test (tests/multi_drone_swarm_test.py --help)
-#   ./mount-backend.sh intercept [args] chase test: drone 2 chases drone 0 at 50 m using mock
-#                                      radar fixes (tests/intercept_test.py --help, e.g.
-#                                      --pattern figure8 --speed 5 --csv /tmp/run.csv)
 #   ./mount-backend.sh scenario NAME [--sim] [args]  run a scenario (swarm_backend/scenarios/):
 #                                      in Gazebo, or with --sim in the fast simulation (no
 #                                      Gazebo or PX4 needed, seconds per run). NAME: attack,
@@ -110,7 +107,7 @@
 #                                      /tmp/px4_0.log), then drones 1..N-1 of swarm.yaml if N is
 #                                      given. Keeps the world, drone 0 model and headless setting
 #                                      it was running with, else baylands and gz_x500.
-#                                      Example: ./mount-backend.sh restart && scenarios/scenario1.sh
+#                                      Example: ./mount-backend.sh restart && scenarios/yolo.sh
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, gimbal_labels
@@ -340,7 +337,6 @@ case "$cmd" in
     if [ -z "$1" ] || [[ "$1" =~ ^[0-9]+$ ]]; then spawn "$1"; else spawn_one "$1"; fi ;;
   single) run "python3 $PKG/tests/single_drone_test.py --config $CONFIG $*" ;;
   multi)  run "python3 $PKG/tests/multi_drone_swarm_test.py --config $CONFIG $*" ;;
-  intercept) run "python3 $PKG/tests/intercept_test.py --config $CONFIG $*" ;;
   detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
   scenario)
     # --config only when SWARM_CONFIG is set: each scenario has its own default config.

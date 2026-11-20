@@ -37,7 +37,6 @@ from swarm_backend.intercept.mpc import (PX4_VELOCITY_GAIN, Mpc, MpcWeights, tim
                                          velocity_command)
 from swarm_backend.intercept.target import PositionFix
 from swarm_backend.intercept.target_detector import Detector
-from swarm_backend.intercept.tracker import ACCEL_NOISE, INITIAL_SPEED_STD, RESET_DISTANCE2
 from swarm_backend.px4.drone import Drone, pitch_yaw_deg, wrap_deg
 
 # What the interceptor can do. PX4 takes velocity setpoints only; velocity_command leads
@@ -47,12 +46,16 @@ MAX_ACCEL = 4.0  # m/s^2
 MIN_ALTITUDE = 10.0  # metres above the start point: never descend below this
 MIN_DIRECTION_M = 1e-3  # closer than this the target has no direction to face
 TERMINAL_S = 5.0  # seconds before the meeting where the MPC takes over
+# The target tracker (TargetTracker3D).
+ACCEL_NOISE = 1.5  # m/s^2: how hard the target is assumed to manoeuvre
+INITIAL_SPEED_STD = 15.0  # m/s: velocity we cannot see yet when a track starts
+RESET_DISTANCE2 = 100.0  # squared Mahalanobis distance of a fix that restarts the track
 
 
 class TargetTracker3D:
     """A constant-velocity Kalman filter over (x, y, z, vx, vy, vz), world NED, fed with
-    PositionFixes. The same filter as tracker.KalmanTracker, with height estimated
-    instead of known: the hostile flies anywhere between 20 and 120 m."""
+    PositionFixes, with height estimated instead of known: the hostile flies anywhere
+    between 20 and 120 m."""
 
     def __init__(self, accel_noise: float = ACCEL_NOISE):
         self.accel_noise = accel_noise

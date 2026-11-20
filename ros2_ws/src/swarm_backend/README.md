@@ -76,37 +76,28 @@ In the shell, `gimbal(id, pitch, yaw)` points a gimbal drone's camera (`spawn gi
 
 Ctrl-C or a timeout in any of these lands the drones.
 
-### Intercept (cat and mouse)
+### Intercept: pure pursuit and MPC
 
-One drone chases a hostile drone using only what the base station reports. For now that report comes from a **mock radar** that measures the hostile drone's real position the way a radar does, at 2 Hz: range (σ 3.5 m), azimuth (σ 1°, so ±35 m across the line of sight at 2 km), elevation (σ 2°, unused while the altitude is fixed) and radial velocity (σ 0.5 m/s). `radar_position` places the radar; the default puts it virtually 2 km south, so the errors are realistic while the drones fly near the origin. The hostile drone is a real PX4 drone in the same Gazebo world, flying a pattern, so every run is scored against where it really was. Both fly at a fixed 50 m. Settings are in the `intercept:` section of `swarm.yaml`. By default drone 2 (`gz_x500_gimbal`) chases drone 0.
-
-```bash
-./mount-backend.sh spawn                         # drones 1 and 2 (2 is the gimbal interceptor)
-./mount-backend.sh intercept                     # chase test: circle, 120 s, prints a summary
-./mount-backend.sh intercept --pattern figure8 --speed 5 --csv /tmp/run.csv
-./mount-backend.sh view 2                        # the interceptor's gimbal camera in RViz
-```
-
-In the shell: `takeoff(50)`, `hostile()` (or `hostile(pattern='random')`), `chase()`, `status()`, `stop_chase()`, `land()`.
+A defender flies into the hostile drone on what its own camera reports: the two detection topics `/<ns>/detection/target_position` and `target_offset` (`intercept/detection.py`), from the real detector (`detect ID`) or the fake one (`fakedetect`). There are two guidance laws behind one interface, chosen with `--guidance pursuit|mpc` (the attack node, the patrols, the scenarios; `--setup` in the scenarios picks one too):
 
 | Module (`swarm_backend/intercept/`) | Role |
 |---|---|
-| `paths.py` | Hostile patterns, flown at constant speed: `line` (a racetrack), `circle`, `figure8`, `random` (seeded waypoints, turns no tighter than 8 m). |
-| `mock.py` | `HostileFlight` flies a drone along a pattern (position setpoint + velocity feed-forward); `radar_fix` is what the radar measures. |
-| `radar.py` | `MockRadar` publishes `radar_msgs/RadarScan` (range, azimuth, elevation, doppler) on `/base/radar/hostile`, frame `base_radar_ned` (azimuth clockwise from north); `RadarTarget` receives it. Standalone: `ros2 run swarm_backend mock_radar`. |
-| `target.py` | `TargetSource` and the fix types: `RadarFix` (polar, with its sigmas) and `PositionFix` (for a drone's own depth camera / lidar later). The chase uses the first source in its list with a fresh fix. |
-| `tracker.py` | Kalman filter (x, y, vx, vy). Radar returns go in as measured (an EKF on range, azimuth, radial velocity), so it knows the error is a thin ellipse across the radar's line of sight. It reports its own uncertainty. |
-| `guidance.py` | Pure math: lead point, the shadow point, braking approach, phases, gimbal angles. |
-| `chase.py` | `ChaseAction`: one `step()` per setpoint tick. |
+| `attack.py` | `AttackAction`, the baseline: pure pursuit at `attack.max_speed` toward the target, SEARCH / ATTACK / COAST / LOST. `limit_velocity` (speed, climb, minimum height) is shared with the MPC. |
+| `mpc.py` | `Mpc`: the receding-horizon calculator (closed-form least squares, one acceleration per step). |
+| `mpc_action.py` | `MpcIntercept`: Kalman filter on the target (`TargetTracker3D`), full speed to the predicted meeting point, the MPC in the last `terminal_s` seconds. An `InterceptAction`, so the evaluation harness can score it. |
+| `mpc_attack.py` | `MpcAttack`: the MPC behind `AttackAction`'s face, and `make_attack(guidance, ...)`, the one place that picks pursuit or MPC. |
+| `inbox_detector.py` | The detection topics as a `Detector`, for the MPC. |
+| `target.py` | `TargetSource` and `PositionFix`. |
+| `paths.py`, `mock.py` | Hostile flight patterns and `HostileFlight`, which flies a PX4 drone along one (the scenarios' hostile). |
+| `guidance.py` | Gimbal angles toward a target (`tests/detection_test.py`). |
 
-How the chase flies:
-- **INTERCEPT**: far out, it heads for the spot behind where the target will be when it gets there (the lead point). Within 3 × standoff it works round the target itself. It closes no faster than it can brake (2 m/s²), on top of the target's velocity.
-- **Standoff** is `standoff` (10 m), or `standoff_sigmas` (3) × the tracker's uncertainty if that is more. With the radar alone at 2 km that is about 45 m. Close following needs a sensor on the drone; the radar cannot keep a same-altitude chase safe at 10 m.
-- **SHADOW**: once within standoff + capture_margin, it holds the standoff behind the target. The setpoint swings at most 45° round the target per step, so when the target turns back it circles at standoff instead of cutting across. It never aims closer than `min_separation` to the estimate.
-- **LOST**: no fix for `track_timeout` s, so it hovers.
-- The nose turns toward the target. With a gimbal, the camera is kept on the target (`Drone.aim_gimbal`, streamed at 5 Hz). Pitch is commanded relative to the horizon, so PX4's gimbal manager removes the drone's own tilt while it accelerates. A fixed camera would point at the ground then.
+```bash
+./mount-backend.sh attack [--guidance mpc]              # one defender, drone 2
+./mount-backend.sh scenario attack --sim                # the whole chain, YOLO + ByteTrack + MPC
+./mount-backend.sh scenario attack --sim --guidance pursuit
+```
 
-Timing uses each PX4's own clock (`Drone.stamp`, simulation time in SITL), so speeds and rates stay right when Gazebo runs slower than real time. The flight test aborts and flies both drones home (at different heights) if they get within 3 m of each other.
+Timing uses each PX4's own clock (`Drone.stamp`, simulation time in SITL), so speeds and rates stay right when Gazebo runs slower than real time.
 
 ### Intercept baseline evaluation
 
@@ -172,4 +163,4 @@ The container publishes port 8090 to `127.0.0.1` (`HOST_UI_PORT` changes the hos
 | `nodes/operator_ui.py` | Subscribes to every drone, publishes the search area, serves the page and `/api/state`. |
 | `ui/static/index.html` | The page: one file, no build step, polls `/api/state` 5 times a second. |
 
-Unit tests for the parts that do not need ROS (config, topics, formations, swarm logic, intercept incl. a closed-loop chase sim): `python3 -m pytest tests/test_*.py`.
+Unit tests for the parts that do not need ROS (config, topics, formations, swarm logic, pursuit, MPC, scenarios): `python3 -m pytest tests/test_*.py`.

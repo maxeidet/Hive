@@ -31,29 +31,13 @@ class DroneConfig:
 
 @dataclass(frozen=True)
 class InterceptConfig:
-    """One drone chasing a hostile drone (the `intercept:` section of swarm.yaml)."""
+    """One interceptor against one hostile drone: the MPC intercept and the intercept
+    evaluation (the `intercept:` section of swarm.yaml)."""
     interceptor_id: int = 2
     hostile_id: int = 0
     altitude: float = 50.0  # metres; both drones fly at this fixed altitude
-    standoff: float = 10.0  # metres behind the hostile drone while shadowing
-    standoff_sigmas: float = 3.0  # but at least this many sigmas of position uncertainty
-    capture_margin: float = 3.0  # intercept counts as done within standoff + this
-    min_separation: float = 5.0  # never command a point closer than this to the estimate
-    max_speed: float = 10.0  # m/s the interceptor is assumed to fly, for the lead point
     track_timeout: float = 3.0  # seconds without a fix before the target counts as lost
     use_gimbal: bool = True  # keep the gimbal camera pointed at the target
-    radar_topic: str = '/base/radar/hostile'
-    radar_rate_hz: float = 2.0
-    radar_position: Vector3 = (0.0, 0.0, 0.0)  # world NED
-    # Mock radar errors, 1 sigma.
-    radar_range_std: float = 3.5  # metres
-    radar_azimuth_std_deg: float = 1.0
-    radar_elevation_std_deg: float = 2.0
-    radar_radial_velocity_std: float = 0.5  # m/s
-    hostile_pattern: str = 'circle'  # line, circle, figure8 or random
-    hostile_speed: float = 4.0  # m/s
-    pattern_size: float = 80.0  # metres: line length, circle diameter, figure-8 width
-    seed: int = 0  # random waypoints and radar noise
     # Baseline evaluation (planning report, Interception > Evaluation and Tables
     # "assumptions" / "target-assumptions"). `altitude` above is the interceptor's h.
     hit_radius: float = 1.5  # metres: a hit is the interceptor this close to the target
@@ -260,8 +244,6 @@ def _parse_section(cls, name: str, entry: dict):
 
 
 def _parse_intercept(entry: dict) -> InterceptConfig:
-    if 'radar_position' in entry and len(entry['radar_position']) != 3:
-        raise ValueError('intercept: radar_position must be [x, y, z]')
     config = _parse_section(InterceptConfig, 'intercept', entry)
     if config.interceptor_id == config.hostile_id:
         raise ValueError('intercept: interceptor_id and hostile_id must differ')
