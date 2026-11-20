@@ -7,7 +7,7 @@ from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect.frame import aimed_camera, make_frame
 from swarm_backend.detect.scenario import DetectScenario
 from swarm_backend.intercept.mpc import PX4_VELOCITY_GAIN
-from swarm_backend.intercept.scenario import Scenario
+from swarm_backend.evaluation.scenario import Scenario
 from swarm_backend.px4.drone import Drone
 
 

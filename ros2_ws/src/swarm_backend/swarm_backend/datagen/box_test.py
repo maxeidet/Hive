@@ -119,8 +119,8 @@ def projected(height: float, position: tuple, label: int) -> dict | None:
     for a model at `position` facing north, seen by the test camera. Compared with the
     full boxes of the bounding-box camera, it shows whether HALF_SIZE is right. It is
     centred on the model's origin, which for the drone may sit below its body."""
-    from swarm_backend import ground_truth
-    from swarm_backend.birds import yaw_quaternion
+    from swarm_backend.sim import ground_truth
+    from swarm_backend.sim.birds import yaw_quaternion
     camera = {'position': (0.0, 0.0, -height), 'forward': (1.0, 0.0, 0.0),
               'right': (0.0, 1.0, 0.0), 'down': (0.0, 0.0, 1.0)}
     north, east, up = position
@@ -327,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
 
     import cv2
 
-    from swarm_backend.birds import KINDS, Gazebo, bird_sdf
+    from swarm_backend.sim.birds import KINDS, Gazebo, bird_sdf
 
     print_gimbal_camera()
     gazebo = Gazebo()

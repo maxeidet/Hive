@@ -31,9 +31,9 @@ import sys
 import time
 from pathlib import Path
 
-from swarm_backend import ground_truth
-from swarm_backend.box_test import BIRD, DRONE, HFOV, HEIGHT_PX, WIDTH, Streams
-from swarm_backend.gen_data import (DEFAULT_OUT, RunWriter, TargetPool, add_bird_options,
+from swarm_backend.sim import ground_truth
+from swarm_backend.datagen.box_test import BIRD, DRONE, HFOV, HEIGHT_PX, WIDTH, Streams
+from swarm_backend.datagen.gen_data import (DEFAULT_OUT, RunWriter, TargetPool, add_bird_options,
                                     add_variety_options, prepare_run, quaternion)
 
 TOLERANCE_M = 1.0
@@ -182,11 +182,11 @@ def main(argv: list[str] | None = None) -> int:
     from rclpy.node import Node
     from rclpy.signals import SignalHandlerOptions
 
-    from swarm_backend.birds import Gazebo
+    from swarm_backend.sim.birds import Gazebo
     from swarm_backend.config import default_config_path, load_config
     from swarm_backend.runner import spinning
-    from swarm_backend.save_images import PoseHistory, drone_names
-    from swarm_backend.sensor_view import find_sensors
+    from swarm_backend.datagen.save_images import PoseHistory, drone_names
+    from swarm_backend.sim.sensor_view import find_sensors
 
     gz_topics = subprocess.run(['gz', 'topic', '-l'], capture_output=True, text=True,
                                check=True).stdout.split()

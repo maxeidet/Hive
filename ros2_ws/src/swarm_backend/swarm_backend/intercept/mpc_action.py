@@ -1,4 +1,4 @@
-"""The MPC as an intercept method for the evaluation harness (intercept/scenario.py).
+"""The MPC as an intercept method for the evaluation harness (evaluation/scenario.py).
 
 mpc.py is the calculator: given the interceptor's and the target's position and
 velocity it returns one acceleration. MpcIntercept is the pilot around it. Every step

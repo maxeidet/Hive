@@ -1,11 +1,11 @@
-"""Scenario 2's geometry: straight-in flights and matching detections (intercept/inbound.py)."""
+"""Scenario 2's geometry: straight-in flights and matching detections (evaluation/inbound.py)."""
 import math
 
 import pytest
 
 import random
 
-from swarm_backend.intercept.inbound import (inbound_line, match_hostile, plan_birds,
+from swarm_backend.evaluation.inbound import (inbound_line, match_hostile, plan_birds,
                                               straight_at)
 
 BASE = (0.0, 0.0)

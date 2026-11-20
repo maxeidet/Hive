@@ -22,8 +22,8 @@ sweep test stops skipping and prints the table for the report. It is on the
 
 | # | What | Where |
 |---|---|---|
-| 1 | Intercept scenarios: head-on and crossing at 30/60/90°, target speeds 4–17 m/s, 30 seeds each | `intercept/scenario.py` |
-| 2 | Intercept metrics: hit, time to hit, lock-on, distance to base at hit, target's closest distance to base, closest miss | `intercept/metrics.py` |
+| 1 | Intercept scenarios: head-on and crossing at 30/60/90°, target speeds 4–17 m/s, 30 seeds each | `evaluation/scenario.py` |
+| 2 | Intercept metrics: hit, time to hit, lock-on, distance to base at hit, target's closest distance to base, closest miss | `evaluation/metrics.py` |
 | 3 | Intercept interfaces + placeholders: `InterceptAction` (`PurePursuitAction`), `Detector` (`NoisyTruthDetector`) | `intercept/interceptor.py`, `intercept/target_detector.py` |
 | 4 | Detection scenarios: static ring of 12 defenders, a hostile drone and 3 birds from random directions, until the hostile reaches the ring | `detect/scenario.py` |
 | 5 | Detection metrics: missed drones, detection probability vs range, birds flagged, background false alarms; on labelled images recall vs size, inference time | `detect/metrics.py`, `detect/dataset.py` |

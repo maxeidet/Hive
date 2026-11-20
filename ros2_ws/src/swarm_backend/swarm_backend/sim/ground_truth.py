@@ -9,7 +9,7 @@ without ROS or Gazebo imports.
 """
 import math
 
-from swarm_backend.sensor_view import Pose, drone_transforms
+from swarm_backend.sim.sensor_view import Pose, drone_transforms
 
 Vector3 = tuple[float, float, float]
 Quaternion = tuple[float, float, float, float]  # x, y, z, w, as Gazebo gives it

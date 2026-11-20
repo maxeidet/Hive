@@ -47,7 +47,7 @@ calls a drone is drawn and tracked like a drone; nothing here can tell it apart.
 
 Friendly drones: the hivemind (nodes/hivemind_node.py) broadcasts where all our drones
 are on /hive/friendlies. A track whose box points at one of them, with a box-size distance
-that roughly fits, is marked friendly for the rest of its life (hive/friendlies.py): it
+that roughly fits, is marked friendly for the rest of its life (swarm/friendlies.py): it
 is drawn blue ("friend 0 T5"), the lock never picks it, and a lock on a track that turns
 out to be friendly is released at once. Without the hivemind nothing is marked;
 --no-friendlies turns it off.
@@ -74,10 +74,10 @@ from swarm_backend.detect.bytetrack import ByteTracker, Settings, State
 from swarm_backend.detect.detectors import Detection, Detector, draw
 from swarm_backend.detect.kalman import Noise, rotation_homography
 from swarm_backend.detect.tracking import Confirmer, Track, angle_between
-from swarm_backend.hive.friendlies import TOPIC as FRIENDLIES_TOPIC
-from swarm_backend.hive.friendlies import FriendlyBook, friendly_for
-from swarm_backend.hive.friendlies import decode as decode_friendlies
-from swarm_backend.sensor_view import (
+from swarm_backend.swarm.friendlies import TOPIC as FRIENDLIES_TOPIC
+from swarm_backend.swarm.friendlies import FriendlyBook, friendly_for
+from swarm_backend.swarm.friendlies import decode as decode_friendlies
+from swarm_backend.sim.sensor_view import (
     bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
 
 CANDIDATE = (255, 220, 0)

@@ -74,7 +74,7 @@ Everything else is the harness's: seeds, aspects, speeds, altitudes, goal radius
 | File | What |
 |---|---|
 | `swarm_backend/scenarios/baseline_eval.py` | The scenario (`intercept`, `detect`, `summary`; `--sim` for the fast simulation, into `data/baseline_eval_sim/`); flies in `SurveillanceWorld` (`scenarios/surveillance.py`), shared with the attack scenario |
-| `swarm_backend/intercept/arc_eval.py` | The harness's scenarios placed on the arc; recordings → the harness's `Sample`s and `FrameRecord`s |
+| `swarm_backend/evaluation/arc_eval.py` | The harness's scenarios placed on the arc; recordings → the harness's `Sample`s and `FrameRecord`s |
 | `swarm_backend/detect/live.py --record` | One JSON line per processed image (boxes, confirmed tracks) |
 | `scenarios/surveillance.yaml` | The arc, and the `detect:` setting above |
 | `scenarios/compare_paths.sh` | N runs (default 3) for each of straight, weave ±5 m, weave ±15 m and zigzag ±15 m, and drone 4 10 m below, level with and 10 m above the defenders (they fly at `surveillance.altitude`, 40 m: drone 4 at 30, 40, 50 m; 36 runs). Drone 4 starts at a seeded bearing in drone 2's 30° sector (`--sector 2`; the same seed gives the same start on every path and altitude). Comparison table per path and altitude, with the first detection's 3-D distance (`data/path_compare/<date-time>/`) |

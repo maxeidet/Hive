@@ -7,13 +7,13 @@ The three gimbal defenders patrol the surveillance arc, the base station decides
 defender runs its detector (in Gazebo the real camera detector, detect/live.py, started
 here; with --sim the fake one with the real one's errors) and the real pure pursuit
 (intercept/attack.py, through the patrol). The only truth used is for scoring. The
-scenarios and metrics are the evaluation harness's (intercept/scenario.py + metrics.py,
-detect/scenario.py + metrics.py), placed on the arc by intercept/arc_eval.py:
+scenarios and metrics are the evaluation harness's (evaluation/scenario.py + metrics.py,
+detect/scenario.py + metrics.py), placed on the arc by evaluation/arc_eval.py:
 
   intercept  aspect x speed x seed (default: intercept.eval_aspects x eval_speeds x seeds
              0..eval_runs-1 = 4 x 5 x 30). The hostile drone (attack.target_id, drone 4)
              flies its seeded straight track at its seeded altitude toward the base; the
-             base station sends a defender. Scored with intercept.metrics.score_run: hit,
+             base station sends a defender. Scored with evaluation.metrics.score_run: hit,
              success (hit outside goal_radius), time to hit, lock-on, distance to base at
              hit, closest to base, closest miss, outcome. The interceptor scored is the
              defender that hit, else the first one sent, else the one the scenario was
@@ -69,9 +69,9 @@ from swarm_backend.detect.camera import GIMBAL_HFOV
 from swarm_backend.detect.metrics import DetectRunMetrics
 from swarm_backend.detect.metrics import score_run as score_detect
 from swarm_backend.detect.metrics import summarize as summarize_detect
-from swarm_backend.intercept import arc_eval
-from swarm_backend.intercept.metrics import Outcome, RunMetrics, score_run, summarize
-from swarm_backend.intercept.paths import INBOUND_PATHS, inbound
+from swarm_backend.evaluation import arc_eval
+from swarm_backend.evaluation.metrics import Outcome, RunMetrics, score_run, summarize
+from swarm_backend.evaluation.paths import INBOUND_PATHS, inbound
 from swarm_backend.scenarios import common
 from swarm_backend.scenarios.surveillance import Options, SurveillanceWorld
 

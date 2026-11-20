@@ -58,14 +58,14 @@ Results: one row per run in `data/surveillance_attack_runs.csv`. Columns include
 | Where | Change |
 |---|---|
 | `swarm_backend/scenarios/attack.py` (was `tests/attack_test.py`; `./mount-backend.sh scenario attack [--sim]`) | Rewritten: the whole chain (patrols, base station, detectors, referee) in one process, on Gazebo's clock. The one-on-one patterns (`crossing`, `headon`, `circle`, `offset`) are gone |
-| `intercept/attack_scenario.py` | `Inbound` / `inbound_path`: from `start_m` out, `bearing_deg` off the threat heading, straight at the base |
-| `intercept/base_station.py` | `on_kill`: the target is gone, and the attacker survives and returns. `on_hit` (attacker lost) stays for a defender that goes silent, and for `surveillance_sim.py` |
+| `evaluation/attack_scenario.py` | `Inbound` / `inbound_path`: from `start_m` out, `bearing_deg` off the threat heading, straight at the base |
+| `swarm/base_station.py` | `on_kill`: the target is gone, and the attacker survives and returns. `on_hit` (attacker lost) stays for a defender that goes silent, and for `surveillance_sim.py` |
 | `nodes/base_station_node.py` | Handles the new `kill` event. `contact` (the detector saw the target within 3 m) is now only logged, no longer counted as a hit that loses the attacker. Takes a clock |
 | `nodes/patrol_node.py` | Takes a clock. The test gives Gazebo's, because PX4's time stamps jump 6–7 s every ~18 s (seen on 3 Nov) and would trip the attack's coast/lost timers |
 | `px4/px4_drone.py` | `reset(home)` for a drone whose PX4 was restarted somewhere else |
 | `mount-backend.sh` | `attacktest` defaults to `scenarios/surveillance.yaml` |
 | `scenarios/surveillance.yaml` | The hostile is drone 4 (`attack.target_id: 4`), spawned 150 m north; the defenders start 4 m south of the base, clear of the tents |
-| `intercept/patrol.py`, `nodes/patrol_node.py` | Detections count only if under 1 s old (the detectors run during take-off), and detections within 8 m of another defender (from the positions in their status) are dropped, so defenders never attack each other |
+| `swarm/patrol.py`, `nodes/patrol_node.py` | Detections count only if under 1 s old (the detectors run during take-off), and detections within 8 m of another defender (from the positions in their status) are dropped, so defenders never attack each other |
 
 ## Open points
 

@@ -12,7 +12,7 @@ Pure Python, no ROS. Times are not sent: the base station uses when a message ar
 import json
 from dataclasses import dataclass
 
-from swarm_backend.intercept.base_station import Mode, Order
+from swarm_backend.swarm.base_station import Mode, Order
 
 SIGHTING_TOPIC = '/surveillance/sighting'
 STATUS_TOPIC = '/surveillance/status'

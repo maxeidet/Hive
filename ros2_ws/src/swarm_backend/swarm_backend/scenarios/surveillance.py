@@ -26,15 +26,15 @@ import threading
 from dataclasses import dataclass, field, replace
 
 from swarm_backend.config import SwarmConfig, Vector3
-from swarm_backend.intercept.arc_eval import TruthPoint
+from swarm_backend.evaluation.arc_eval import TruthPoint
 from swarm_backend.intercept.attack import State
-from swarm_backend.intercept.attack_scenario import ClosestApproach
-from swarm_backend.intercept.base_station import Mode
+from swarm_backend.evaluation.attack_scenario import ClosestApproach
+from swarm_backend.swarm.base_station import Mode
 from swarm_backend.intercept.detection import fake_config
 from swarm_backend.intercept.interceptor import Status
-from swarm_backend.intercept.mock import HostileFlight
-from swarm_backend.intercept.paths import Path as Track
-from swarm_backend.intercept.paths import polyline_length
+from swarm_backend.evaluation.mock import HostileFlight
+from swarm_backend.evaluation.paths import Path as Track
+from swarm_backend.evaluation.paths import polyline_length
 from swarm_backend.scenarios.crash import Crash, crash_cause
 
 SLOT_TOLERANCE_M = 2.0

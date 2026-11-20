@@ -96,7 +96,7 @@ if [ "$VIEW" = 1 ]; then
   stop_views
   trap stop_views EXIT
   echo "Opening RViz with drone $DEFENDER's camera (on the GUI display)"
-  docker exec -d "$CONTAINER" bash -c "$SOURCE; python3 -m swarm_backend.sensor_view --id $DEFENDER --rviz $PKG/config/sensors.rviz > /tmp/sensor_view_$DEFENDER.log 2>&1"
+  docker exec -d "$CONTAINER" bash -c "$SOURCE; python3 -m swarm_backend.sim.sensor_view --id $DEFENDER --rviz $PKG/config/sensors.rviz > /tmp/sensor_view_$DEFENDER.log 2>&1"
 fi
 
 # With a terminal, Ctrl-C reaches the flight script, which then lands the drones.

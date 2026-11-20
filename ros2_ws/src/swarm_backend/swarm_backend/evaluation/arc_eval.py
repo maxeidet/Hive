@@ -2,7 +2,7 @@
 baseline-eval`; planning report, Interception > Evaluation and Drone Detection Using
 Sensors > Evaluation).
 
-The evaluation harness (intercept/scenario.py, detect/scenario.py) was written for one
+The evaluation harness (evaluation/scenario.py, detect/scenario.py) was written for one
 interceptor on a 1000 m ring and 12 defenders on a ring. Here the same seeds, aspects,
 speeds, altitudes and metrics are used, but the defenders are the surveillance drones on
 their arc (surveillance: in swarm.yaml), so the result is a baseline of the system we fly:
@@ -38,8 +38,8 @@ from swarm_backend.detect.frame import Body, Kind, make_frame
 from swarm_backend.detect.metrics import match
 from swarm_backend.detect.scenario import HOSTILE_ID, DetectScenario, FrameRecord, Mover
 from swarm_backend.intercept.interceptor import Status
-from swarm_backend.intercept.metrics import Sample
-from swarm_backend.intercept.scenario import Scenario
+from swarm_backend.evaluation.metrics import Sample
+from swarm_backend.evaluation.scenario import Scenario
 from swarm_backend.swarm.arc import arc_points, sectors
 
 APPROACH_M = 60.0  # the intercept track starts this much before first possible detection

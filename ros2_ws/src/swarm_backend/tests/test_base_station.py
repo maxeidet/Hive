@@ -1,4 +1,4 @@
-from swarm_backend.intercept.base_station import BaseConfig, BaseStation, Mode, Order, Sighting
+from swarm_backend.swarm.base_station import BaseConfig, BaseStation, Mode, Order, Sighting
 
 NEAR, FAR = 400.0, 900.0  # inside / outside close_radius_m, both inside the leash
 

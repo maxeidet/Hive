@@ -1,5 +1,5 @@
 """What the interceptor's own camera reports about the target, for the evaluation
-harness (intercept/scenario.py). The attack's detection topics and fake detector are in
+harness (evaluation/scenario.py). The attack's detection topics and fake detector are in
 intercept/detection.py.
 
 A Detector is a TargetSource (fixes for the intercept action) that also says, for the

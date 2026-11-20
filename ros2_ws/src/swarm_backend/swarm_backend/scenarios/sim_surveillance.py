@@ -1,5 +1,5 @@
 """The surveillance world without Gazebo or ROS (see surveillance.py): the same
-PatrolAction, AttackAction and base station (intercept/dispatcher.py) as in Gazebo, on
+PatrolAction, AttackAction and base station (swarm/dispatcher.py) as in Gazebo, on
 SimDrones (fast_sim.py), with the fake detector (intercept/detection.py) on each
 defender's gimbal camera, all stepped on one simulated clock.
 
@@ -15,13 +15,13 @@ from dataclasses import replace
 from swarm_backend.detect.camera import CameraModel
 from swarm_backend.detect.frame import Body, Kind, aimed_camera, make_frame
 from swarm_backend.detect.scenario import HOSTILE_ID
-from swarm_backend.fast_sim import SimDrone
+from swarm_backend.sim.fast_sim import SimDrone
 from swarm_backend.intercept.attack import DetectionInbox
 from swarm_backend.intercept.detection import REALISTIC, FakeDetector
-from swarm_backend.intercept.dispatcher import Dispatcher
+from swarm_backend.swarm.dispatcher import Dispatcher
 from swarm_backend.intercept.mpc_attack import make_attack
-from swarm_backend.intercept.patrol import STALE_DETECTION_S, PatrolAction
-from swarm_backend.intercept.surveillance_msgs import EventMsg
+from swarm_backend.swarm.patrol import STALE_DETECTION_S, PatrolAction
+from swarm_backend.swarm.messages import EventMsg
 from swarm_backend.scenarios.surveillance import SurveillanceWorld
 
 STEP_S = 0.05  # 20 Hz: the detectors' image rate

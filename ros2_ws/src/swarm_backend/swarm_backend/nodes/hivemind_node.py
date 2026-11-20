@@ -1,5 +1,5 @@
 """The hivemind: broadcasts where every friendly drone is, so that no drone's detector
-locks onto one of our own (hive/friendlies.py).
+locks onto one of our own (swarm/friendlies.py).
 
     python3 -m swarm_backend.nodes.hivemind_node --config <yaml> --ids 0 1
 
@@ -21,7 +21,7 @@ from rclpy.utilities import remove_ros_args
 from std_msgs.msg import String
 
 from swarm_backend.config import default_config_path, load_config
-from swarm_backend.hive.friendlies import RATE_HZ, TOPIC, Friendly, encode
+from swarm_backend.swarm.friendlies import RATE_HZ, TOPIC, Friendly, encode
 from swarm_backend.px4.observer import DroneObserver
 
 

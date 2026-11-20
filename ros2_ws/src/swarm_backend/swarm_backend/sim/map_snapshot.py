@@ -9,7 +9,7 @@ place and scale. Works for any world: it only needs the world running, no drones
 
 It is a picture for the operator, nothing more: no drone reads it.
 
-    python3 -m swarm_backend.map_snapshot [--half-size 400] [--pixels 2048]
+    python3 -m swarm_backend.sim.map_snapshot [--half-size 400] [--pixels 2048]
 """
 import argparse
 import json
@@ -20,7 +20,7 @@ import sys
 import threading
 from pathlib import Path
 
-from swarm_backend.save_images import RGB_INT8, png_bytes
+from swarm_backend.datagen.save_images import RGB_INT8, png_bytes
 
 MODEL_NAME = 'hive_overhead_camera'
 IMAGE_TOPIC = '/hive_overhead/image'

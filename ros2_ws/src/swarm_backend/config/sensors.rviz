@@ -1,4 +1,4 @@
-# RViz layout template for `mount-backend.sh view`. swarm_backend/sensor_view.py repeats the
+# RViz layout template for `mount-backend.sh view`. swarm_backend/sim/sensor_view.py repeats the
 # PointCloud2 display once per lidar/depth point cloud and adds an Image display per camera
 # (__TOPIC__ is filled in there). It also publishes TF from Gazebo: world (Gazebo's ENU world)
 # -> the drone's model (e.g. x500_gimbal_2) -> base_link and each sensor link, so the view

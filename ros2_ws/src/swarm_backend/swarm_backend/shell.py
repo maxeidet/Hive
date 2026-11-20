@@ -20,7 +20,7 @@ from rclpy.utilities import remove_ros_args
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.px4.drone import wrap_deg
 from swarm_backend.px4.px4_drone import PX4Drone
-from swarm_backend import save_images
+from swarm_backend.datagen import save_images
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 from swarm_backend.swarm import formation as formation_module
 from swarm_backend.swarm.formation import Formation, centroid

@@ -139,7 +139,7 @@ class SurveillanceConfig:
     altitude: float = 20.0  # metres above each defender's start point
     aim_beyond_arc: float = 30.0  # the camera aims this far beyond the arc
     sweep_deg_s: float = 30.0  # how fast the aim point crosses the sector, seen from the base
-    # The base station's rules (intercept/base_station.py). The detection range of the
+    # The base station's rules (swarm/base_station.py). The detection range of the
     # baseline detector is about 50 m, so these are small.
     leash_m: float = 200.0
     close_radius_m: float = 100.0

@@ -1,4 +1,4 @@
-"""A defender on the arc (intercept/patrol.py), on a simulated drone and hand-made detections."""
+"""A defender on the arc (swarm/patrol.py), on a simulated drone and hand-made detections."""
 import math
 
 import pytest
@@ -6,8 +6,8 @@ from test_attack import SimDrone
 
 from swarm_backend.config import AttackConfig, SurveillanceConfig
 from swarm_backend.intercept.attack import DetectionInbox
-from swarm_backend.intercept.base_station import Mode, Order
-from swarm_backend.intercept.patrol import PatrolAction
+from swarm_backend.swarm.base_station import Mode, Order
+from swarm_backend.swarm.patrol import PatrolAction
 
 STEP = 0.1
 CONFIG = SurveillanceConfig()

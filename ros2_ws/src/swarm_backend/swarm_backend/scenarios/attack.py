@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 
 from swarm_backend.config import load_config
-from swarm_backend.intercept.attack_scenario import (
+from swarm_backend.evaluation.attack_scenario import (
     DEFAULT_HEIGHT_M, DEFAULT_START_M, Inbound, inbound_path)
 from swarm_backend.scenarios import common
 from swarm_backend.scenarios.surveillance import Options, SurveillanceWorld

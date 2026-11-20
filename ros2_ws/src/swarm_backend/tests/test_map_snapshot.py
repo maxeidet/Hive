@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-from swarm_backend.map_snapshot import camera_height, camera_sdf, map_extent
+from swarm_backend.sim.map_snapshot import camera_height, camera_sdf, map_extent
 
 
 def test_camera_height_sees_the_half_size_each_way():

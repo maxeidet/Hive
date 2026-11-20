@@ -2,11 +2,11 @@
 
 The defenders hold their slots on the surveillance arc, as in the eval scenarios
 (surveillance: in the config, by default scenarios/surveillance.yaml), each flown by the
-real patrol (intercept/patrol.py): it sweeps its camera over its sector, and the first to
+real patrol (swarm/patrol.py): it sweeps its camera over its sector, and the first to
 see the target through its fake detector turns the real attack (intercept/attack.py) on
 it. A simplified base station keeps the others on their slots meanwhile and calls back
 one whose attack gave up. In each run the hostile flies straight at the base along a
-path of the attack test (intercept/attack_scenario.py). The operator UI page is served from the same
+path of the attack test (evaluation/attack_scenario.py). The operator UI page is served from the same
 handler as nodes/operator_ui.py, and the event log is the UI node's.
 
     python3 tests/ui_preview.py [--realistic] [--port 8090] [--rate 1.0] [--config ...]
@@ -29,13 +29,13 @@ PACKAGE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PACKAGE))
 
 from swarm_backend.config import load_config  # noqa: E402
-from swarm_backend.intercept.arc_eval import slots  # noqa: E402
+from swarm_backend.evaluation.arc_eval import slots  # noqa: E402
 from swarm_backend.swarm.arc import sectors  # noqa: E402
 from swarm_backend.intercept.attack import (  # noqa: E402
     DetectionInbox, attack_status, state_label)
-from swarm_backend.intercept.base_station import Mode, Order  # noqa: E402
-from swarm_backend.intercept.patrol import PatrolAction  # noqa: E402
-from swarm_backend.intercept.attack_scenario import (  # noqa: E402
+from swarm_backend.swarm.base_station import Mode, Order  # noqa: E402
+from swarm_backend.swarm.patrol import PatrolAction  # noqa: E402
+from swarm_backend.evaluation.attack_scenario import (  # noqa: E402
     ClosestApproach, Inbound, inbound_path)
 from swarm_backend.intercept.detection import REALISTIC, FakeDetector  # noqa: E402
 from swarm_backend.nodes.operator_ui import STALE_S, STATIC_DIR, make_handler  # noqa: E402

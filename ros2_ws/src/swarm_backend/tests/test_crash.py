@@ -1,13 +1,13 @@
 """When a defender has crashed, and why (scenarios/crash.py), and how the base station takes
-a respawned one back (intercept/base_station.py, intercept/dispatcher.py)."""
+a respawned one back (swarm/base_station.py, swarm/dispatcher.py)."""
 import math
 
 import pytest
 
 from swarm_backend.config import SurveillanceConfig
-from swarm_backend.intercept.base_station import Mode, Order
-from swarm_backend.intercept.dispatcher import Dispatcher
-from swarm_backend.intercept.surveillance_msgs import (
+from swarm_backend.swarm.base_station import Mode, Order
+from swarm_backend.swarm.dispatcher import Dispatcher
+from swarm_backend.swarm.messages import (
     EventMsg, SightingMsg, StatusMsg, decode_event, encode_event)
 from swarm_backend.scenarios.crash import (
     CRASH_HEIGHT_M, INTERCEPT_CRASH_S, Crash, CrashWatch, crash_cause, crash_reason, misplaced,

@@ -15,7 +15,7 @@ A **test** checks something and passes or fails. A **scenario** flies a scripted
 situation from start to end and scores it (hits, ranges, times); it does not pass or
 fail by itself. Scenarios live in `swarm_backend/scenarios/` (their YAML configs and
 shell launchers in `scenarios/`) and run on two backends: Gazebo, with or without its
-GUI, or `--sim`, the fast simulation (`swarm_backend/fast_sim.py`: no ROS, no PX4).
+GUI, or `--sim`, the fast simulation (`swarm_backend/sim/fast_sim.py`: no ROS, no PX4).
 
 | Kind | What it checks | Needs | Where | How to run |
 |---|---|---|---|---|
@@ -85,7 +85,7 @@ score_run(samples, scenario, config) -> RunMetrics  metrics.py: one run, from th
 summarize([RunMetrics]) -> str                      the table, one row per scenario cell
 ```
 
-- `sim` is anything with the drones, `now()` and `advance(dt)`: `swarm_backend/fast_sim.py`
+- `sim` is anything with the drones, `now()` and `advance(dt)`: `swarm_backend/sim/fast_sim.py`
   (`FastSim`, `SimDrone`) for sweeps and `--sim`, a small PX4 wrapper for Gazebo
   (`PX4Sim` in `swarm_backend/scenarios/intercept_baseline.py`). The same scenario,
   loop and metrics run in both.
@@ -174,7 +174,7 @@ from `tests/intercept_test.py` / `swarm_backend/scenarios/intercept_baseline.py`
 
 | Report section | Measures (report names) | Code | Status |
 |---|---|---|---|
-| Interception > Evaluation | hit, time to hit, lock-on (held, time to, longest), distance to base at hit, target's closest distance to base, closest interceptor–target distance; outcome hit / reached base / lost / timeout | `intercept/scenario.py`, `intercept/metrics.py`; `tests/test_intercept_metrics.py`, `tests/test_intercept_baseline.py`, `mount-backend.sh scenario intercept_baseline [--sim]`, on the arc `scenario baseline_eval [--sim]` | Harness built; pure pursuit and the stand-in detector are placeholders |
+| Interception > Evaluation | hit, time to hit, lock-on (held, time to, longest), distance to base at hit, target's closest distance to base, closest interceptor–target distance; outcome hit / reached base / lost / timeout | `evaluation/scenario.py`, `evaluation/metrics.py`; `tests/test_intercept_metrics.py`, `tests/test_intercept_baseline.py`, `mount-backend.sh scenario intercept_baseline [--sim]`, on the arc `scenario baseline_eval [--sim]` | Harness built; pure pursuit and the stand-in detector are placeholders |
 | System Evaluation | mission success / failure, mission time (spawn to interception) | — | Not started (needs detection + intercept together) |
 | Detection > Evaluation (scenarios) | missed drones (reach the ring undetected), detection probability vs range, birds flagged as drones, background false alarms per image; also warning distance/time at first detection | `detect/scenario.py`, `detect/metrics.py`, `detect/frame.py` (truth per image, on `detect/camera.py` and `ground_truth.py`); `tests/test_detect_metrics.py`, `tests/test_detect_baseline.py` | Harness built; `DarkObjectDetector`, `Yolo26Detector`, `PixelModelDetector` (fast-sim stand-in) and `SectorScan` are placeholders. No Gazebo runner yet (needs images bridged into `Frame.image`) |
 | Detection > Evaluation (labelled images) | recall vs target size (px), found and classified; background false alarms per image; inference time per image | `detect/dataset.py` (`split_by_run`, `evaluate_dataset`); `tests/test_detect_baseline.py` with `HIVE_DETECT_DATASET` (+ `HIVE_YOLO_WEIGHTS`) | Harness built; `GazeboImageDataset` (the data-collection format) is a placeholder |

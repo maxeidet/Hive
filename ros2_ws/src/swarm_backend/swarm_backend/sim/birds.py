@@ -6,7 +6,7 @@
     ./mount-backend.sh bird move bird_1 --at 25 5 30
     ./mount-backend.sh bird wander bird_1 --around 20 0 30   fly around randomly, Ctrl-C stops
     ./mount-backend.sh bird remove bird_1
-    python3 -m swarm_backend.birds fly < plan.json            what scenario 2's --birds runs
+    python3 -m swarm_backend.sim.birds fly < plan.json            what scenario 2's --birds runs
 
 Positions are the swarm world frame (x north, y east, metres from the Gazebo origin) and
 the height in metres above the ground. The meshes are in worlds/birds/ (see the README there
@@ -15,7 +15,7 @@ model without collisions: nothing pushes it, gravity doesn't pull it, and a dron
 through it. Gazebo shows it in a still pose, without the wing animation.
 
 `wander` moves it along the same kind of random path the hostile drone can fly
-(intercept/paths.py), facing where it flies, by setting its pose many times a second.
+(evaluation/paths.py), facing where it flies, by setting its pose many times a second.
 """
 import argparse
 import math
@@ -206,7 +206,7 @@ def drone_position(world: str, drone_id: int, timeout_s: float = 5.0) -> tuple[f
     from gz.msgs10.pose_v_pb2 import Pose_V
     from gz.transport13 import Node
 
-    from swarm_backend.save_images import drone_names
+    from swarm_backend.datagen.save_images import drone_names
 
     topics = subprocess.run(['gz', 'topic', '-l'], capture_output=True, text=True,
                             check=True).stdout.split()
@@ -242,7 +242,7 @@ def wander(gazebo: Gazebo, name: str, centre: tuple[float, float, float], speed:
            size: float, seed: int, rate_hz: float = 20.0) -> None:
     """Fly the bird along a random path around `centre` (north, east, up) until Ctrl-C.
     Timed on the wall clock: a slow Gazebo makes the bird look faster than `speed`."""
-    from swarm_backend.intercept.paths import make_path
+    from swarm_backend.evaluation.paths import make_path
 
     north, east, up = centre
     path = make_path('random', (north, east, -up), 0.0, speed, size, seed)
@@ -256,8 +256,8 @@ def wander(gazebo: Gazebo, name: str, centre: tuple[float, float, float], speed:
 
 def bird_pose(bird: dict, t: float) -> tuple[float, float, float, float]:
     """(north, east, up, heading) of a planned bird `t` seconds after it left: straight from
-    its start to its end at its speed (intercept/inbound.py BirdPlan, as a dict)."""
-    from swarm_backend.intercept.inbound import straight_at
+    its start to its end at its speed (evaluation/inbound.py BirdPlan, as a dict)."""
+    from swarm_backend.evaluation.inbound import straight_at
 
     start, end = bird['start'], bird['end']
     pos, _, _ = straight_at(start, end, bird['speed'], t)

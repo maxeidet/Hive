@@ -3,7 +3,7 @@
 import math
 from collections.abc import Callable
 
-from swarm_backend.intercept.paths import Path
+from swarm_backend.evaluation.paths import Path
 from swarm_backend.px4.drone import Drone
 
 

@@ -1,6 +1,6 @@
 """MpcIntercept (intercept/mpc_action.py): its tracker, its states, and whole runs
-through the evaluation harness (intercept/scenario.py) in the fast simulation, scored
-with intercept/metrics.py. No ROS.
+through the evaluation harness (evaluation/scenario.py) in the fast simulation, scored
+with evaluation/metrics.py. No ROS.
 
 These tests bring their own detector:
 the true position, optionally with noise, whenever the target is within detect_range.
@@ -14,14 +14,14 @@ import numpy as np
 
 from swarm_backend.config import InterceptConfig
 from swarm_backend.intercept.interceptor import Status
-from swarm_backend.intercept.metrics import Outcome, score_run
+from swarm_backend.evaluation.metrics import Outcome, score_run
 from swarm_backend.intercept.mpc import MpcWeights
 from swarm_backend.intercept.mpc_action import MpcIntercept, TargetTracker3D
-from swarm_backend.intercept.scenario import make_scenario, run_scenario
+from swarm_backend.evaluation.scenario import make_scenario, run_scenario
 from swarm_backend.intercept.target import PositionFix
 from swarm_backend.intercept.target_detector import Detector
 
-from swarm_backend.fast_sim import FastSim, SimDrone
+from swarm_backend.sim.fast_sim import FastSim, SimDrone
 
 # A camera that sees the target 700 m away (the report's 20 deg camera sees ~680 m):
 # with the platform's 51 m there is too little time for any controller at speed.
@@ -181,7 +181,7 @@ def test_accelerates_like_pursuit_on_a_px4_like_drone():
     velocity controller, from hover: the midcourse reaches 4 m/s as fast as pursuit
     (1.1 s), the MPC phase in 2.8 s (it was 8.1 s, and missed). The MPC stays a little
     gentler by design: it plans the least acceleration that still meets the target."""
-    from swarm_backend.fast_sim import SimDrone
+    from swarm_backend.sim.fast_sim import SimDrone
 
     from swarm_backend.intercept.mpc import PX4_VELOCITY_GAIN
     from swarm_backend.intercept.target import PositionFix

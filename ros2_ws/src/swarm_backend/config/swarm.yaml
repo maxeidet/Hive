@@ -33,7 +33,7 @@ drones:
     model: gz_x500_gimbal     # the interceptor: its camera can be kept on the target
 
 # Intercept: the MPC (intercept/mpc_action.py, `--guidance mpc`) and the intercept
-# evaluation (intercept/scenario.py, `scenario baseline_eval`).
+# evaluation (evaluation/scenario.py, `scenario baseline_eval`).
 intercept:
   interceptor_id: 2
   hostile_id: 0

@@ -9,8 +9,8 @@ import json
 import pytest
 
 from swarm_backend.config import load_config
-from swarm_backend.intercept.attack_scenario import Inbound, inbound_path
-from swarm_backend.intercept.metrics import Outcome
+from swarm_backend.evaluation.attack_scenario import Inbound, inbound_path
+from swarm_backend.evaluation.metrics import Outcome
 from swarm_backend.scenarios import SCENARIOS, attack, baseline_eval, common
 from swarm_backend.scenarios.__main__ import main as scenarios_main
 from swarm_backend.scenarios.sim_surveillance import SimSurveillance

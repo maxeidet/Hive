@@ -2,8 +2,8 @@
 (SurveillanceWorld.fly / note_crashes). The fast simulation has no crashes of its own, so
 these worlds fake one; the Gazebo respawn itself needs a person and the simulation."""
 from swarm_backend.config import load_config
-from swarm_backend.intercept.attack_scenario import Inbound, inbound_path
-from swarm_backend.intercept.base_station import Mode
+from swarm_backend.evaluation.attack_scenario import Inbound, inbound_path
+from swarm_backend.swarm.base_station import Mode
 from swarm_backend.scenarios import common
 from swarm_backend.scenarios.crash import Crash
 from swarm_backend.scenarios.sim_surveillance import SimSurveillance

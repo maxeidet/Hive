@@ -83,7 +83,7 @@ def rpy_from_quat(q) -> tuple[float, float, float]:
 
 def compose(parent: Pose, child: Pose) -> Pose:
     """The child pose (given in the parent's frame) in the parent's parent frame."""
-    from swarm_backend.ground_truth import multiply, rotate
+    from swarm_backend.sim.ground_truth import multiply, rotate
     qp, qc = quat_from_rpy(*parent[3:]), quat_from_rpy(*child[3:])
     offset = rotate(qp, child[:3])
     position = tuple(p + o for p, o in zip(parent[:3], offset))
@@ -159,7 +159,7 @@ class Library:
 
     def parts(self, kind: str) -> list:
         if kind not in self._parts:
-            from swarm_backend.box_test import find_model_sdf
+            from swarm_backend.datagen.box_test import find_model_sdf
             model = KINDS[kind].model
             path = find_model_sdf(model)
             if path is None:

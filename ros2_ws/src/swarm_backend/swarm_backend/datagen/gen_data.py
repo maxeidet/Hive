@@ -43,7 +43,7 @@ import sys
 import time
 from pathlib import Path
 
-from swarm_backend.box_test import (BIRD, DRONE, F, HEIGHT_PX, HFOV, WIDTH, Streams,
+from swarm_backend.datagen.box_test import (BIRD, DRONE, F, HEIGHT_PX, HFOV, WIDTH, Streams,
                                     camera_sdf, drone_sdf, rgb_array, unique_name)
 
 DEFAULT_OUT = Path('/workspace/data/gen')  # /workspace is the repo on the host
@@ -113,7 +113,7 @@ def own_body(rng: random.Random, camera: dict) -> dict:
 def body_pose(camera: dict, body: dict) -> tuple[tuple, tuple]:
     """Gazebo position (ENU) and orientation of the own body so that its camera mount
     (CAMERA_ON_BODY) is where the camera is."""
-    from swarm_backend.ground_truth import rotate
+    from swarm_backend.sim.ground_truth import rotate
     q = quaternion(body['heading'], body['pitch'], body['roll'])
     offset = rotate(q, CAMERA_ON_BODY)
     cam = enu((camera['north'], camera['east'], -camera['up']))
@@ -210,18 +210,18 @@ class TargetPool:
 
     def __init__(self, gazebo, rng: random.Random, variants: int, kinds: list[str],
                  recolour: float, birds: int, bird_kinds: list[str]):
-        from swarm_backend import target_models
+        from swarm_backend.datagen import target_models
         self.gazebo = gazebo
         self.names = target_names('gen_drone', variants)
         self.variants = [target_models.pick(rng, kinds, recolour) for _ in range(variants)]
         self.birds = [f'gen_bird_{i}' for i in range(birds)]
-        from swarm_backend.birds import KINDS as BIRD_KINDS
+        from swarm_backend.sim.birds import KINDS as BIRD_KINDS
         self.bird_kinds = [rng.choice(bird_kinds) for _ in range(birds)]
         self._bird_spans = [BIRD_KINDS[k].span for k in self.bird_kinds]
         self._library = target_models.Library()
 
     def spawn(self) -> bool:
-        from swarm_backend.birds import KINDS, bird_sdf
+        from swarm_backend.sim.birds import KINDS, bird_sdf
         for name in self.names + self.birds:
             self.gazebo.remove(name)  # left over from an earlier run
         ok = all(self.gazebo.spawn_sdf(n, self._library.sdf(n, v, DRONE), 0.0, 0.0, PARK[2])
@@ -328,7 +328,7 @@ def target_names(base: str, count: int) -> list[str]:
 
 def add_variety_options(parser: argparse.ArgumentParser) -> None:
     """The options for which drones are placed (gen_data.py and gen_live.py)."""
-    from swarm_backend import target_models
+    from swarm_backend.datagen import target_models
     parser.add_argument('--kinds', nargs='+', choices=list(target_models.KINDS),
                         default=list(target_models.KINDS),
                         help='drone models to place (default: all of them)')
@@ -340,7 +340,7 @@ def add_variety_options(parser: argparse.ArgumentParser) -> None:
 
 
 def add_bird_options(parser: argparse.ArgumentParser) -> None:
-    from swarm_backend import birds
+    from swarm_backend.sim import birds
     parser.add_argument('--bird-kinds', nargs='+', choices=list(birds.KINDS),
                         default=birds.FLYING,
                         help='bird models to place (default: the ones in a flying pose)')
@@ -448,7 +448,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def generate(args) -> int:
-    from swarm_backend.birds import Gazebo
+    from swarm_backend.sim.birds import Gazebo
 
     rng = random.Random(args.seed if args.seed is not None else args.run)
     out = args.out / args.run

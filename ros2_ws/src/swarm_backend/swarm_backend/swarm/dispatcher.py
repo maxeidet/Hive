@@ -14,9 +14,9 @@ the drone back on patrol, even one counted as lost.
 from collections.abc import Callable
 
 from swarm_backend.config import SurveillanceConfig
-from swarm_backend.intercept.base_station import BaseConfig, BaseStation, Mode, Order, Sighting
-from swarm_backend.intercept.surveillance_msgs import EventMsg, SightingMsg, StatusMsg
-from swarm_backend.intercept.target_association import TargetAssociator
+from swarm_backend.swarm.base_station import BaseConfig, BaseStation, Mode, Order, Sighting
+from swarm_backend.swarm.messages import EventMsg, SightingMsg, StatusMsg
+from swarm_backend.swarm.association import TargetAssociator
 
 
 class Dispatcher:

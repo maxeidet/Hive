@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from swarm_backend import target_models as tm
+from swarm_backend.datagen import target_models as tm
 
 SDF = '''<sdf version="1.9"><model name="toy">
   <link name="base_link">

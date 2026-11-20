@@ -33,6 +33,11 @@ Built bottom-up following `hive-vault/px4_ros2_drone_swarm_development_roadmap.m
 | `px4/px4_drone.py` | `PX4Drone`: streams the offboard heartbeat and setpoint, repeats arm/offboard/land until PX4 confirms. |
 | `swarm/swarm.py`, `swarm/manager.py` | `Swarm` = which drones exist; `SwarmManager` = takeoff, move, formation, land. |
 | `swarm/formation.py` | Grid, line and circle target positions plus slot assignment. Pure math. |
+| `swarm/arc.py` | The surveillance arc: each defender's slot and the sector it sweeps. |
+| `swarm/patrol.py` | `PatrolAction`: one defender, PATROL / ENGAGE / RETURN, on the base station's orders. |
+| `swarm/base_station.py`, `swarm/dispatcher.py` | The base station: the rules (who attacks, the reserve, sectors, call-off) and the message handling around them. |
+| `swarm/messages.py`, `swarm/association.py` | The `/surveillance/*` topics between defenders and base station; which sightings are the same target. |
+| `swarm/friendlies.py` | The hivemind's broadcast of where every friendly drone is (`/hive/friendlies`). |
 | `runner.py` | Spins ROS in a background thread so flight sequences read top to bottom. |
 
 Conventions: drone commands are non-blocking requests (poll `drone.armed`, `drone.reached(tol)` and similar). Positions are in one shared world frame, NED with its origin at the Gazebo origin (`z = -5` means 5 m up). `spawn_pose` in `swarm.yaml` is in Gazebo ENU, the same numbers you pass as `PX4_GZ_MODEL_POSE`, and must match where each drone was actually spawned, because it is what converts between each PX4's local frame and the world frame.
@@ -57,7 +62,7 @@ Drone models come from the `model:` field in `swarm.yaml` (drone 1 is `gz_x500_l
 
 `spawn TYPE` starts one extra drone instead: `plain`, `lidar` (the 3D lidar above), `lidar2d`, `lidar_front` / `lidar_down` (1-beam rangefinders), `camera`, `camera_down`, `depth` (RGB + depth camera), `flow`, `gimbal`, or any `PX4_SIM_MODEL` such as `gz_x500_depth`. It takes the lowest instance id that is not running and that id's `spawn_pose` from `swarm.yaml`, so the shell can fly it; ids beyond `swarm.yaml` get `(4*id, -5, 0)` and are not flown by the shell.
 
-`view ID` (`swarm_backend/sensor_view.py`) works for every drone type. It finds the drone's sensors in Gazebo, bridges them to ROS 2 as `/px4_ID/<sensor>/image` (`sensor_msgs/Image`) and `/px4_ID/<sensor>/points` (`sensor_msgs/PointCloud2`, frame = the sensor's link), e.g. `/px4_1/lidar_3d/points`, and opens RViz from `config/sensors.rviz` with one display per sensor. It also publishes TF from Gazebo's poses, `world` (Gazebo ENU) -> drone model (e.g. `x500_gimbal_2`) -> `base_link` and the sensor links, so the view follows the drone, point clouds sit where they are in the world, and a drone without sensors still shows where it is. TF and the sim clock go on `/sensor_view_ID/tf` and `/sensor_view_ID/clock`, which only that RViz is remapped to, so several views can run at once even though every drone has a `base_link`. The bridge only runs while RViz is open. RViz needs a GUI: the screen with `start-stellar.sh` (default), the VNC desktop with `start-dev.sh` or `--vnc`, none with `--headless`. All `depth` drones share one depth topic in Gazebo (`/depth_camera`), so view only one of them at a time.
+`view ID` (`swarm_backend/sim/sensor_view.py`) works for every drone type. It finds the drone's sensors in Gazebo, bridges them to ROS 2 as `/px4_ID/<sensor>/image` (`sensor_msgs/Image`) and `/px4_ID/<sensor>/points` (`sensor_msgs/PointCloud2`, frame = the sensor's link), e.g. `/px4_1/lidar_3d/points`, and opens RViz from `config/sensors.rviz` with one display per sensor. It also publishes TF from Gazebo's poses, `world` (Gazebo ENU) -> drone model (e.g. `x500_gimbal_2`) -> `base_link` and the sensor links, so the view follows the drone, point clouds sit where they are in the world, and a drone without sensors still shows where it is. TF and the sim clock go on `/sensor_view_ID/tf` and `/sensor_view_ID/clock`, which only that RViz is remapped to, so several views can run at once even though every drone has a `base_link`. The bridge only runs while RViz is open. RViz needs a GUI: the screen with `start-stellar.sh` (default), the VNC desktop with `start-dev.sh` or `--vnc`, none with `--headless`. All `depth` drones share one depth topic in Gazebo (`/depth_camera`), so view only one of them at a time.
 In the shell, `gimbal(id, pitch, yaw)` points a gimbal drone's camera (`spawn gimbal`, or `model: gz_x500_gimbal` in `swarm.yaml`): degrees, pitch 0 level and -90 straight down, yaw relative to the nose; `gimbal(id)` prints where it points. It sends PX4 `DO_GIMBAL_MANAGER_CONFIGURE` (take control) and `DO_GIMBAL_MANAGER_PITCHYAW`, and reads `gimbal_device_attitude_status` back. The read-back yaw is compared with PX4's heading estimate, which can be a few degrees off the simulated truth. Other camera drones have fixed cameras that turn with the drone.
 
 Ctrl-C or a timeout in any of these lands the drones.
@@ -74,8 +79,9 @@ A defender flies into the hostile drone on what its own camera reports: the two 
 | `mpc_attack.py` | `MpcAttack`: the MPC behind `AttackAction`'s face, and `make_attack(guidance, ...)`, the one place that picks pursuit or MPC. |
 | `inbox_detector.py` | The detection topics as a `Detector`, for the MPC. |
 | `target.py` | `TargetSource` and `PositionFix`. |
-| `paths.py`, `mock.py` | Hostile flight patterns and `HostileFlight`, which flies a PX4 drone along one (the scenarios' hostile). |
 | `guidance.py` | Gimbal angles toward a target (`tests/detection_test.py`). |
+
+The hostile drone's flight patterns and `HostileFlight`, which flies a PX4 drone along one (the scenarios' hostile), are in `evaluation/paths.py` and `evaluation/mock.py`.
 
 ```bash
 ./mount-backend.sh attack [--guidance mpc]              # one defender, drone 2
@@ -89,20 +95,20 @@ Timing uses each PX4's own clock (`Drone.stamp`, simulation time in SITL), so sp
 
 The scenarios and metrics of the planning report (Interception > Evaluation). A hostile drone flies straight and level toward the base at the origin. The run starts at first detection: the target is `detect_range` from an interceptor on the `perimeter_radius` ring, and its line of sight makes the *aspect* with its track (0° head-on, 30/60/90° crossing). Each aspect × speed (4–17 m/s) is run with `eval_runs` seeds. A run ends with a **hit** (within 1.5 m, found along the segment between samples, not only at the samples), the **target reaching the base**, the **target lost**, or a **timeout**. Each run records hit and success (a hit more than `goal_radius` = x from the base), time to hit, lock-on (k of n images, within d_lock, held t_lock), distance to base at hit, the target's closest distance to base, and the closest miss. All of it is computed from true positions. The settings are the `hit_radius` … `eval_timeout` keys in `intercept:`.
 
-The harness never sees how a method works. A method plugs in as two classes:
+The harness never sees how a method works. A method plugs in as two classes (`intercept/`), and the harness is in `evaluation/`:
 
-| Module (`swarm_backend/intercept/`) | Role |
+| Module (`swarm_backend/`) | Role |
 |---|---|
-| `interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. The MPC (`mpc_action.MpcIntercept`) implements it. |
-| `target_detector.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `inbox_detector.InboxDetector` implements it from the detection topics. |
-| `scenario.py` | `make_scenario`, `scenario_grid`, and `run_scenario(scenario, sim, make_action, make_detector, config)`. `sim` is anything with `hostile`, `interceptor`, `now()`, `advance(dt)`. |
-| `metrics.py` | `score_run(samples, scenario, config) -> RunMetrics`, `summarize(results)` (the table), `LockOnTracker`, `closest_approach` / `first_within`. |
+| `intercept/interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. The MPC (`mpc_action.MpcIntercept`) implements it. |
+| `intercept/target_detector.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `inbox_detector.InboxDetector` implements it from the detection topics. |
+| `evaluation/scenario.py` | `make_scenario`, `scenario_grid`, and `run_scenario(scenario, sim, make_action, make_detector, config)`. `sim` is anything with `hostile`, `interceptor`, `now()`, `advance(dt)`. |
+| `evaluation/metrics.py` | `score_run(samples, scenario, config) -> RunMetrics`, `summarize(results)` (the table), `LockOnTracker`, `closest_approach` / `first_within`. |
 
 ```bash
 python3 -m pytest tests/test_intercept_metrics.py           # the harness itself (test doubles, no guidance)
 ```
 
-On the surveillance arc the same seeds and metrics are flown by `scenario baseline_eval` (`intercept/arc_eval.py`).
+On the surveillance arc the same seeds and metrics are flown by `scenario baseline_eval` (`evaluation/arc_eval.py`).
 
 ### Detection evaluation
 

@@ -16,7 +16,7 @@ from swarm_backend.detect.scan import GimbalScan
 from swarm_backend.detect.scenario import (HOSTILE_ID, FrameRecord, make_scenario,
                                            run_scenario, scenario_grid)
 
-from swarm_backend.fast_sim import DetectFastSim
+from swarm_backend.sim.fast_sim import DetectFastSim
 
 CONFIG = DetectConfig()
 CAMERA = CameraModel(CONFIG.camera_hfov, CONFIG.image_width, CONFIG.image_height)

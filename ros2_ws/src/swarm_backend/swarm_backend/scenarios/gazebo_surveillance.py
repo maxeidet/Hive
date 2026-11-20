@@ -36,19 +36,19 @@ from pathlib import Path
 
 from std_msgs.msg import String
 
-from swarm_backend import ground_truth
-from swarm_backend.intercept import surveillance_msgs as msgs
+from swarm_backend.sim import ground_truth
+from swarm_backend.swarm import messages as msgs
 from swarm_backend.nodes.base_station_node import BaseStationNode
 from swarm_backend.nodes.fake_detection import FakeDetectionNode, GazeboTruth
 from swarm_backend.nodes.hivemind_node import Hivemind
 from swarm_backend.nodes.patrol_node import PatrolNode
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, wait_until
-from swarm_backend.save_images import drone_names
+from swarm_backend.datagen.save_images import drone_names
 from swarm_backend.scenarios.crash import Crash, CrashWatch, misplaced, tilt_deg
 from swarm_backend.scenarios.surveillance import (
     SETUP_TIMEOUT_S, SLOT_TOLERANCE_M, SurveillanceWorld)
-from swarm_backend.sensor_view import find_sensors
+from swarm_backend.sim.sensor_view import find_sensors
 from swarm_backend.swarm.manager import SwarmManager
 from swarm_backend.swarm.swarm import Swarm
 

@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass
 
 from swarm_backend.config import Vector3
-from swarm_backend.intercept.paths import Path
+from swarm_backend.evaluation.paths import Path
 
 DEFAULT_START_M = 150.0  # from the base: well beyond what the defenders on a 60 m arc see
 # Metres above the defenders. More and PX4's 3 m/s climb limit makes head-on attacks fall

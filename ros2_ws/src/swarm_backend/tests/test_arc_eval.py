@@ -1,4 +1,4 @@
-"""The baseline evaluation on the surveillance arc (intercept/arc_eval.py): his seeded
+"""The baseline evaluation on the surveillance arc (evaluation/arc_eval.py): his seeded
 scenarios placed on our arc, and a Gazebo run's recordings turned into his Samples and
 FrameRecords."""
 import math
@@ -8,13 +8,13 @@ import pytest
 
 from swarm_backend.config import DetectConfig, InterceptConfig, SurveillanceConfig
 from swarm_backend.detect.metrics import score_run as score_detect
-from swarm_backend.intercept import arc_eval
-from swarm_backend.intercept.arc_eval import (
+from swarm_backend.evaluation import arc_eval
+from swarm_backend.evaluation.arc_eval import (
     MAX_START_M, TruthPoint, first_detection, frame_records, intercept_samples,
     make_detect_scenario, make_intercept_scenario, sector_bearing_deg, slots)
 from swarm_backend.intercept.interceptor import Status
-from swarm_backend.intercept.metrics import Outcome, score_run
-from swarm_backend.intercept.scenario import make_scenario
+from swarm_backend.evaluation.metrics import Outcome, score_run
+from swarm_backend.evaluation.scenario import make_scenario
 
 ICONFIG = InterceptConfig()
 DCONFIG = DetectConfig()

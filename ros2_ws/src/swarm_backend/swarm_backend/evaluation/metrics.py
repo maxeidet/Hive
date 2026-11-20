@@ -17,7 +17,7 @@ from swarm_backend.config import InterceptConfig, Vector3
 from swarm_backend.intercept.interceptor import Status
 
 if TYPE_CHECKING:
-    from swarm_backend.intercept.scenario import Scenario
+    from swarm_backend.evaluation.scenario import Scenario
 
 
 @dataclass(frozen=True)

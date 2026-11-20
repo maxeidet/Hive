@@ -57,7 +57,7 @@ The attack node also publishes its own state on `/px4_2/attack/state` (`std_msgs
 |---|---|
 | `intercept/detection.py` | Topic names, the fake detector's math (field of view, range, blind zone, noise, delay, k-in-a-row) |
 | `intercept/attack.py` | The attack: SEARCH, ATTACK, COAST, LOST, HIT; pure pursuit; gimbal on the offset; limits |
-| `intercept/attack_scenario.py` | The test's hostile paths and hit scoring |
+| `evaluation/attack_scenario.py` | The test's hostile paths and hit scoring |
 | `nodes/fake_detection.py` | Fake detector node on Gazebo's poses |
 | `nodes/attack_node.py` | Attack node on a PX4 drone |
 | `swarm_backend/scenarios/attack.py` (was `tests/attack_test.py`) | The attack scenario (tasks 4-6) |

@@ -16,12 +16,12 @@ import subprocess
 import sys
 import threading
 
-from swarm_backend import ground_truth
+from swarm_backend.sim import ground_truth
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.intercept.detection import (
     FRAME_ID, OFFSET_TOPIC, POSITION_TOPIC, FakeDetector, fake_config, topic)
-from swarm_backend.save_images import drone_names
-from swarm_backend.sensor_view import find_sensors
+from swarm_backend.datagen.save_images import drone_names
+from swarm_backend.sim.sensor_view import find_sensors
 
 LOG_PERIOD_S = 2.0  # wall clock
 

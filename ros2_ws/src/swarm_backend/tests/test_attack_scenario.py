@@ -1,9 +1,9 @@
-"""The attack test's scenario geometry and hit scoring (intercept/attack_scenario.py)."""
+"""The attack test's scenario geometry and hit scoring (evaluation/attack_scenario.py)."""
 import math
 
 import pytest
 
-from swarm_backend.intercept.attack_scenario import (
+from swarm_backend.evaluation.attack_scenario import (
     ClosestApproach, Inbound, inbound_path, segment_distance)
 
 BASE = (0.0, 0.0)

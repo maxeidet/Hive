@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from swarm_backend.intercept.paths import inbound, polyline_length
+from swarm_backend.evaluation.paths import inbound, polyline_length
 
 START, GOAL = (226.0, 130.0, -30.0), (0.0, 0.0, -30.0)
 

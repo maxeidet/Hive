@@ -242,7 +242,7 @@ def test_a_track_on_a_friendly_drone_is_marked_and_kept_from_the_lock():
     from swarm_backend.detect.camera import CameraModel
     from swarm_backend.detect.live import FRIEND, LiveDetector, Result, annotate
     from swarm_backend.detect.tracking import Track
-    from swarm_backend.hive.friendlies import Friendly, FriendlyBook
+    from swarm_backend.swarm.friendlies import Friendly, FriendlyBook
 
     camera = CameraModel()
     # Camera 30 m up, looking north and 45 deg down: drone 0 at 30 m north on the ground
@@ -280,7 +280,7 @@ def test_without_the_hivemind_nothing_is_friendly():
     from swarm_backend.detect.camera import CameraModel
     from swarm_backend.detect.live import LiveDetector
     from swarm_backend.detect.tracking import Track
-    from swarm_backend.hive.friendlies import FriendlyBook
+    from swarm_backend.swarm.friendlies import FriendlyBook
 
     live = LiveDetector.__new__(LiveDetector)
     live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}

@@ -4,7 +4,7 @@ import pytest
 
 from swarm_backend.config import InterceptConfig, parse_config
 from swarm_backend.intercept import guidance
-from swarm_backend.intercept.paths import PATTERNS, make_path
+from swarm_backend.evaluation.paths import PATTERNS, make_path
 
 ALT = -50.0
 DT = 0.1

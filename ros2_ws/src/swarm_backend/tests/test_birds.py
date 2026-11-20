@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from swarm_backend import birds
+from swarm_backend.sim import birds
 
 
 def test_world_frame_to_gazebo():

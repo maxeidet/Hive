@@ -1,6 +1,6 @@
 """The contract between an intercept method and the evaluation harness.
 
-The harness (intercept/scenario.py) builds an InterceptAction, calls step() at the
+The harness (evaluation/scenario.py) builds an InterceptAction, calls step() at the
 setpoint rate and reads `status`; it never looks inside. The MPC (mpc_action.py)
 and anything else plug in by subclassing. No ROS here:
 an action only uses the Drone interface and a Detector.

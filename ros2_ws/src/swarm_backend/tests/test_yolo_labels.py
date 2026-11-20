@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from swarm_backend import yolo_labels
+from swarm_backend.datagen import yolo_labels
 
 
 def truth(*objects):

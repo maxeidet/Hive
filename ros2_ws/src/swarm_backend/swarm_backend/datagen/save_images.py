@@ -23,9 +23,9 @@ import time
 import zlib
 from pathlib import Path
 
-from swarm_backend import ground_truth
+from swarm_backend.sim import ground_truth
 from swarm_backend.detect.orientation import axes_error_deg
-from swarm_backend.sensor_view import MODEL_TOPIC, find_sensors
+from swarm_backend.sim.sensor_view import MODEL_TOPIC, find_sensors
 
 RGB_INT8 = 3  # gz.msgs.PixelFormatType
 GIMBAL_HFOV = 2.0  # radians, <horizontal_fov> of the camera in PX4's gimbal model

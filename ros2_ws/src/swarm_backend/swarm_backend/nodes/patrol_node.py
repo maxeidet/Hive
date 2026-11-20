@@ -1,6 +1,6 @@
 """One defender on the arc (`mount-backend.sh patrol ID`): takes off, flies to its point,
 sweeps its camera over the sector the base station gives it and attacks when told to
-(intercept/patrol.py). Start the base station (`basestation`) and a fake or real detector
+(swarm/patrol.py). Start the base station (`basestation`) and a fake or real detector
 for this drone (`fakedetect --id ID`, `detect ID`) first.
 
 Lands where it ends up on Ctrl-C or --duration; after a hit the drone is gone anyway.
@@ -17,11 +17,11 @@ from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 
 from swarm_backend.config import default_config_path, load_config
-from swarm_backend.intercept import surveillance_msgs as msgs
+from swarm_backend.swarm import messages as msgs
 from swarm_backend.intercept.attack import DetectionInbox
 from swarm_backend.intercept.detection import OFFSET_TOPIC, POSITION_TOPIC, topic
 from swarm_backend.intercept.mpc_attack import GUIDANCE, make_attack
-from swarm_backend.intercept.patrol import STALE_DETECTION_S, PatrolAction
+from swarm_backend.swarm.patrol import STALE_DETECTION_S, PatrolAction
 from swarm_backend.nodes.attack_node import (
     ALTITUDE_TOLERANCE_M, CLIMB_TIMEOUT_S, POLL_S, RETURN_TIMEOUT_S, AttackReporter,
     stamp_seconds)
