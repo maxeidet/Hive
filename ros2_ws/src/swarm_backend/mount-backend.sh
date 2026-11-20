@@ -12,13 +12,11 @@
 #   ./mount-backend.sh scenario NAME [--sim] [args]  run a scenario (swarm_backend/scenarios/):
 #                                      in Gazebo, or with --sim in the fast simulation (no
 #                                      Gazebo or PX4 needed, seconds per run). NAME: attack,
-#                                      baseline_eval, intercept_baseline; `scenario --help`
+#                                      baseline_eval; `scenario --help`
 #                                      lists them, `scenario NAME --help` their arguments.
 #                                      attack and baseline_eval use scenarios/surveillance.yaml
 #                                      unless SWARM_CONFIG is set. Without the container:
 #                                      cd ros2_ws/src/swarm_backend && python3 -m swarm_backend.scenarios NAME --sim
-#   ./mount-backend.sh baseline-intercept [args]  = scenario intercept_baseline: one intercept
-#                                      baseline scenario of the report (e.g. --aspect 90 --speed 8 --seed 3)
 #   ./mount-backend.sh fakedetect [args] fake camera detector: publishes /px4_2/detection/target_position
 #                                      and target_offset from Gazebo's true positions (attack: in
 #                                      swarm.yaml; --realistic for delay, noise and blind zone)
@@ -80,8 +78,6 @@
 #   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
 #                                      the operator UI's background map (map_snapshot.py --help,
 #                                      default 800 m across, --half-size 600 for more). Restart `ui`.
-#   ./mount-backend.sh demo [N]        formation demo (swarm_node)
-#   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
 #                                      Any drone type; one without sensors shows where it is.
 #                                      (`lidar [ID]` and `camera [ID]` do the same)
@@ -341,7 +337,6 @@ case "$cmd" in
   scenario)
     # --config only when SWARM_CONFIG is set: each scenario has its own default config.
     run "python3 -m swarm_backend.scenarios $* ${SWARM_CONFIG:+--config $SWARM_CONFIG}" ;;
-  baseline-intercept) run "python3 -m swarm_backend.scenarios intercept_baseline --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
   hivemind) run "python3 -m swarm_backend.nodes.hivemind_node --config $CONFIG $*" ;;
@@ -371,8 +366,6 @@ case "$cmd" in
   attacktest) run "python3 -m swarm_backend.scenarios attack --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
   ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
   mapsnap) run "python3 -m swarm_backend.map_snapshot $*" ;;
-  demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
-  legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
   view|lidar|camera) view "$1" ;;
   predict) run "python3 -m swarm_backend.detect.predict $*" ;;
   snap)

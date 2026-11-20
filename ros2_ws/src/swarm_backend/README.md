@@ -16,24 +16,13 @@ docker exec -it px4-gazebo-vnc bash -c "
   cd /workspace/ros2_ws
   colcon build --symlink-install
   source install/setup.bash
-  ros2 run swarm_backend backend_node
+  ros2 run swarm_backend swarm_shell
 "
 ```
 
-## What the node does
+## Swarm backend
 
-`backend_node.py` flies the drone to 5 m above its start point and hovers:
-
-- It streams an offboard heartbeat and a hover setpoint to PX4 at 10 Hz (PX4 needs this stream before it accepts offboard mode).
-- Once PX4 reports that its pre-flight checks pass, it sends the offboard-mode and arm commands, and repeats them once per second until PX4 says it is armed and in offboard mode. It logs PX4's answers, so a refusal is visible instead of silent.
-- It logs the position once per second and `Reached 5.0 m, hovering` when it gets there.
-- Stopping the node makes PX4 land the drone (offboard-loss failsafe).
-
-Setpoint fields the node does not control (velocity, acceleration) are set to NaN, as the PX4 message definition requires. Leaving them at the ROS default of 0 would command zero velocity while climbing.
-
-## Swarm backend (`swarm_node`)
-
-Built bottom-up following `hive-vault/px4_ros2_drone_swarm_development_roadmap.md`. `backend_node` and `keyboard` above are the original single-drone scripts and are unchanged.
+Built bottom-up following `hive-vault/px4_ros2_drone_swarm_development_roadmap.md`.
 
 | Module | Role |
 |---|---|
@@ -45,7 +34,6 @@ Built bottom-up following `hive-vault/px4_ros2_drone_swarm_development_roadmap.m
 | `swarm/swarm.py`, `swarm/manager.py` | `Swarm` = which drones exist; `SwarmManager` = takeoff, move, formation, land. |
 | `swarm/formation.py` | Grid, line and circle target positions plus slot assignment. Pure math. |
 | `runner.py` | Spins ROS in a background thread so flight sequences read top to bottom. |
-| `nodes/swarm_node.py` | Wires it together and flies a demo: takeoff, grid, line, circle, land. |
 
 Conventions: drone commands are non-blocking requests (poll `drone.armed`, `drone.reached(tol)` and similar). Positions are in one shared world frame, NED with its origin at the Gazebo origin (`z = -5` means 5 m up). `spawn_pose` in `swarm.yaml` is in Gazebo ENU, the same numbers you pass as `PX4_GZ_MODEL_POSE`, and must match where each drone was actually spawned, because it is what converts between each PX4's local frame and the world frame.
 
@@ -58,8 +46,6 @@ With the container and drone 0 running (`docker/start-dev.sh`), from this folder
 ./mount-backend.sh              # interactive shell: takeoff(), goto(0, 5, 0), form('circle'), land(), status()
 ./mount-backend.sh single       # Milestone 1 test on drone 0
 ./mount-backend.sh multi        # Milestone 2 test on every drone
-./mount-backend.sh demo         # formation demo (swarm_node)
-./mount-backend.sh legacy       # the old backend_node + keyboard teleop
 ./mount-backend.sh spawn camera # ONE more drone with a camera, at the next free id
 ./mount-backend.sh view 1       # drone 1 in RViz with its cameras and lidars (`lidar 1` / `camera 1` too)
 ./mount-backend.sh restart [N]  # fresh Gazebo + drone 0 (and 1..N-1) without restarting the container
@@ -107,18 +93,16 @@ The harness never sees how a method works. A method plugs in as two classes:
 
 | Module (`swarm_backend/intercept/`) | Role |
 |---|---|
-| `interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. `PurePursuitAction` is the baseline, **a placeholder for now**, meant to wrap the attack's `attack.AttackAction`. |
-| `target_detector.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `NoisyTruthDetector` (true position + noise, inside the camera's view and range) stands in for YOLO, **a placeholder for now**, meant to wrap the attack's fake detector (`detection.measure`). |
+| `interceptor.py` | `InterceptAction`: `start()`, `stop()`, `step()`, `status` (`Status.TRACKING`/`LOST`/`IDLE`), built from `(drone, detector, config, clock)`. The MPC (`mpc_action.MpcIntercept`) implements it. |
+| `target_detector.py` | `Detector`: a `TargetSource` with `update(now)`, `in_view` and `detected`, the last two for lock-on. `inbox_detector.InboxDetector` implements it from the detection topics. |
 | `scenario.py` | `make_scenario`, `scenario_grid`, and `run_scenario(scenario, sim, make_action, make_detector, config)`. `sim` is anything with `hostile`, `interceptor`, `now()`, `advance(dt)`. |
 | `metrics.py` | `score_run(samples, scenario, config) -> RunMetrics`, `summarize(results)` (the table), `LockOnTracker`, `closest_approach` / `first_within`. |
 
 ```bash
 python3 -m pytest tests/test_intercept_metrics.py           # the harness itself (test doubles, no guidance)
-python3 -m pytest tests/test_intercept_baseline.py -s       # full sweep + table; skipped until the baseline exists
-./mount-backend.sh baseline-intercept --aspect 90 --speed 8 --seed 3   # one scenario in Gazebo
 ```
 
-To evaluate another method or detector, pass its classes to `run_scenario` in place of `PurePursuitAction` / `noisy_truth` (see `tests/test_intercept_baseline.py`). The fast sim (`swarm_backend/fast_sim.py`) runs the full 600-run grid in about 20 s.
+On the surveillance arc the same seeds and metrics are flown by `scenario baseline_eval` (`intercept/arc_eval.py`).
 
 ### Detection evaluation
 

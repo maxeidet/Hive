@@ -2,7 +2,7 @@
 through the evaluation harness (intercept/scenario.py) in the fast simulation, scored
 with intercept/metrics.py. No ROS.
 
-NoisyTruthDetector is still a placeholder, so these tests bring their own stand-in:
+These tests bring their own detector:
 the true position, optionally with noise, whenever the target is within detect_range.
 """
 import dataclasses

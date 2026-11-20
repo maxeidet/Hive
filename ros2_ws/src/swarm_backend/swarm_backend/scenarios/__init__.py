@@ -17,5 +17,4 @@ Their configs (YAML) and shell launchers are in scenarios/ next to the package.
 SCENARIOS = {
     'attack': ('swarm_backend.scenarios.attack', True),
     'baseline_eval': ('swarm_backend.scenarios.baseline_eval', True),
-    'intercept_baseline': ('swarm_backend.scenarios.intercept_baseline', True),
 }

@@ -14,7 +14,6 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
-        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,9 +24,6 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'backend_node = swarm_backend.backend_node:main',
-            'keyboard = swarm_backend.keyboard:main',
-            'swarm_node = swarm_backend.nodes.swarm_node:main',
             'swarm_shell = swarm_backend.shell:main',
             'fake_detection = swarm_backend.nodes.fake_detection:main',
             'attack_node = swarm_backend.nodes.attack_node:main',
