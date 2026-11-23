@@ -104,3 +104,35 @@ def test_rviz_config_without_sensors():
     classes = [d['Class'] for d in rviz_config(TEMPLATE, [])['Visualization Manager']['Displays']]
     assert 'rviz_default_plugins/PointCloud2' not in classes
     assert 'rviz_default_plugins/TF' in classes
+
+
+def test_rviz_config_shows_the_detection_image_first_for_a_camera():
+    from swarm_backend.sim.sensor_view import detection_debug_topic
+    sensors = find_sensors(TOPICS, 3)
+    displays = rviz_config(TEMPLATE, sensors, detection_debug_topic(3))['Visualization Manager']['Displays']
+    images = [d for d in displays if d['Class'] == 'rviz_default_plugins/Image']
+    assert images[0]['Name'] == 'detection (boxes)'
+    assert images[0]['Topic']['Value'] == '/px4_3/detection/debug'
+    assert len(images) == 1 + sum(s.kind == 'image' for s in sensors)
+    assert images[0]['Enabled']
+    assert not any(d['Enabled'] for d in images[1:])  # the camera images are there, but off
+
+
+def test_camera_image_on_when_there_is_no_detection_display():
+    displays = rviz_config(TEMPLATE, find_sensors(TOPICS, 3))['Visualization Manager']['Displays']
+    images = [d for d in displays if d['Class'] == 'rviz_default_plugins/Image']
+    assert images and all(d['Enabled'] for d in images)
+
+
+def test_no_detection_image_without_a_camera():
+    from swarm_backend.sim.sensor_view import detection_debug_topic
+    lidar_only = [s for s in find_sensors(TOPICS, 3) if s.kind == 'points']
+    displays = rviz_config(TEMPLATE, lidar_only, detection_debug_topic(3))['Visualization Manager']['Displays']
+    assert 'detection (boxes)' not in [d.get('Name') for d in displays]
+
+
+def test_detection_topic_is_where_the_detector_publishes():
+    from swarm_backend.detect.live import offset_topic
+    from swarm_backend.sim.sensor_view import detection_debug_topic
+    for drone_id in (0, 1, 3):
+        assert detection_debug_topic(drone_id) == offset_topic(drone_id, 'debug')

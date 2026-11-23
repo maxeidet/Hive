@@ -165,15 +165,34 @@ def bridge_config(sensors: list[Sensor], clock_topic: str | None = None) -> list
     return config
 
 
-def rviz_config(template: dict, sensors: list[Sensor]) -> dict:
+def detection_debug_topic(drone_id: int) -> str:
+    """Where the camera detector (detect/live.py, YOLO or the baseline) publishes its image
+    with the boxes drawn on: /<namespace>/detection/debug (live.offset_topic)."""
+    ns = default_namespace(drone_id)
+    return f'/{ns}/detection/debug' if ns else '/detection/debug'
+
+
+def rviz_config(template: dict, sensors: list[Sensor], detection_topic: str | None = None) -> dict:
     """The template layout with its PointCloud2 display repeated once per point cloud and
-    an Image display per camera."""
+    an Image display per camera. With `detection_topic` and a camera, first an Image
+    display of the detector's picture with its boxes: it shows while a detector runs on
+    the drone (the scenarios start one per defender), and waits for one otherwise. The
+    camera displays are then there but off (tick them in RViz for the raw picture)."""
     config = copy.deepcopy(template)
     manager = config['Visualization Manager']
     displays = manager['Displays']
     cloud_template = next(d for d in displays if d['Class'] == 'rviz_default_plugins/PointCloud2')
     displays = [d for d in displays if d['Class'] != 'rviz_default_plugins/PointCloud2']
 
+    detection = bool(detection_topic) and any(s.kind == 'image' for s in sensors)
+    if detection:
+        displays.append({
+            'Class': 'rviz_default_plugins/Image',
+            'Name': 'detection (boxes)',
+            'Enabled': True,
+            'Normalize Range': False,
+            'Topic': {'Value': detection_topic, **QOS},
+        })
     for sensor in sensors:
         if sensor.kind == 'points':
             display = copy.deepcopy(cloud_template)
@@ -183,7 +202,7 @@ def rviz_config(template: dict, sensors: list[Sensor]) -> dict:
             display = {
                 'Class': 'rviz_default_plugins/Image',
                 'Name': f'{sensor.name} image',
-                'Enabled': True,
+                'Enabled': not detection,  # the boxes show the same picture
                 'Normalize Range': True,  # needed for float depth images
                 'Topic': {'Value': sensor.ros_topic, **QOS},
             }
@@ -280,13 +299,16 @@ def main(argv: list[str] | None = None) -> int:
     ns = f'/sensor_view_{args.id}'
     rviz_file = Path(f'/tmp/sensors_{args.id}.rviz')
     template = yaml.safe_load(args.rviz.read_text())
-    rviz_file.write_text(yaml.safe_dump(rviz_config(template, sensors), sort_keys=False))
+    detection = detection_debug_topic(args.id)
+    rviz_file.write_text(yaml.safe_dump(rviz_config(template, sensors, detection), sort_keys=False))
 
     print(f'Drone {args.id} ({drone.name}):')
     for sensor in sensors:
         print(f'  {sensor.name:14} {sensor.gz_topic}\n  {"":14} -> {sensor.ros_topic}')
     if not sensors:
         print('  no camera or lidar; RViz shows where the drone is')
+    if any(s.kind == 'image' for s in sensors):
+        print(f'  detection      {detection} (the detector\'s boxes, while one runs on this drone)')
     if drone.model == DEPTH_MODEL:
         print(f'  Note: every {DEPTH_MODEL} drone publishes its depth image on the same '
               f'{DEPTH_TOPIC} topic.')
