@@ -13,6 +13,7 @@ Open http://localhost:8090 on the host (the container publishes the port).
 """
 import argparse
 import json
+import subprocess
 import sys
 import threading
 import time
@@ -21,8 +22,8 @@ from pathlib import Path
 
 from swarm_backend.config import DroneConfig, default_config_path, load_config
 from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
-                                   drone_status, drone_view, load_map, update_search_area,
-                                   world_origin)
+                                   drone_status, drone_view, load_map, sdf_origin,
+                                   update_search_area, world_origin)
 
 SEARCH_AREA_TOPIC = '/base/search_area'
 STATIC_DIR = Path(__file__).resolve().parent.parent / 'ui' / 'static'
@@ -30,6 +31,8 @@ DETECTION_FRESH_S = 2.0  # a detection older than this is not shown
 ATTACK_STATE_FRESH_S = 3.0  # the attack node repeats its state every second
 STALE_S = 2.0  # no PX4 message for this long: status 'no link' (as STALE_S in index.html)
 EVENT_RATE_HZ = 5.0  # how often the event log compares the drones with how they were
+WORLDS_DIR = Path('/opt/px4-gazebo/share/gz/worlds')  # where the start scripts put the worlds
+WORLD_POLL_S = 5.0  # how often to check which world runs (it changes on mount-backend.sh restart)
 
 
 class DroneMonitor:
@@ -177,13 +180,39 @@ class OperatorUi:
         self._log = node.get_logger()
         self.events = EventLog()
         self.started = time.monotonic()
+        self.world = None  # the running Gazebo world's name, once known
+        self.world_latlon = None  # (lat, lon) of its (0, 0), from its SDF
         self._publish_area()
         node.create_timer(1.0 / EVENT_RATE_HZ, self._update_events)
+        threading.Thread(target=self._watch_world, daemon=True).start()
+
+    def _watch_world(self) -> None:
+        """Keep world_latlon to the running world's own origin. Without it the origin is
+        estimated from the spawn points in the config, which puts every drone off by the
+        difference when they were started with another config."""
+        from swarm_backend.sim.birds import world_name
+        while True:
+            try:
+                world = world_name()
+            except (RuntimeError, OSError, subprocess.SubprocessError):
+                world = None
+            if world is not None and world != self.world:
+                try:
+                    latlon = sdf_origin((WORLDS_DIR / f'{world}.sdf').read_text())
+                except OSError:
+                    latlon = None
+                self.world, self.world_latlon = world, latlon
+                if latlon is None:
+                    self._log.warning(f'World {world}: no origin in its SDF, estimating it from '
+                                      "the drones' spawn points in the config")
+                else:
+                    self._log.info(f'World {world}: origin {latlon[0]:.6f}, {latlon[1]:.6f}')
+            time.sleep(WORLD_POLL_S)
 
     def _views(self, now: float) -> list[dict]:
         refs = {m.id: m.ref for m in self.monitors if m.ref is not None}
-        origin = world_origin(refs, {m.id: m.spawn for m in self.monitors},
-                              skip=(self.hostile_id,))
+        origin = self.world_latlon or world_origin(refs, {m.id: m.spawn for m in self.monitors},
+                                                   skip=(self.hostile_id,))
         for m in self.monitors:
             m.origin = origin
         views = [m.view(now) for m in self.monitors]
