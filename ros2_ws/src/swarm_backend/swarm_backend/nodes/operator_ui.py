@@ -12,10 +12,10 @@ one).
 
 Open http://localhost:8090 on the host (the container publishes the port).
 
---record also saves what the page shows, stamped with Gazebo's simulation time, for a demo
-video that is in sync with the Gazebo replays (ui/replay.py, recording/README.md). `auto`
-= ui.jsonl in the newest data/recordings/<run>/ (made by start-stellar.sh --record or
-`mount-backend.sh restart --record`).
+--record also saves what the page shows, stamped with Gazebo's simulation time, for the demo
+videos: the screen film of the UI is put on sim time with it, and the camera labels read it
+(ui/replay.py, recording/README.md). `auto` = ui.jsonl in the newest data/recordings/<run>/
+(made by start-stellar.sh --record or `mount-backend.sh restart --record`).
 """
 import argparse
 import json
@@ -29,7 +29,7 @@ from swarm_backend.config import DroneConfig, default_config_path, load_config
 from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
                                    drone_status, drone_view, load_map, update_search_area,
                                    world_origin)
-from swarm_backend.ui.replay import Recorder, sim_query
+from swarm_backend.ui.replay import Recorder
 
 SEARCH_AREA_TOPIC = '/base/search_area'
 RECORD_HZ = 10.0  # --record: UI states per second (wall clock), each stamped with sim time
@@ -248,14 +248,12 @@ def make_handler(ui):
     class Handler(BaseHTTPRequestHandler):
 
         def do_GET(self):
-            if self.path.split('?')[0] in ('/', '/index.html'):  # ?replay=... for the replay
+            if self.path in ('/', '/index.html'):
                 self._send(200, (STATIC_DIR / 'index.html').read_bytes(), 'text/html')
             elif self.path.split('?')[0] == '/map.png' and (STATIC_DIR / 'map.png').is_file():
                 self._send(200, (STATIC_DIR / 'map.png').read_bytes(), 'image/png')
             elif self.path.split('?')[0] == '/api/state':
-                sim = sim_query(self.path)  # only the replay page sends it
-                after = events_after(self.path)
-                self._json(200, ui.state(after) if sim is None else ui.state(after, sim=sim))
+                self._json(200, ui.state(events_after(self.path)))
             else:
                 self._json(404, {'error': 'not found'})
 

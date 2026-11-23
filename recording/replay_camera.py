@@ -11,8 +11,8 @@ Angle kinds (see recording_config.json):
     python3 replay_camera.py <angle> [<pgain, default 0.1>] [<start: sim time, seconds>]
 
 start (Hive): pause the replay at this simulation time of the live run before the camera is
-set, so every angle's clip, and the UI video (ui/render.py --start), begin at the same sim
-time. Find it with `recording/video.sh events`. Without it, the replay pauses where the
+set, so every angle's clip begins at the same sim time as the other clips cut with
+--start. Find it with `recording/video.sh events`. Without it, the replay pauses where the
 followed drone first exists, as in the original kit.
 
 pgain is the camera smoothing (gz-sim CameraTracking follow_pgain/track_pgain):
@@ -185,7 +185,7 @@ def main(angle, pgain=0.1, start=None):
             at = wait_for_model(m)
             if at is not None:
                 print(f'{m} appears at replay time {at} s = sim time {t0 + at:.2f} s of the run: '
-                      f'the replay is paused there. Use --start {t0 + at:.2f} for the UI video.')
+                      f'the replay is paused there. Use --start {t0 + at:.2f} for the other clips.')
 
     gains = f'follow_pgain: {pgain} track_pgain: {pgain}'
     has_track = '/gui/track' in gz('topic', '-l')

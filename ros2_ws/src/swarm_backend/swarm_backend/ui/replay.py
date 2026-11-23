@@ -1,20 +1,22 @@
-"""Recording the operator UI on Gazebo's clock, and playing it back for the demo videos.
+"""The operator UI's recording on Gazebo's clock, for the demo videos (recording/README.md).
 
-During a run, `mount-backend.sh ui --record` writes what the page would get from
-/api/state, a few times a second, to a JSON-lines file, each line stamped with Gazebo's
-simulation time (Recorder). Afterwards `recording/video.sh ui` serves that file as if it
-were the live UI node (ReplayUi, same /api/state) and renders the page frame by frame at
-exactly the simulation times of the Gazebo replay clips (ui/render.py), so the two videos
-line up to the frame.
+During a run, `mount-backend.sh ui --record` writes what the page gets from /api/state, a
+few times a second, to a JSON-lines file, each line stamped with Gazebo's simulation time
+and the computer's clock (Recorder). Afterwards it is read back (ReplayUi): to put the
+screen film of the UI on sim time (recording/screen.py), for the labels on the live camera
+videos (ui/camera_video.py), and to list the events with their sim times:
+
+    python3 -m swarm_backend.ui.replay data/recordings/<run>/ui.jsonl    (video.sh events)
 
 One line of the file:
     {"sim": 312.48, "wall": 1763460123.2, "state": {... /api/state without "map" ...}}
 `state.events` holds only the events that are new since the line before.
 
-Nothing here imports ROS: the replay and the renderer run without a simulation.
+Nothing here imports ROS.
 """
 import bisect
 import json
+import sys
 from pathlib import Path
 
 
@@ -34,7 +36,7 @@ class Recorder:
         if sim is None:
             return False
         state = self._state(self._last_event)
-        state.pop('map', None)  # the same every time; the replay serves the current one
+        state.pop('map', None)  # the same every time
         if state.get('events'):
             self._last_event = max(e['id'] for e in state['events'])
         self._file.write(json.dumps({'sim': round(sim, 3), 'wall': round(wall, 3),
@@ -68,13 +70,7 @@ def load_recording(path: Path) -> list[dict]:
 
 
 class ReplayUi:
-    """Answers /api/state from a recording, at a simulation time the page asks for.
-
-    The page in replay mode (index.html?replay=<start sim time>) adds `t=<sim time>` to
-    each poll, from its own (virtual, see render.py) clock. The answer is the last recorded
-    state at or before t, with every recorded event up to t, and T+ counted on sim time
-    from the start of the recording.
-    """
+    """A recording read back: the state shown at any sim time, and the events on sim time."""
 
     def __init__(self, lines: list[dict]):
         self.lines = lines
@@ -85,7 +81,6 @@ class ReplayUi:
             for event in line['state'].get('events') or []:
                 self.events.append((line['sim'], dict(event, t=round(line['sim'] - self.start, 1))))
         self.events.sort(key=lambda pair: pair[1]['id'])
-        self.map = None  # load_map(...) of the current static folder, set by the server
 
     def at(self, sim: float) -> dict:
         """The recorded line shown at simulation time `sim` (the first one before the
@@ -93,44 +88,31 @@ class ReplayUi:
         i = bisect.bisect_right(self.sims, sim) - 1
         return self.lines[max(i, 0)]
 
-    def state(self, events_after: int = 0, sim: float | None = None) -> dict:
-        sim = self.start if sim is None else sim
-        line = self.at(sim)
-        state = dict(line['state'])
-        state['events'] = [e for at, e in self.events if at <= sim and e['id'] > events_after]
-        state['uptime_s'] = round(max(0.0, sim - self.start), 1)
-        state['map'] = self.map
-        state['replay'] = {'sim': round(sim, 3), 'recorded_sim': line['sim'],
-                           'wall': line.get('wall')}
-        return state
-
-    def set_search_area(self, data: dict):
-        raise ValueError('This is a replay: the search area cannot be changed')
-
-    def wall_at(self, sim: float) -> float | None:
-        """The computer's clock (Unix seconds) when `sim` was recorded, for the page's clock."""
-        line = self.at(sim)
-        if line.get('wall') is None:
-            return None
-        return line['wall'] + max(0.0, sim - line['sim'])
-
     def event_table(self) -> list[tuple[float, float, dict]]:
-        """(absolute sim time, T+ in the UI, event) for every event, to pick a start time."""
+        """(absolute sim time, T+ from the start of the recording, event) for every event."""
         return [(at, e['t'], e) for at, e in self.events]
 
 
-def sim_query(path: str) -> float | None:
-    """The `t` query parameter of a request path (the page's sim time), None if missing."""
-    from urllib.parse import parse_qs, urlsplit
-    try:
-        return float(parse_qs(urlsplit(path).query)['t'][0])
-    except (KeyError, ValueError, IndexError):
-        return None
+def list_events(replay: ReplayUi) -> None:
+    end = replay.sims[-1]
+    print(f'Recording: sim time {replay.start:.1f} to {end:.1f} s '
+          f'({end - replay.start:.0f} s, {len(replay.sims)} states)')
+    print(f'{"sim time":>9}  {"T+":>7}  event')
+    for sim, t, e in replay.event_table():
+        detail = f'  ({e["detail"]})' if e.get('detail') else ''
+        print(f'{sim:9.1f}  {t:7.1f}  {e["text"]}{detail}')
+    print('Use a sim time as --start: a few seconds before what you want to show.')
 
 
-def frame_times(start: float, duration: float, fps: float) -> list[float]:
-    """Simulation time of each video frame: frame i shows start + i / fps, the same rule as
-    the Gazebo recorder on sim time (recording/README.md)."""
-    if duration <= 0 or fps <= 0:
-        raise ValueError('duration and fps must be positive')
-    return [start + i / fps for i in range(int(round(duration * fps)))]
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) != 1 or args[0] in ('-h', '--help'):
+        print(__doc__)
+        return 0 if args and args[0] in ('-h', '--help') else 1
+    path = Path(args[0])
+    list_events(ReplayUi(load_recording(path / 'ui.jsonl' if path.is_dir() else path)))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

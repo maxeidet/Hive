@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from swarm_backend.ui.replay import (Recorder, ReplayUi, frame_times, load_recording,
-                                     sim_query)
+from swarm_backend.ui.replay import Recorder, ReplayUi, load_recording, main
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4] / 'recording'))
 import compose  # noqa: E402  (recording/compose.py)
@@ -40,26 +39,25 @@ def line(sim, drone_north, events=(), wall=None):
                                                  'events': list(events), 'uptime_s': 5.0}}
 
 
-def test_replay_answers_the_last_state_at_or_before_t(tmp_path):
+def test_at_is_the_last_state_at_or_before_t(tmp_path):
     write(tmp_path / 'ui.jsonl', [line(10.0, 0.0), line(10.2, 1.0), line(10.4, 2.0)])
     ui = ReplayUi(load_recording(tmp_path / 'ui.jsonl'))
-    assert ui.state(sim=10.3)['drones'][0]['north'] == 1.0
-    assert ui.state(sim=10.4)['drones'][0]['north'] == 2.0
-    assert ui.state(sim=5.0)['drones'][0]['north'] == 0.0  # before: the first state
-    assert ui.state(sim=99.0)['drones'][0]['north'] == 2.0  # after: the last
-    assert ui.state(sim=10.3)['uptime_s'] == 0.3  # T+ on sim time from the start
+    north = lambda sim: ui.at(sim)['state']['drones'][0]['north']  # noqa: E731
+    assert north(10.3) == 1.0
+    assert north(10.4) == 2.0
+    assert north(5.0) == 0.0  # before: the first state
+    assert north(99.0) == 2.0  # after: the last
 
 
-def test_replay_events_appear_at_their_sim_time_with_t_on_sim_time(tmp_path):
+def test_events_are_on_sim_time_from_the_start(tmp_path, capsys):
     e1 = {'id': 1, 't': 400.0, 'text': 'a'}
-    e2 = {'id': 2, 't': 401.0, 'text': 'b'}
+    e2 = {'id': 2, 't': 401.0, 'text': 'b', 'detail': 'why'}
     write(tmp_path / 'ui.jsonl', [line(10.0, 0, [e1]), line(12.5, 0, [e2])])
     ui = ReplayUi(load_recording(tmp_path / 'ui.jsonl'))
-    assert [e['id'] for e in ui.state(sim=12.0)['events']] == [1]
-    events = ui.state(sim=13.0)['events']
-    assert [(e['id'], e['t']) for e in events] == [(1, 0.0), (2, 2.5)]
-    assert [e['id'] for e in ui.state(events_after=1, sim=13.0)['events']] == [2]
-    assert [row[0] for row in ui.event_table()] == [10.0, 12.5]
+    assert [(sim, t, e['id']) for sim, t, e in ui.event_table()] == [(10.0, 0.0, 1), (12.5, 2.5, 2)]
+    assert main([str(tmp_path)]) == 0  # the folder: its ui.jsonl
+    out = capsys.readouterr().out
+    assert '12.5' in out and 'b  (why)' in out
 
 
 def test_load_skips_a_torn_line_and_keeps_only_the_last_gazebo_run(tmp_path):
@@ -69,28 +67,6 @@ def test_load_skips_a_torn_line_and_keeps_only_the_last_gazebo_run(tmp_path):
         fh.write('{"sim": 0.9, "sta')
     lines = load_recording(path)
     assert [x['sim'] for x in lines] == [0.5, 0.7]
-
-
-def test_wall_clock_follows_sim_between_samples(tmp_path):
-    write(tmp_path / 'ui.jsonl', [line(10.0, 0, wall=1000.0), line(11.0, 0, wall=1003.0)])
-    ui = ReplayUi(load_recording(tmp_path / 'ui.jsonl'))
-    assert ui.wall_at(10.5) == pytest.approx(1000.5)
-    assert ui.wall_at(11.0) == pytest.approx(1003.0)
-
-
-def test_sim_query():
-    assert sim_query('/api/state?events_after=3&t=312.480') == pytest.approx(312.48)
-    assert sim_query('/api/state?events_after=3') is None
-    assert sim_query('/api/state?t=abc') is None
-
-
-def test_frame_times_match_the_gazebo_sim_time_rule():
-    times = frame_times(312.0, 2.0, 25)
-    assert len(times) == 50
-    assert times[0] == 312.0 and times[1] == pytest.approx(312.04)
-    assert times[-1] == pytest.approx(312.0 + 49 / 25)
-    with pytest.raises(ValueError):
-        frame_times(0, 0, 25)
 
 
 def test_compose_trims_the_earlier_video():

@@ -15,11 +15,11 @@ Back to [[Home]]. The scenario itself: [[Surveillance attack test - how to run]]
 
 ## Decisions (18 Nov)
 
-- The UI is **filmed from the screen**, not rendered: headless Chromium hangs on Stellar (with the GPU at start; without it on the panels' backdrop blur). The drift of a wall-clock film is removed by mapping the computer's clock to sim time with `ui.jsonl`.
+- The UI is **filmed from the screen**, not rendered: headless Chromium hung on Stellar (with the GPU at start; without it on the panels' backdrop blur). The drift of a wall-clock film is removed by mapping the computer's clock to sim time with `ui.jsonl`. The Chromium render (`ui/render.py`, `video.sh ui`, Playwright in the image) was removed on 23 Nov.
 - Third-person views come from **live cameras** instead of filming replays by hand. A separate process moves them: Gazebo service calls from a process with Python subscriptions stall the sim.
 - The live cameras cost sim speed: 0.55x real time with the YOLO views, 0.34x with two cameras as well. Use one or two.
 - First full run with everything: `data/recordings/20261118-145347/` (final_cut.mp4, 51.8 s).
 
 ## Checks
 
-The live run can only be checked by hand: see [[Manual tests to do]] ("Demo video, Gazebo and UI in sync").
+The live run can only be checked by hand: see [[Manual tests to do]] ("Demo videos still work after removing the Chromium render").

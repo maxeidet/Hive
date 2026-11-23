@@ -13,7 +13,7 @@ record  (`mount-backend.sh debugrec [IDS]`, during the run, next to `ui --record
 
 cut     (`recording/video.sh debug --id ID --start S --duration D`, afterwards)
     Cuts drone ID's recording to start at sim time S: debug_d<ID>_<S>.mp4. Its first frame
-    shows the same sim time as `video.sh ui --start S` and `video.sh replay --start S`, so it
+    shows the same sim time as `video.sh screen-cut --start S` and `video.sh cam --start S`, so it
     composes with them (`video.sh compose ... --gazebo debug_d3_120.mp4`).
 
 Only `record` needs ROS; the rest runs without a simulation.

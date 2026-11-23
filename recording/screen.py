@@ -1,8 +1,8 @@
 """Screen-record the live operator UI, then put the recording on simulation time.
 
-Rendering the UI afterwards in headless Chromium (video.sh ui) does not work on Stellar: with
-the GPU Chromium hangs at start, without it the page's blurred panels never finish a frame.
-So the UI is filmed live instead, from the browser window on this computer's screen.
+The UI is filmed live, from the browser window on this computer's screen. (Rendering it
+afterwards in headless Chromium was tried and removed: on Stellar Chromium hung at start with
+the GPU, and without it the page's blurred panels never finished a frame.)
 
 record  (`recording/video.sh screen`, during the run, in a container of its own with the host's
         IPC namespace: x11grab's shared-memory images (MIT-SHM) fail in the sim container)
@@ -14,7 +14,7 @@ record  (`recording/video.sh screen`, during the run, in a container of its own 
 
 cut     (`recording/video.sh screen-cut --start S --duration D`, afterwards)
     screen_<S>.mp4: the recording from sim time S, D sim seconds, 25 fps. Its first frame
-    shows sim time S, as in `video.sh debug` and `video.sh replay`, so they compose. If the
+    shows sim time S, as in `video.sh debug`, `cam` and `replay`, so they compose. If the
     sim ran slower or faster than real time, the clip is sped up or slowed down to match.
 
 Runs in the container (ffmpeg and xwininfo are in the hive-px4-vnc image).

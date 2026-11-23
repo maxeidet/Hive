@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
-# Demo videos of a Hive scenario: Gazebo filmed from a replay of the run, and the operator
-# UI rendered from its recording, both on simulation time so they line up frame by frame.
+# Demo videos of a Hive scenario: everything is recorded during the run and put on Gazebo's
+# simulation time, so the clips line up frame by frame and can be cut and put together.
 # Full guide: recording/README.md. Run on the HOST from the repo root (Stellar or Mac).
 #
-#   1. Record (live run):  docker/start-stellar.sh --record        (Mac: mount-backend.sh restart --record)
-#                          mount-backend.sh ui --record auto        then the scenario (attacktest)
-#   2. Pick a start:       recording/video.sh events                 sim times of what happened
-#   3. Film Gazebo:        recording/video.sh replay -a hostile_chase --start 312
-#                          (record button, mp4, play, record button; save in the run folder)
-#   4. Render the UI:      recording/video.sh ui --start 312 --duration 60 [--collapse-events]
-#   5. Put together:       recording/video.sh compose --ui ui_312.mp4 --gazebo hostile_chase.mp4 --layout pip
-#   6. Compress:           recording/video.sh compress demo.mp4 demo_10mb.mp4 10
+#   1. Record (live run):  docker/start-stellar.sh --record          the run folder + Gazebo log
+#                          mount-backend.sh ui --record auto          UI states (ui.jsonl)
+#                          recording/video.sh screen                  film the UI window
+#                          mount-backend.sh debugrec / camrec         YOLO views / live cameras
+#                          then the scenario (scenarios/trial.sh 1, attacktest, ...)
+#   2. Pick a start:       recording/video.sh events                   sim times of what happened
+#   3. Cut on sim time:    recording/video.sh screen-cut --start S --duration D   (and debug, cam)
+#   4. Put together:       recording/video.sh compose ... or recording/video.sh final
+#   5. Compress:           recording/video.sh compress final_cut.mp4 final_cut_10mb.mp4 10
 #
 # Subcommands (RUN = a folder name in data/recordings/, default the newest):
 #   events [RUN]                         the UI's events with their sim times
 #   angles                               the replay camera angles (recording_config.json)
 #   replay -a ANGLE [--start S] [-p GAIN] [-v] [RUN]   open the Gazebo replay at one angle
-#   ui --start S [--duration D] [--fps 25] [--size 1920x1080] [--collapse-events] [RUN]
-#                                        render the UI to RUN/ui_<S>.mp4 (headless, no sim needed)
 #   debug --id ID --start S [--duration D] [RUN]
 #                                        drone ID's debug images (mount-backend.sh debugrec) from
 #                                        sim time S: RUN/debug_d<ID>_<S>.mp4, composes like a replay clip
@@ -28,8 +27,7 @@
 #   screen [--region WxH+X+Y] [RUN]       during the run: film the UI's browser window (click it)
 #                                        into RUN/screen.mkv until Ctrl-C (recording/screen.py)
 #   screen-cut --start S --duration D [RUN]
-#                                        that film on sim time: RUN/screen_<S>.mp4, composes
-#                                        like `ui` (use it instead: video.sh ui hangs on Stellar)
+#                                        that film on sim time: RUN/screen_<S>.mp4
 #   compose --ui F --gazebo F [--layout pip|side|stack] [--gz-offset S] [--out F] [RUN]
 #                                        file names are relative to the run folder
 #   compress IN OUT [MB] [WIDTH]         two-pass H.264 to a target size; paths relative to the
@@ -90,7 +88,7 @@ split_run() {  # sets RUN and ARGS from "$@"
   RUN=""; ARGS=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --collapse-events|-v|--verbose) ARGS+=("$1"); shift ;;
+      --plain|-v|--verbose) ARGS+=("$1"); shift ;;
       -*) ARGS+=("$1" "$2"); shift 2 ;;
       *) RUN="$1"; shift ;;
     esac
@@ -102,7 +100,7 @@ case "$cmd" in
   events)
     RUN=$(run_dir "$1")
     C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
-    docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.render "/workspace/$RUNS/$RUN/ui.jsonl" --list
+    docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.replay "/workspace/$RUNS/$RUN/ui.jsonl"
     ;;
 
   angles)
@@ -164,13 +162,6 @@ CFG
       CODE=$?
       [ "$CODE" = 0 ] || echo "Gazebo stopped with exit code $CODE. Run again with -v to see why."
     '
-    ;;
-
-  ui)
-    split_run "$@"
-    RUN=$(run_dir "$RUN")
-    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
-    docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.render "/workspace/$RUNS/$RUN/ui.jsonl" "${ARGS[@]}"
     ;;
 
   debug)

@@ -8,13 +8,13 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 ## To do
 
-- [ ] **Demo video, Gazebo and UI in sync** (added 18 Nov; see [[Recording demo videos]] and `recording/README.md`. only the unit tests and the Docker build were run; the renderer, compose, the replay and the live recording are untested)
-  1. Stellar: `docker/start-stellar.sh --record`. Terminal 2: `export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml`, `./mount-backend.sh ui --record auto`. Terminal 3: `./mount-backend.sh spawn`, then `./mount-backend.sh attacktest`. When it is done: Ctrl-C the UI, then the sim.
-  2. `du -sh data/recordings/*/gz` (more than a few KB) and `recording/video.sh events` (lists link up, intercept, hit with sim times).
-  3. `recording/video.sh replay -a d2_watch --start S` with S about 10 s before the intercept (use the attacking defender's angle). Check it prints `Replay paused at sim time S`, the camera follows, then record (mp4), play, stop, save as `/workspace/data/recordings/<run>/d2_watch.mp4`.
-  4. `recording/video.sh ui --start S --duration 40 --collapse-events`, then `recording/video.sh compose --ui ui_S.mp4 --gazebo d2_watch.mp4 --layout pip`.
+- [ ] **Demo videos still work after removing the Chromium render** (added 23 Nov; see [[Recording demo videos]] and `recording/README.md`. Removed: `ui/render.py`, `video.sh ui`, the page's replay mode, Playwright in the image. Nothing was run: Docker was not running)
+  1. Rebuild the image (the next `docker/start-stellar.sh` does it) and check it builds; it now installs `ffmpeg x11-utils` instead of Playwright.
+  2. In the container: `cd /workspace/ros2_ws/src/swarm_backend && python3 -m pytest tests/test_ui_replay.py tests/test_operator_ui.py tests/test_camera_video.py tests/test_screen_recording.py tests/test_debug_video.py`.
+  3. On an existing run: `recording/video.sh events 20261118-145347`, then `recording/video.sh cam --angle attacker_watch --start 212 --duration 5 20261118-145347` and the same with `--plain`.
+  4. A live run: the operator UI on http://localhost:8090 looks and moves as before, and `recording/video.sh screen` finds the window (xwininfo).
 
-  **Pass:** `demo.mp4` plays at real speed; at the hit the hostile jumps away in the Gazebo inset in the same frame (±2 frames) as the defender's card turns to `hit` in the UI. **Note here:** how many frames off it was (and the `--gz-offset` that fixed it), how long the UI render took, and whether the replay paused at the right time (the terminal line).
+  **Pass:** the image builds, the tests pass, `events` prints the table, both `cam` clips are written (`--plain` was broken before: it ate the next argument), and the UI is unchanged.
 
 - [ ] **YOLO (gazebo-only) and the new range rule in a live chase** (added 6 Nov; range rule fitted offline, see `training/fit_range.py`)
   1. Container and drone 0 up. In `ros2_ws/src/swarm_backend/`: `scenarios/scenario1.sh --duration 120`.

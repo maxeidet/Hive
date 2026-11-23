@@ -1,19 +1,18 @@
-"""Puts a Gazebo replay clip and the rendered UI video together, synced on sim time.
+"""Puts two clips together, synced on sim time (e.g. the UI film and a camera or YOLO view).
 
 Both videos are on simulation time: frame i shows START + i / fps. When both start at the
-same sim time (`video.sh replay --start S` and `video.sh ui --start S`), --gz-offset is 0.
-If a check on a visible event (the hit: the hostile drone jumps away in Gazebo, the UI
-logs it at the same moment) shows they are off, nudge with --gz-offset: the sim seconds
-the Gazebo clip's first frame comes AFTER the UI's first frame (negative: before).
+same sim time (`video.sh screen-cut --start S`, `cam --start S`, `debug --start S`),
+--gz-offset is 0. If a check on a visible event (the hit) shows they are off, nudge with
+--gz-offset: the sim seconds the --gazebo clip's first frame comes AFTER the --ui clip's
+first frame (negative: before).
 
 Layouts (all 25 fps, H.264, no audio):
-  pip   the UI full size, the Gazebo clip as an inset (--pip-width, --pip-corner). The UI
-        rendered with --collapse-events leaves the right side free for it.
+  pip   the --ui clip full size, the --gazebo clip as an inset (--pip-width, --pip-corner)
   side  side by side, both scaled to --height (default 720): 2 x 1280 x 720
   stack Gazebo on top, UI below, both scaled to --width (default 1280)
 
-    python3 compose.py --ui ui_312.mp4 --gazebo hostile_chase.mp4 --layout pip --out demo.mp4
-    python3 compose.py --ui ui_312.mp4 --gazebo d2_watch.mp4 --layout side --gz-offset 0.12 --out demo.mp4
+    python3 compose.py --ui screen_212.mp4 --gazebo cam_attacker_watch_212.mp4 --layout pip --out demo.mp4
+    python3 compose.py --ui screen_212.mp4 --gazebo debug_d3_212.mp4 --layout side --out demo.mp4
 
 Runs in the container (ffmpeg is in the hive-px4-vnc image): `recording/video.sh compose ...`.
 """
@@ -64,8 +63,8 @@ def filter_graph(layout: str, fps: float, pip_width: int, corner: str, height: i
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--ui', required=True, help='the UI video (video.sh ui)')
-    parser.add_argument('--gazebo', required=True, help='a Gazebo replay clip (video.sh replay)')
+    parser.add_argument('--ui', required=True, help='the main clip, e.g. the UI film (video.sh screen-cut)')
+    parser.add_argument('--gazebo', required=True, help='the second clip: a camera, YOLO view or replay')
     parser.add_argument('--out', required=True)
     parser.add_argument('--layout', choices=('pip', 'side', 'stack'), default='pip')
     parser.add_argument('--gz-offset', type=float, default=0.0,

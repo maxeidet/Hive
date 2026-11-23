@@ -291,7 +291,6 @@ To cut a run:
 |---|---|
 | The UI shows only drones 0–2 | `SWARM_CONFIG` was not exported in the UI's terminal. Check with `echo $SWARM_CONFIG` before `ui`. |
 | `Cannot get the image data event_error ... major_code:130` from `screen` | x11grab's shared memory from the sim container. `video.sh screen` uses its own `--ipc=host` container now; update the repo. |
-| `video.sh ui` (headless render of the UI) never finishes | Chromium in the container: with the GPU it hangs at start; without it the UI's `backdrop-filter: blur` is redrawn in software every frame. Film the screen instead (`video.sh screen`). |
 | `debugrec` prints no `first image` | The detectors aren't running yet (they start with the scenario), or that drone has no detector. |
 | The sim is much slower | Every camera costs. 0.55× with the YOLO views, 0.34× with two live cameras as well. Use one camera. |
 | A chase camera loses the drone at the hit | Fixed in the director (see Live cameras). Runs before that fix have it in their `cam_attacker_watch.mkv`: end that clip at the hit. |
@@ -321,12 +320,6 @@ recording/video.sh replay -a hostile_chase --start 212      # Gazebo must not be
 The clip starts at sim time S like the others. `attacker_watch` only exists live. In a replay,
 follow angles use the drone's own heading frame.
 
-### Rendering the UI instead of filming it
-
-`recording/video.sh ui --start S --duration D [--collapse-events]` renders the UI from
-`ui.jsonl` in headless Chromium, frame-exact, without a screen. It hangs on Stellar (see the
-problems table). It may work on a machine where Chromium can use the GPU.
-
 ### On the Mac
 
 The same commands, with `./mount-backend.sh restart --record` instead of `start-stellar.sh
@@ -355,7 +348,6 @@ default the newest):
 | `compress IN OUT [MB] [WIDTH]` | two-pass H.264 to a size |
 | `angles` | the camera angles |
 | `replay -a ANGLE [--start S]` | a replay of the Gazebo log at one angle (by hand) |
-| `ui --start S [--duration D]` | the headless UI render (hangs on Stellar) |
 
 `ros2_ws/src/swarm_backend/mount-backend.sh` (during the run):
 
@@ -394,8 +386,7 @@ default the newest):
 | `kitconf.py` | reads `recording_config.json` |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/debug_video.py` | `debugrec` and `video.sh debug`; the sim-time encoder the cameras share |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/camera_video.py` | `camrec` (cameras, director, mover) and `video.sh cam` (labels) |
-| `../ros2_ws/src/swarm_backend/swarm_backend/ui/replay.py` | the UI recorder and its replay |
-| `../ros2_ws/src/swarm_backend/swarm_backend/ui/render.py` | the headless UI render |
+| `../ros2_ws/src/swarm_backend/swarm_backend/ui/replay.py` | the UI recorder (`ui --record`) and reading it back (`events`, camera labels) |
 
 Tests (on the host: `cd ros2_ws/src/swarm_backend && ../../../.venv/bin/python -m pytest
 tests/test_debug_video.py tests/test_screen_recording.py tests/test_camera_video.py

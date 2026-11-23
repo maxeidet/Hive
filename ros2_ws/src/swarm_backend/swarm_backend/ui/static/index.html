@@ -297,14 +297,6 @@
   const ENGAGED = ['intercept', 'target lost', 'hit'];  // statuses that put a drone's card on top
   const TAGS = { searching: 'searching', intercept: 'intercept', 'target lost': 'lost', hit: 'hit', 'no link': 'nolink' };
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  // Replay for the demo videos (recording/README.md): index.html?replay=<sim time> asks the
-  // UI node for the state at that simulation time plus how long this page has run. The
-  // renderer (ui/render.py) controls the page's clock, so it gets the page at any sim time.
-  const REPLAY = new URLSearchParams(location.search).get('replay');
-  const REPLAY_T0 = window.hiveReplayStart = performance.now();
-  window.hivePending = 0;  // polls on the way: the renderer waits for 0 before each frame
-  const idleWaiters = [];  // hiveIdle(): resolves once no poll is on the way (no timers: the renderer's clock is stopped)
-  window.hiveIdle = () => window.hivePending === 0 ? Promise.resolve() : new Promise(r => idleWaiters.push(r));
   // A quadcopter from above, nose up: X arms, four rotor rings, a body pointed at the nose.
   const QUAD = `<svg class="quad" viewBox="0 0 48 48" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
     <path d="M14.5 14.5l19 19M33.5 14.5l-19 19"/>
@@ -859,10 +851,8 @@
 
   // ---- polling ------------------------------------------------------------------------
   async function poll() {
-    window.hivePending++;
     try {
-      const replayT = REPLAY == null ? '' : '&t=' + (parseFloat(REPLAY) + (performance.now() - REPLAY_T0) / 1000).toFixed(3);
-      const res = await fetch('/api/state?events_after=' + lastEventId + replayT, { cache: 'no-store' });
+      const res = await fetch('/api/state?events_after=' + lastEventId, { cache: 'no-store' });
       const next = await res.json();
       if (next.uptime_s != null && next.uptime_s + 1 < lastUptime) {  // the UI node restarted: its event ids start over
         events = []; lastEventId = 0; lastUptime = 0; server = next; setTimeout(poll, 0); return;
@@ -895,14 +885,11 @@
       if (REDUCED) draw();
     } catch (e) {
       $('linkDot').classList.remove('ok'); $('linkText').textContent = 'no connection to the UI node';
-    } finally {
-      if (--window.hivePending === 0) idleWaiters.splice(0).forEach(r => r());
     }
     setTimeout(poll, POLL_MS);
   }
 
   function frame() { draw(); requestAnimationFrame(frame); }
-  window.hiveDraw = () => draw();  // the renderer draws the map once more right before a frame
   setInterval(() => { $('clock').textContent = new Date().toISOString().slice(11, 19) + 'Z'; }, 500);
   window.addEventListener('resize', () => { resize(); fitScale = null; draw(); });
   $('mapAlpha').addEventListener('input', () => draw());
