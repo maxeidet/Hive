@@ -51,6 +51,47 @@ The `-w`/`--world` flag sets which Gazebo world gets loaded — any value from t
 
 Stop everything with `Ctrl+C` in the first terminal (the container runs with `--rm`, so it's removed on exit).
 
+## Dev GUI (`dev_gui.py`): everything from one browser page
+
+Instead of several terminals, start the container, run backend commands and scenarios, and read their logs from one page:
+
+```bash
+python3 docker/dev_gui.py            # prints http://127.0.0.1:8095/?token=...
+python3 docker/dev_gui.py --port 8096 # if another user already holds 8095
+```
+
+Open the printed URL **on this computer**. The page:
+
+- **Friendly and hostile drones pass through each other** in Gazebo, and both still hit the ground, trees and camp. A hit is scored from true positions at 1.5 m, so physical contact only made the defender crash. `docker/drone-models.sh` runs before every spawn: it puts the stock x500 and gimbal collisions in one collision group, and generates `x500_hostile` (the same x500, in another group) for the hostile, `gz_x500_hostile` in `scenarios/surveillance.yaml`. Defenders still collide with each other. Details in `docker/drone_collisions.py`.
+- **Crashes:** a defender that crashes is no longer teleported and respawned. Its run is saved with the crash, then Gazebo is restarted with every drone fresh, and the batch goes on with the next unsaved run. A crash on the last run also restarts Gazebo, so no broken drone is left for whatever runs next. This applies to the quick starts and single scenarios, and to `scenarios/baseline_eval.sh` and `compare_paths.sh` from a terminal. It needs a session started with no drone 0, which is the GUI's default. With **Start drone 0**, drone 0's PX4 is the container itself, so crashed defenders are respawned as before.
+- **Quick start:** one click for the 36-case comparison (4 paths x 3 altitudes x 3 seeds, about 3 hours in Gazebo):
+  - **36 runs: baseline** runs `scenarios/compare_paths.sh 3 --setup baseline`.
+  - **36 runs: YOLO + ByteTrack + MPC** runs `scenarios/compare_paths.sh 3 --setup yolo-bytetrack-mpc`. It needs the YOLO weights, so it waits for the download.
+
+  Tick **--sim** for the dry run first: the fast simulation takes minutes and needs no Gazebo or weights. The page asks before starting a 3-hour run, and again if the machine is booked by someone else. It allows only one scenario at a time. Results go to `data/path_compare/<date-time>_<setup>/`, as in `ros2_ws/src/swarm_backend/scenarios/README.md`. More quick starts can be added to `QUICK_STARTS` in `dev_gui.py`.
+- **Single scenario:** fly one hostile path at a time: straight, weave ±5 m, weave ±15 m or zigzag ±15 m. Choose:
+  - the hostile's altitude: level, below, above, or all three
+  - the number of runs (seeds 0..N-1)
+  - the setup: baseline, or YOLO + ByteTrack + MPC
+
+  **RViz opens for drone 2**, the middle defender the hostile flies at, once the run has spawned it. It shows its camera and the detector's boxes, and stays open through the restarts. It is reopened if it crashes, but not if you close it.
+
+  **Gazebo is restarted before every run**, with every drone fresh. The operator UI and RViz views keep running through it. A restart takes seconds for the `default` world and longer for `hive_base`, plus about a minute for the drones to connect.
+
+  By default the defenders **start on the ground right below their slots** on the arc, so they only climb straight up instead of flying 150 m out from the camp first. It runs `scenarios/compare_paths.sh N --paths PATH --setup SETUP [--altitude-offsets X] --spawn-at-slots`. Results go to `data/path_compare/<date-time>_<setup>_<path>/`, laid out like a 36-run comparison, so the two can be compared.
+- **Container:** pick the world, GUI mode (native / VNC / none) and GPU, then press Start. **Gazebo runs headless by default** (`--no-gazebo-gui`): no Gazebo window, which is faster, and the cameras still render. RViz and the operator UI still use the display. Tick **Gazebo window** to get it back. It runs `start-stellar.sh --no-drone` with those flags: Gazebo starts with **no drones**. Spawn them with the backend's `spawn`, or let a scenario (like the quick starts) start the ones it needs. Tick **Start drone 0** for the old behaviour, where drone 0 starts with the world and its `pxh>` prompt shows up in the page. The swarm shell and the `single`/`multi` tests use drone 0 from `config/swarm.yaml`. In a no-drone session, `mount-backend.sh restart` keeps it that way. Before starting, it shows the Stellar booking, who else is on the GPU, and free disk. If the machine is booked by someone else, or another user is on the GPU, it asks you to confirm first. Status lights show the container, Gazebo and the running drone ids, plus a noVNC link (with the VNC password).
+- **Views:**
+  - **Operator UI** starts `mount-backend.sh ui` if it isn't running, and opens `http://localhost:8090` once it answers. The first start builds the backend, so it can take a while.
+  - **RViz N:** one button per drone that has a camera in Gazebo. It runs `mount-backend.sh view N`, and RViz opens on the GUI display (this screen with native GUI, the VNC desktop with VNC). The camera drones are found from Gazebo's topics every few seconds, so newly spawned ones show up by themselves.
+- **Backend:** runs `mount-backend.sh CMD ARGS` for a fixed list of commands (`spawn`, `restart`, `ui`, `shell`, `view`, …).
+- **Scenarios:** runs `mount-backend.sh scenario NAME [--sim]` or one of the `scenarios/*.sh` launchers.
+- **YOLO weights:** at startup it downloads `models/yolo26n-gazebo-only/yolo26n-gazebo-only-1280.onnx` from the repo's GitHub Releases if it is missing, in the background. A light shows when it's there; `--no-weights` skips this. Only that model is fetched, because the detector uses the newest `.onnx` in `models/` and a second download would change which one runs. The list is `WEIGHTS` in `dev_gui.py`.
+- **Jobs:** each run gets a tab with its live log and an input line, so you can type at `pxh>`, in the swarm shell or at a prompt. **Stop** sends Ctrl-C first (so drones land) and only kills the job if it doesn't end.
+
+It needs only Python 3 (standard library) on the host. It binds to `127.0.0.1` only, and every API call needs the random token in the URL, because other users on a shared computer can reach `127.0.0.1` too. Jobs run as children of the GUI, so **Ctrl-C on `dev_gui.py` stops every job, including the container.** On Stellar, run it inside tmux: `tmux new -s devgui 'python3 docker/dev_gui.py'`. On macOS it uses `start-stellar.sh --vnc` or `--headless`, without the GPU.
+
+Tests: `python3 -m pytest docker/test_dev_gui.py`
+
 ## Running on Stellar (LiU lab computers)
 
 Use `start-stellar.sh` there (one terminal, no AppleScript). The default is just `./start-stellar.sh`, which means `--native-gui -w hive_base`. The full steps, the rules that affect us, and how to clean up after a session are in [README-stellar.md](README-stellar.md).

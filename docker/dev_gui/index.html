@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hive Dev</title>
+<style>
+  /* Same dark theme as the operator UI (ros2_ws/src/swarm_backend/swarm_backend/ui/static). */
+  :root {
+    color-scheme: dark;
+    --bg: #0a1113; --panel: rgba(18, 29, 32, 0.9); --panel-2: rgba(27, 41, 45, 0.9);
+    --edge: rgba(200, 235, 235, 0.09); --edge-hi: rgba(200, 235, 235, 0.2);
+    --text: #e4edec; --muted: #85979a; --faint: #57696c;
+    --accent: #5cc8ff; --bad: #ff5b3a; --warn: #f0b04a; --ok: #5fd49a;
+    --r: 14px; --gap: 14px;
+    --sans: "Inter", "SF Pro Display", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 var(--sans); -webkit-font-smoothing: antialiased; }
+  .app { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: var(--gap); padding: var(--gap); height: 100%; }
+  .side { display: flex; flex-direction: column; gap: var(--gap); overflow-y: auto; min-height: 0; }
+  .card { background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r); padding: 14px; }
+  h1 { font-size: 17px; margin: 0; letter-spacing: .01em; }
+  h1 small { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
+  h2 { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; margin: 0 0 10px; font-weight: 600; }
+  label { display: block; font-size: 11px; color: var(--muted); margin: 8px 0 3px; }
+  select, input[type=text] { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--edge-hi);
+    border-radius: 8px; padding: 6px 8px; font: inherit; }
+  input[type=text] { font-family: var(--mono); font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  .check { display: flex; gap: 6px; align-items: center; color: var(--text); font-size: 12px; margin: 8px 0 0; }
+  .check input { margin: 0; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--edge-hi); border-radius: 8px;
+    padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .4; cursor: default; }
+  button.primary { background: #17485e; border-color: var(--accent); }
+  button.danger { border-color: rgba(255, 91, 58, .5); }
+  .buttons { display: flex; gap: 8px; margin-top: 12px; }
+  .lights { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; }
+  .light::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+    background: var(--faint); vertical-align: 1px; }
+  .light.on::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .light.busy::before { background: var(--warn); }
+  .light.fail::before { background: var(--bad); }
+  .links { margin-top: 10px; font-size: 12px; display: grid; gap: 3px; }
+  .links a { color: var(--accent); }
+  .quick { display: grid; gap: 6px; }
+  .quick button { text-align: left; padding: 8px 12px; }
+  .quick button small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .views { display: flex; flex-wrap: wrap; gap: 6px; }
+  .views button { padding: 5px 10px; font-size: 12px; }
+  .views button.live { border-color: var(--ok); }
+  .mono { font-family: var(--mono); font-size: 11.5px; }
+  .muted { color: var(--muted); }
+  .note { font-size: 11.5px; margin-top: 8px; padding: 6px 8px; border-radius: 8px; background: var(--panel-2); }
+  .note.warn { border-left: 3px solid var(--warn); }
+  .note.bad { border-left: 3px solid var(--bad); }
+  .note.ok { border-left: 3px solid var(--ok); }
+  details summary { cursor: pointer; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  details pre { max-height: 220px; overflow: auto; font-size: 10.5px; background: #060c0d; padding: 8px; border-radius: 8px; }
+  #error { display: none; position: fixed; right: 18px; bottom: 18px; max-width: 520px; background: #3a1510;
+    border: 1px solid var(--bad); border-radius: 10px; padding: 10px 14px; z-index: 10; }
+
+  .main { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+  .tab { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
+    background: var(--panel); border: 1px solid var(--edge); max-width: 340px; }
+  .tab span.t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tab.active { border-color: var(--accent); }
+  .tab .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--ok); }
+  .tab .dot.done { background: var(--faint); }
+  .tab .dot.fail { background: var(--bad); }
+  .tab .dot.stopping { background: var(--warn); }
+  .console { flex: 1; display: flex; flex-direction: column; min-height: 0; background: #060c0d; border: 1px solid var(--edge);
+    border-radius: var(--r); overflow: hidden; }
+  .console-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--edge); }
+  .console-head .title { flex: 1; font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #log { flex: 1; margin: 0; padding: 10px 12px; overflow: auto; font: 12px/1.4 var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .console-input { display: flex; gap: 8px; padding: 8px; border-top: 1px solid var(--edge); }
+  .console-input input { flex: 1; }
+  .empty { margin: auto; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="side">
+    <div class="card">
+      <h1>Hive dev<small id="user"></small></h1>
+      <div class="lights" style="margin-top:10px">
+        <span class="light" id="l-container">container</span>
+        <span class="light" id="l-gazebo">Gazebo</span>
+        <span class="light" id="l-drones">drones: –</span>
+        <span class="light" id="l-weights">YOLO weights</span>
+      </div>
+      <div class="links" id="links"></div>
+      <div id="views-box" style="display:none">
+        <h2 style="margin-top:14px">Views</h2>
+        <div class="views" id="views"></div>
+        <div class="muted" id="views-note" style="font-size:11px;margin-top:6px"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Quick start</h2>
+      <div class="quick" id="quick"></div>
+      <label class="check"><input type="checkbox" id="q-sim"> --sim dry run first (fast simulation, minutes, no Gazebo)</label>
+      <div class="muted" id="quick-note" style="font-size:11px;margin-top:6px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Single scenario</h2>
+      <label for="g-path">Hostile path</label>
+      <select id="g-path"></select>
+      <div class="row">
+        <div><label for="g-alt">Hostile altitude</label><select id="g-alt"></select></div>
+        <div style="flex:0 0 70px"><label for="g-runs">Runs</label><input type="text" id="g-runs" value="1" inputmode="numeric"></div>
+      </div>
+      <label for="g-setup">Setup</label>
+      <select id="g-setup"></select>
+      <label class="check" title="Off: they start in the camp and fly 150 m out first"><input type="checkbox" id="g-slots" checked> Defenders start below their slots (only climb)</label>
+      <label class="check" title="Opens once drone 2 is in Gazebo, and stays open through the restarts between runs"><input type="checkbox" id="g-rviz" checked> Open RViz for drone 2 (detection boxes)</label>
+      <label class="check"><input type="checkbox" id="g-sim"> --sim (fast simulation, no Gazebo)</label>
+      <div class="buttons"><button class="primary" id="g-run">Run</button></div>
+      <div class="muted" id="single-note" style="font-size:11px;margin-top:6px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Container</h2>
+      <div class="row">
+        <div><label for="world">World</label><select id="world"></select></div>
+        <div><label for="model">Drone 0 model</label><select id="model" disabled></select></div>
+      </div>
+      <label class="check" title="Off: Gazebo starts with no drones; spawn them or let a scenario do it"><input type="checkbox" id="drone0"> Start drone 0 (for the shell and single/multi tests)</label>
+      <label class="check" title="Off: Gazebo runs headless (faster; cameras still render). RViz still opens on the display"><input type="checkbox" id="gzwin"> Gazebo window</label>
+      <div class="row">
+        <div><label for="gui">GUI</label>
+          <select id="gui">
+            <option value="native">native (this screen)</option>
+            <option value="vnc">VNC (browser)</option>
+            <option value="headless">none (no display, no RViz)</option>
+          </select></div>
+        <div><label>&nbsp;</label><label class="check"><input type="checkbox" id="gpu"> GPU</label></div>
+      </div>
+      <div id="preflight"></div>
+      <div class="buttons">
+        <button class="primary" id="start">Start</button>
+        <button class="danger" id="stop-container">Stop</button>
+        <button id="recheck">Re-check</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Backend (mount-backend.sh)</h2>
+      <div class="row">
+        <div style="flex:0 0 130px"><select id="b-cmd"></select></div>
+        <div><input type="text" id="b-args" placeholder="args, e.g. 3"></div>
+      </div>
+      <div class="buttons"><button class="primary" id="b-run">Run</button></div>
+    </div>
+
+    <div class="card">
+      <h2>Scenarios</h2>
+      <select id="s-name"></select>
+      <label for="s-args">Arguments</label>
+      <input type="text" id="s-args" placeholder="e.g. --runs 3 --bearing -30 0 30">
+      <label class="check"><input type="checkbox" id="s-sim"> --sim (fast simulation, no Gazebo)</label>
+      <div class="buttons"><button class="primary" id="s-run">Run</button></div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="tabs" id="tabs"></div>
+    <div class="console">
+      <div class="console-head">
+        <span class="title" id="job-title">No job selected</span>
+        <button id="ctrlc" title="Send Ctrl-C to the job">Ctrl-C</button>
+        <button class="danger" id="job-stop">Stop</button>
+        <button id="job-dismiss">Dismiss</button>
+      </div>
+      <pre id="log"><span class="empty">Start the container or run a command: its output shows here.</span></pre>
+      <form class="console-input" id="input-form">
+        <input type="text" id="input" placeholder="Type to the job (pxh>, swarm shell, prompts) and press Enter" autocomplete="off">
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  </div>
+</div>
+<div id="error"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+if (params.get('token')) {
+  sessionStorage.setItem('hive-dev-token', params.get('token'));
+  history.replaceState(null, '', location.pathname);  // keep the token out of the address bar
+}
+const TOKEN = sessionStorage.getItem('hive-dev-token') || '';
+const $ = id => document.getElementById(id);
+
+let config = null, pre = null, jobs = [], current = null;
+const logs = {};  // job id -> {text, next, partial}
+
+async function api(path, body) {
+  const opts = {headers: {'X-Token': TOKEN}};
+  if (body !== undefined) {
+    opts.method = 'POST';
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({error: res.statusText}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+let errorTimer;
+function showError(msg) {
+  const el = $('error');
+  el.textContent = msg;
+  el.style.display = 'block';
+  clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => el.style.display = 'none', 8000);
+}
+
+function fill(select, values, label = v => v) {
+  select.innerHTML = '';
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = typeof v === 'string' ? v : v.name;
+    o.textContent = label(v);
+    select.appendChild(o);
+  }
+}
+
+function note(cls, text) {
+  const d = document.createElement('div');
+  d.className = 'note ' + cls;
+  d.textContent = text;
+  return d;
+}
+
+function details(summary, text) {
+  const d = document.createElement('details');
+  const s = document.createElement('summary');
+  s.textContent = summary;
+  const p = document.createElement('pre');
+  p.textContent = text;
+  d.append(s, p);
+  return d;
+}
+
+async function loadPreflight() {
+  const box = $('preflight');
+  box.textContent = '';
+  box.appendChild(note('', 'Checking booking, GPU and disk…'));
+  try {
+    pre = await api('/api/preflight');
+  } catch (e) { box.textContent = ''; box.appendChild(note('bad', e.message)); return; }
+  box.textContent = '';
+  $('user').textContent = pre.user;
+  const b = pre.booking;
+  if (!b.booked) box.appendChild(note('ok', 'Not booked.'));
+  else if (!b.blocks) box.appendChild(note('ok', `Booked by ${b.account}${b.shared ? ' (shared)' : ''}.`));
+  else box.appendChild(note('bad', `Booked by ${b.account || 'someone else'}. Ask before starting GPU or long jobs.`));
+  if (!pre.gpu.available) {
+    $('gpu').checked = false;
+    $('gpu').disabled = true;
+    box.appendChild(note('', 'No NVIDIA GPU: starts without the GPU.'));
+  } else if (pre.gpu.others.length) {
+    const compute = pre.gpu.others.filter(o => o.compute);
+    const desktop = pre.gpu.others.filter(o => !o.compute);
+    const users = list => [...new Set(list.map(o => o.user))].join(', ');
+    if (compute.length) {
+      const who = compute.map(o => `${o.user} (${o.name.split('/').pop()})`).join(', ');
+      box.appendChild(note('bad', `Other users are computing on the GPU: ${who}. Ask before using it, or untick GPU.`));
+    }
+    if (desktop.length) {
+      box.appendChild(note('warn', `Desktop sessions of ${users(desktop)} use the GPU for graphics. Counts as another user on the GPU under the Stellar rules: you'll be asked to confirm.`));
+    }
+  } else {
+    box.appendChild(note('ok', 'GPU free of other users.'));
+  }
+  if (pre.gpu.text) box.appendChild(details('nvidia-smi', pre.gpu.text));
+  box.appendChild(details('Disk (df -h)', pre.disk));
+}
+
+async function init() {
+  if (!TOKEN) { showError('No token: open the URL that dev_gui.py printed.'); return; }
+  try { config = await api('/api/config'); } catch (e) { showError(e.message); return; }
+  fill($('model'), config.models);
+  fill($('world'), config.worlds);
+  $('world').value = config.worlds.includes('hive_base') ? 'hive_base' : config.worlds[0];
+  fill($('b-cmd'), config.backend);
+  const pairs = (select, list) => fill(select, list.map(([value]) => value), v => Object.fromEntries(list)[v]);
+  pairs($('g-path'), config.single.paths);
+  pairs($('g-setup'), config.single.setups);
+  pairs($('g-alt'), config.single.altitudes);
+  fill($('s-name'), config.scenarios, s => s.type === 'module' ? `${s.name}  (mount-backend.sh scenario)` : s.name);
+  $('s-name').onchange = () => {
+    const s = config.scenarios.find(x => x.name === $('s-name').value);
+    $('s-sim').disabled = !s || !s.sim;
+    if ($('s-sim').disabled) $('s-sim').checked = false;
+  };
+  $('s-name').onchange();
+  if (config.darwin) {
+    $('gui').querySelector('option[value=native]').remove();
+    $('gpu').checked = false;
+    $('gpu').disabled = true;
+  } else {
+    $('gpu').checked = true;
+  }
+  await loadPreflight();
+  pollStatus();
+  pollLog();
+}
+
+async function startContainer(confirmBooking = false, confirmGpu = false) {
+  const req = {kind: 'container', model: $('model').value, world: $('world').value, gui: $('gui').value,
+               drone0: $('drone0').checked, gazebo_window: $('gzwin').checked,
+               gpu: $('gpu').checked, confirm_booking: confirmBooking, confirm_gpu: confirmGpu};
+  if (pre && pre.booking.blocks && !confirmBooking) {
+    if (!confirm(`The machine is booked by ${pre.booking.account || 'someone else'}. Have you asked, and start anyway?`)) return;
+    return startContainer(true, confirmGpu);
+  }
+  if (req.gpu && pre && pre.gpu.others.length && !confirmGpu) {
+    if (!confirm('Other users are on the GPU. Have you asked, and start with the GPU anyway?')) return;
+    return startContainer(confirmBooking, true);
+  }
+  await runJob(req);
+}
+
+async function runJob(req, select = true) {
+  try {
+    const job = await api('/api/jobs', req);
+    if (select || current === null) current = job.id;
+    await refreshStatus();
+    return job;
+  } catch (e) { showError(e.message); return null; }
+}
+
+// A running backend job of this page for `mount-backend.sh CMD [ARG]`
+function backendJob(cmd, arg) {
+  return jobs.find(j => j.kind === 'backend' && j.running && j.argv[1] === cmd
+                        && (arg === undefined || j.argv[2] === String(arg)));
+}
+
+let uiWindow = null, uiJobId = null;  // opened on the click (browsers block it later), pointed at the UI when it answers
+
+function operatorUiUrl() { return `http://localhost:${config.ui_port}`; }
+
+async function openOperatorUi(status) {
+  if (status.operator_ui) { window.open(operatorUiUrl(), '_blank'); return; }
+  uiWindow = window.open('', '_blank');
+  if (uiWindow) uiWindow.document.write('<body style="background:#0a1113;color:#85979a;font:14px system-ui;padding:24px">Starting the operator UI (building the backend first)…</body>');
+  const running = backendJob('ui');
+  const job = running || await runJob({kind: 'backend', command: 'ui', args: ''}, false);
+  if (job) uiJobId = job.id;
+  else if (uiWindow) { uiWindow.close(); uiWindow = null; }
+}
+
+function renderViews(s) {
+  const box = $('views-box'), views = $('views');
+  box.style.display = s.container ? '' : 'none';
+  if (!s.container) return;
+  views.textContent = '';
+  const button = (text, title, live, onclick, disabled = false) => {
+    const b = document.createElement('button');
+    b.textContent = text; b.title = title; b.disabled = disabled;
+    if (live) b.classList.add('live');
+    b.onclick = onclick;
+    views.appendChild(b);
+  };
+  const uiJob = backendJob('ui');
+  button(s.operator_ui ? 'Operator UI' : uiJob ? 'Operator UI: starting…' : 'Operator UI',
+         s.operator_ui ? `Open ${operatorUiUrl()}` : 'Start `mount-backend.sh ui` and open it',
+         s.operator_ui, () => openOperatorUi(s), !!uiJob && !s.operator_ui);
+  for (const d of s.cameras || []) {
+    const job = backendJob('view', d.id);
+    button(job ? `RViz ${d.id}: open` : `RViz ${d.id}`,
+           `Drone ${d.id} (${d.model}): ${d.cameras.join(', ')}. ` + (job ? 'Show its job' : 'Opens RViz on the GUI display (mount-backend.sh view ' + d.id + ')'),
+           !!job, () => job ? selectJob(job.id) : runJob({kind: 'backend', command: 'view', args: String(d.id)}, false));
+  }
+  $('views-note').textContent = !s.gazebo ? 'RViz buttons appear when Gazebo is up.'
+    : (s.cameras || []).length ? '' : 'No drone with a camera in Gazebo yet (spawn camera, or a gimbal drone).';
+  if (uiWindow && s.operator_ui) { uiWindow.location = operatorUiUrl(); uiWindow = null; }
+  const started = jobs.find(j => j.id === uiJobId);
+  if (uiWindow && !s.operator_ui && started && !started.running) {
+    uiWindow.close(); uiWindow = null; uiJobId = null;
+    showError('The operator UI stopped before it answered: see its job tab.');
+  }
+}
+
+let lastStatus = null;
+
+// A running scenario of this page: one at a time, they share the drones.
+function scenarioJob() {
+  return jobs.find(j => ['scenario', 'quick', 'single'].includes(j.kind) && j.running);
+}
+
+function renderSingle(s) {
+  const sim = $('g-sim').checked;
+  const busy = scenarioJob();
+  const noWeights = $('g-setup').value !== 'baseline' && !sim && !s.has_weights;
+  $('g-run').disabled = !!busy || (!sim && !s.gazebo) || noWeights;
+  $('single-note').textContent = busy ? `Running: ${busy.title}.`
+    : !sim && !s.gazebo ? 'Start the container (Gazebo) first, or tick --sim.'
+    : noWeights ? 'No YOLO weights in models/ yet (see the YOLO weights light).' : '';
+}
+
+async function startSingle(confirmBooking = false) {
+  const sim = $('g-sim').checked;
+  if (!sim && !confirmBooking && pre && pre.booking.blocks) {
+    if (!confirm(`The machine is booked by ${pre.booking.account || 'someone else'}. Have you asked, and start anyway?`)) return;
+    return startSingle(true);
+  }
+  await runJob({kind: 'single', path: $('g-path').value, setup: $('g-setup').value,
+                altitude: $('g-alt').value, runs: $('g-runs').value.trim(),
+                spawn_at_slots: $('g-slots').checked, rviz: $('g-rviz').checked,
+                sim, confirm_booking: confirmBooking});
+}
+
+function renderQuick(s) {
+  const box = $('quick');
+  const sim = $('q-sim').checked;
+  const busy = scenarioJob();
+  const weightsOk = !!s.has_weights;
+  let note = '';
+  if (busy) note = `Running: ${busy.title}. One scenario at a time (they share the drones).`;
+  else if (!sim && !s.gazebo) note = 'Start the container (Gazebo) first, or tick --sim.';
+  $('quick-note').textContent = note;
+  if (box.children.length !== config.quick.length) {
+    box.textContent = '';
+    for (const q of config.quick) {
+      const b = document.createElement('button');
+      b.dataset.id = q.id;
+      b.textContent = q.label;
+      const small = document.createElement('small');
+      small.textContent = q.about;
+      b.appendChild(small);
+      b.onclick = () => startQuick(q);
+      box.appendChild(b);
+    }
+  }
+  for (const b of box.children) {
+    const q = config.quick.find(x => x.id === b.dataset.id);
+    const noWeights = q.yolo && !sim && !weightsOk;
+    b.disabled = !!busy || (!sim && !s.gazebo) || noWeights;
+    b.title = noWeights ? 'No YOLO weights in models/ yet (see the YOLO weights light)' : '';
+  }
+}
+
+async function startQuick(q, confirmBooking = false) {
+  const sim = $('q-sim').checked;
+  if (!sim && !confirmBooking) {
+    if (!confirm(`${q.label}\n\nAbout 3 hours in Gazebo, with the defenders flying the whole time. Start?`)) return;
+    if (pre && pre.booking.blocks) {
+      if (!confirm(`The machine is booked by ${pre.booking.account || 'someone else'}. Have you asked, and start a 3-hour run anyway?`)) return;
+      return startQuick(q, true);
+    }
+  }
+  await runJob({kind: 'quick', id: q.id, sim, confirm_booking: confirmBooking});
+}
+
+function selectJob(id) {
+  current = id;
+  renderTabs();
+  renderLog(true);
+}
+
+function renderTabs() {
+  const tabs = $('tabs');
+  tabs.textContent = '';
+  for (const j of jobs) {
+    const t = document.createElement('div');
+    t.className = 'tab' + (j.id === current ? ' active' : '');
+    const dot = document.createElement('span');
+    dot.className = 'dot' + (j.stopping ? ' stopping' : j.running ? '' : j.exit_code === 0 ? ' done' : ' fail');
+    const span = document.createElement('span');
+    span.className = 't';
+    span.textContent = `#${j.id} ${j.title}`;
+    t.title = j.argv.join(' ');
+    t.append(dot, span);
+    t.onclick = () => selectJob(j.id);
+    tabs.appendChild(t);
+  }
+  const job = jobs.find(j => j.id === current);
+  $('job-title').textContent = job
+    ? `${job.argv.join(' ')}  ${job.running ? (job.stopping ? '— stopping…' : '— running') : `— exited ${job.exit_code}`}`
+    : 'No job selected';
+  $('job-stop').disabled = $('ctrlc').disabled = !job || !job.running;
+  $('job-dismiss').disabled = !job || job.running;
+  $('input').disabled = !job || !job.running;
+}
+
+function renderLog(force) {
+  const el = $('log');
+  const l = logs[current];
+  if (!l) {
+    el.innerHTML = '<span class="empty">Start the container or run a command: its output shows here.</span>';
+    return;
+  }
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.textContent = l.text + l.partial;
+  if (atBottom || force) el.scrollTop = el.scrollHeight;
+}
+
+async function refreshStatus() {
+  const s = await api('/api/status');
+  $('l-container').classList.toggle('on', s.container);
+  $('l-gazebo').classList.toggle('on', s.gazebo);
+  $('l-drones').classList.toggle('on', s.drones.length > 0);
+  $('l-drones').textContent = 'drones: ' + (s.drones.length ? s.drones.join(', ') : '–');
+  const w = s.weights || {state: 'idle', files: []}, lw = $('l-weights');
+  lw.classList.toggle('on', w.state === 'ok');
+  lw.classList.toggle('busy', w.state === 'downloading');
+  lw.classList.toggle('fail', w.state === 'failed');
+  lw.textContent = w.state === 'downloading' ? 'YOLO weights: downloading…'
+    : w.state === 'failed' ? 'YOLO weights: failed' : w.state === 'idle' ? 'YOLO weights: not checked' : 'YOLO weights';
+  lw.title = w.message || w.files.join('\n') || 'Started with --no-weights';
+  const links = $('links');
+  links.textContent = '';
+  const addLink = (text, href, extra) => {
+    const d = document.createElement('div');
+    const a = document.createElement('a');
+    a.href = href; a.target = '_blank'; a.textContent = text;
+    d.appendChild(a);
+    if (extra) { const m = document.createElement('span'); m.className = 'muted mono'; m.textContent = '  ' + extra; d.appendChild(m); }
+    links.appendChild(d);
+  };
+  if (s.novnc) addLink('noVNC', s.novnc, s.vnc_password ? `password ${s.vnc_password}` : '');
+  jobs = s.jobs;
+  if (current === null && jobs.length) current = jobs[jobs.length - 1].id;
+  if (current !== null && !jobs.some(j => j.id === current)) current = jobs.length ? jobs[jobs.length - 1].id : null;
+  for (const id of Object.keys(logs)) if (!jobs.some(j => j.id === +id)) delete logs[id];
+  renderViews(s);
+  lastStatus = s;
+  renderQuick(s);
+  renderSingle(s);
+  const containerJob = jobs.find(j => j.kind === 'container' && j.running);
+  $('start').disabled = !!containerJob;
+  $('stop-container').disabled = !containerJob;
+  renderTabs();
+}
+
+async function pollStatus() {
+  try { await refreshStatus(); } catch (e) { showError(e.message); }
+  setTimeout(pollStatus, 2000);
+}
+
+async function pollLog() {
+  try {
+    if (current !== null) {
+      const id = current;
+      const l = logs[id] || (logs[id] = {text: '', next: 0, partial: ''});
+      const r = await api(`/api/jobs/${id}/log?since=${l.next}`);
+      if (r.truncated) l.text = '… (older lines dropped)\n';
+      l.text += r.lines.map(x => x[1] + '\n').join('');
+      if (l.text.length > 2_000_000) l.text = l.text.slice(-1_500_000);
+      const changed = r.lines.length || l.partial !== r.partial;
+      l.next = r.next;
+      l.partial = r.partial;
+      if (changed && id === current) renderLog(false);
+    }
+  } catch (e) { /* the job may just have been dismissed */ }
+  setTimeout(pollLog, 400);
+}
+
+$('start').onclick = () => startContainer();
+$('drone0').onchange = () => { $('model').disabled = !$('drone0').checked; };
+$('gui').onchange = () => { $('gzwin').disabled = $('gui').value === 'headless'; };
+$('q-sim').onchange = () => lastStatus && renderQuick(lastStatus);
+$('g-run').onclick = () => startSingle();
+for (const id of ['g-sim', 'g-setup']) $(id).onchange = () => lastStatus && renderSingle(lastStatus);
+$('recheck').onclick = loadPreflight;
+$('stop-container').onclick = async () => {
+  const j = jobs.find(x => x.kind === 'container' && x.running);
+  if (j) try { await api(`/api/jobs/${j.id}/stop`, {}); await refreshStatus(); } catch (e) { showError(e.message); }
+};
+$('b-run').onclick = () => runJob({kind: 'backend', command: $('b-cmd').value, args: $('b-args').value});
+$('s-run').onclick = () => runJob({kind: 'scenario', name: $('s-name').value, sim: $('s-sim').checked, args: $('s-args').value});
+$('job-stop').onclick = async () => {
+  try { await api(`/api/jobs/${current}/stop`, {}); await refreshStatus(); } catch (e) { showError(e.message); }
+};
+$('ctrlc').onclick = async () => {
+  try { await api(`/api/jobs/${current}/input`, {text: '\x03', raw: true}); } catch (e) { showError(e.message); }
+};
+$('job-dismiss').onclick = async () => {
+  try { await api(`/api/jobs/${current}/dismiss`, {}); current = null; await refreshStatus(); renderLog(true); } catch (e) { showError(e.message); }
+};
+$('input-form').onsubmit = async ev => {
+  ev.preventDefault();
+  const text = $('input').value;
+  $('input').value = '';
+  try { await api(`/api/jobs/${current}/input`, {text}); } catch (e) { showError(e.message); }
+};
+init();
+</script>
+</body>
+</html>
