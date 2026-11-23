@@ -10,6 +10,13 @@ PKG = Path(__file__).resolve().parents[2]  # ros2_ws/src/swarm_backend (the sour
 REPO = PKG.parents[2]  # /workspace in the container
 SWARM_CONFIG = 'config/swarm.yaml'
 SURVEILLANCE_CONFIG = 'scenarios/surveillance.yaml'
+# Exit code for "restart Gazebo and run me again": scenarios/baseline_eval.sh does, and the
+# scenario then goes on with the runs that are not saved yet.
+EXIT_RESTART = 75
+
+
+class RestartGazebo(Exception):
+    """Raised by a scenario's runs to end so that Gazebo is restarted (EXIT_RESTART)."""
 
 
 def config_path(given: str | None, default: str) -> Path:
@@ -122,9 +129,13 @@ def run_surveillance(node_name: str, config, options, args, body):
 
 def _fly(world, body) -> int:
     code = 0
+    restart = False
     try:
         world.setup()
         body(world)
+    except RestartGazebo as e:
+        world.log.info(f'Ending for a Gazebo restart: {e}')
+        code, restart = EXIT_RESTART, True
     except KeyboardInterrupt:
         world.log.info('Ctrl-C')
     except (TimeoutError, RuntimeError) as e:
@@ -132,7 +143,10 @@ def _fly(world, body) -> int:
         code = 1
     finally:
         try:
-            world.stop_and_land()
+            if restart:
+                world.stop_for_restart()
+            else:
+                world.stop_and_land()
         except (TimeoutError, KeyboardInterrupt) as e:
             world.log.error(f'Did not land cleanly: {e or "Ctrl-C"}')
             code = 1

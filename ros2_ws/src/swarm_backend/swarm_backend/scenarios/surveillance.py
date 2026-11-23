@@ -18,7 +18,9 @@ at the end of the track, at `timeout` or when `end` says so.
 A defender that crashes (upside down, or down on the ground: scenarios/crash.py) sits out
 the rest of the run, which is scored as it happened. Between runs, before the next one, it
 is respawned below its slot and flies back up to it (Gazebo only; the fast simulation has
-no crashes). Each run's crashes are in Flight.crashes, with their cause: 'intercept' when
+no crashes). With restart_on_crash (baseline_eval --restart-on-crash) it is not: the world
+sets restart_needed instead, and the scenario ends so that its launcher restarts Gazebo
+with every drone fresh (common.RestartGazebo). Each run's crashes are in Flight.crashes, with their cause: 'intercept' when
 the drone that hit crashed with the hit (the run is still a hit), else 'other'.
 """
 import math
@@ -195,6 +197,11 @@ class SurveillanceWorld:
     def respawn_defenders(self, drone_ids: list[int]) -> None:
         """Start crashed defenders again, back in the air on their slots and patrolling."""
 
+    def stop_for_restart(self) -> None:
+        """The end before the launcher restarts Gazebo: stop what runs, without landing
+        (the drones go with Gazebo). Backends without that restart just land."""
+        self.stop_and_land()
+
     # --- shared -------------------------------------------------------------------
 
     def wait_sim(self, seconds: float) -> None:
@@ -227,6 +234,7 @@ class SurveillanceWorld:
         crashes = self.crashed()
         if not crashes:
             return
+        restart = getattr(self, 'restart_on_crash', False)
         killer = flight.killer
         hit_time = None if killer is None else flight.judges[killer].hit_time
         for d, crash in sorted(crashes.items()):
@@ -237,7 +245,12 @@ class SurveillanceWorld:
             flight.crashes.append({'drone': d, 't': round(crash.time - flight.t0, 2),
                                    'reason': crash.reason, 'cause': cause})
             self.log.warning(f'Drone {d} crashed at t={crash.time - flight.t0:.1f} s '
-                             f'({crash.reason}, cause: {cause}): respawning it')
+                             f'({crash.reason}, cause: {cause}): '
+                             + ('Gazebo is restarted before the next run' if restart
+                                else 'respawning it'))
+        if restart:
+            self.restart_needed = True
+            return
         self.respawn_defenders(sorted(crashes))
         self.wait_patrol()
 

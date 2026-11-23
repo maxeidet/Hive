@@ -29,6 +29,15 @@
 #   scenarios/compare_paths.sh 3 --altitude-offsets 0   other settings: baseline_eval's own arguments
 #   scenarios/compare_paths.sh 3 --sim            the fast simulation, no Gazebo (minutes)
 #   scenarios/compare_paths.sh 3 --setup baseline the report's setup instead of YOLO+ByteTrack+MPC
+#   scenarios/compare_paths.sh 1 --paths zigzag_15m --altitude-offsets 0   one path only
+#                                                 (straight, weave_5m, weave_15m, zigzag_15m;
+#                                                 comma-separated for several)
+#   scenarios/compare_paths.sh 3 --spawn-at-slots the defenders start below their slots and
+#                                                 only climb (baseline_eval.sh --spawn-at-slots)
+#   scenarios/compare_paths.sh 1 --restart-each-run   Gazebo and every drone restarted before
+#                                                 each run: a fresh world per run (slower)
+# A crashed defender restarts Gazebo after its run instead of being respawned
+# (baseline_eval.sh); that and --restart-each-run need a session started with no drone 0.
 #
 # Run it in tmux: in Gazebo 36 runs take about three hours. Ctrl-C stops the path that is
 # flying (its defenders land) and skips the rest; the comparison is printed for what was
@@ -49,6 +58,18 @@ if [ "$RUNS" -lt 1 ]; then
   exit 1
 fi
 
+# --paths is this script's own: which of PATHS (below) to fly, by label.
+ONLY=""
+rest=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --paths) ONLY="${2:-}"; shift 2 || shift ;;
+    --paths=*) ONLY="${1#--paths=}"; shift ;;
+    *) rest+=("$1"); shift ;;
+  esac
+done
+set -- "${rest[@]}"
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../../.." && pwd)"
 # The setup's name for the folder (the last --setup given wins, as in argparse).
@@ -60,7 +81,7 @@ for i in "${!args[@]}"; do
     --setup=*) SETUP=${args[$i]#--setup=} ;;
   esac
 done
-STAMP=$(date +%Y-%m-%d_%H%M%S)_$SETUP
+STAMP=$(date +%Y-%m-%d_%H%M%S)_$SETUP${ONLY:+_${ONLY//,/_}}
 OUT=/workspace/data/path_compare/$STAMP   # as the container sees the repo
 HOST_OUT=$REPO/data/path_compare/$STAMP
 
@@ -72,6 +93,19 @@ PATHS=(
   "zigzag_15m|--path zigzag --path-amplitude 15"
 )
 
+LABELS=()
+for entry in "${PATHS[@]}"; do LABELS+=("${entry%%|*}"); done
+SELECTED=("${LABELS[@]}")
+if [ -n "$ONLY" ]; then
+  IFS=, read -r -a SELECTED <<< "$ONLY"
+  for label in "${SELECTED[@]}"; do
+    if [[ ! " ${LABELS[*]} " =~ " $label " ]]; then
+      echo "Unknown path: $label (one of: ${LABELS[*]})"
+      exit 1
+    fi
+  done
+fi
+
 FAILED=()
 STOP=0
 # Ctrl-C reaches the scenario, which lands the defenders; this script then skips the
@@ -79,6 +113,7 @@ STOP=0
 trap 'STOP=1' INT
 for entry in "${PATHS[@]}"; do
   label=${entry%%|*}
+  [[ " ${SELECTED[*]} " =~ " $label " ]] || continue
   read -r -a path_args <<< "${entry#*|}"
   echo
   echo "=== $label: $RUNS runs per altitude ==============================================="
@@ -98,13 +133,14 @@ mkdir -p "$HOST_OUT"
 
 echo
 echo "=== Comparison ======================================================================"
-python3 - "$HOST_OUT" "$RUNS" "${FAILED[@]}" <<'EOF' | tee "$HOST_OUT/compare.txt"
-import json, statistics, sys
+SELECTED="${SELECTED[*]}" python3 - "$HOST_OUT" "$RUNS" "${FAILED[@]}" <<'EOF' | tee "$HOST_OUT/compare.txt"
+import json, os, statistics, sys
 from pathlib import Path
 
 out, runs, failed = Path(sys.argv[1]), int(sys.argv[2]), set(sys.argv[3:])
 names = {'straight': 'straight', 'weave_5m': 'weave ±5 m', 'weave_15m': 'weave ±15 m',
          'zigzag_15m': 'zigzag ±15 m'}
+names = {k: v for k, v in names.items() if k in os.environ['SELECTED'].split()}  # --paths
 
 
 def median(values, unit=' m'):

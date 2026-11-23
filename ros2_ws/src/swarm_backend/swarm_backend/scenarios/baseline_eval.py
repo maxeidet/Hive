@@ -306,6 +306,14 @@ def parser() -> argparse.ArgumentParser:
                    help='intercept: start the hostile at a seeded random bearing inside this '
                         'defender\'s sector (2: the middle 30 degrees), straight at the base')
     p.add_argument('--rerun', action='store_true', help='fly runs that are already saved')
+    p.add_argument('--restart-on-crash', action='store_true',
+                   help='Gazebo: a crashed defender is not respawned; the scenario ends with '
+                        f'exit code {common.EXIT_RESTART} after the run is saved, for '
+                        'baseline_eval.sh to restart Gazebo and go on (it passes this)')
+    p.add_argument('--one-run', action='store_true',
+                   help=f'Gazebo: end with exit code {common.EXIT_RESTART} after every run '
+                        'while runs are left, so Gazebo is restarted between runs '
+                        '(baseline_eval.sh --restart-each-run)')
     p.add_argument('--detect-rate', type=float, default=DEFAULT_DETECT_RATE,
                    help='images per second for each detector')
     p.add_argument('--path', choices=INBOUND_PATHS, default='straight',
@@ -325,7 +333,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = parser().parse_args(argv)
+    p = parser()
+    args = p.parse_args(argv)
+    if args.sim and (args.one_run or args.restart_on_crash):
+        p.error('--one-run and --restart-on-crash are for Gazebo, not --sim')
     common.resolve_setup(args)
     tag = common.setup_tag(args, real_detector=not args.sim)
     if args.out is None:
@@ -352,7 +363,9 @@ def main(argv: list[str] | None = None) -> int:
     todo = jobs(args, config, out_file)
     if not todo:
         print(f'Every requested run is already in {out_file} (--rerun flies them again).')
-        print(summary_text(args.out, config, where, attack))
+        text = summary_text(args.out, config, where, attack)
+        print(text)
+        (args.out / 'summary.txt').write_text(text + '\n')
         return 0
     print(f'{len(todo)} {args.mode} runs to fly; results go to {out_file}', flush=True)
 
@@ -364,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f'Setup: {options.setup}', flush=True)
 
     def runs(world):
+        world.restart_on_crash = args.restart_on_crash
+        world.restart_needed = False
         for k, job in enumerate(todo):
             if not world.alive():
                 world.log.error('No defenders left')
@@ -406,8 +421,20 @@ def main(argv: list[str] | None = None) -> int:
                 world.log.info('  missed' if metrics.missed else
                                f'  detected at {metrics.first_detection_range:.0f} m')
             save_run(out_file, metrics, {**extra, **common_fields})
+            # Also after the last run: a crashed drone would otherwise be left in the world
+            # for whatever runs next (another path of compare_paths.sh), and --one-run
+            # leaves a fresh world. The launcher then calls again, finds nothing left to
+            # fly and prints the summary.
+            left = len(todo) - k - 1
+            if world.restart_needed:
+                raise common.RestartGazebo(f'a defender crashed; {left} runs left')
+            if args.one_run:
+                raise common.RestartGazebo(f'one run per Gazebo start; {left} runs left')
 
     code, _ = common.run_surveillance('baseline_eval', flown, options, args, runs)
+    if code == common.EXIT_RESTART:
+        print('Restarting Gazebo, then the next run (saved runs are skipped).', flush=True)
+        return code
     text = summary_text(args.out, config, where, attack)
     print(text, flush=True)
     args.out.mkdir(parents=True, exist_ok=True)
