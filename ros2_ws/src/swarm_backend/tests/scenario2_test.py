@@ -64,19 +64,19 @@ from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 
 from swarm_backend.scenarios.gazebo_surveillance import GRAVEYARD_ENU, Px4Process, set_model_pose
-from swarm_backend import ground_truth
+from swarm_backend.sim import ground_truth
 from swarm_backend.config import load_config
 from swarm_backend.detect.live import offset_topic
 from swarm_backend.intercept.attack import AttackAction, State
-from swarm_backend.intercept.attack_scenario import ClosestApproach
-from swarm_backend.intercept.inbound import (inbound_line, match_hostile, plan_birds,
+from swarm_backend.evaluation.attack_scenario import ClosestApproach
+from swarm_backend.evaluation.inbound import (inbound_line, match_hostile, plan_birds,
                                               straight_at)
 from swarm_backend.nodes.attack_node import AttackNode
 from swarm_backend.nodes.fake_detection import GazeboTruth
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
-from swarm_backend.save_images import drone_names
-from swarm_backend.sensor_view import find_sensors
+from swarm_backend.datagen.save_images import drone_names
+from swarm_backend.sim.sensor_view import find_sensors
 from swarm_backend.swarm.manager import SwarmManager
 from swarm_backend.swarm.swarm import Swarm
 
@@ -456,7 +456,7 @@ class Scenario2:
     def plan_birds(self, hostile_starts: list) -> None:
         import random
 
-        from swarm_backend.birds import KINDS
+        from swarm_backend.sim.birds import KINDS
         rng = random.Random(self.args.bird_seed)
         self.birds = plan_birds(self.args.birds, hostile_starts, self.base, list(KINDS),
                                 self.s['hostile_speed'], rng)
@@ -472,7 +472,7 @@ class Scenario2:
         plan = {'world': self.world, 't0': self.t0,
                 'birds': [dataclasses.asdict(b) for b in self.birds]}
         self.birds_proc = subprocess.Popen(
-            [sys.executable, '-m', 'swarm_backend.birds', 'fly'], stdin=subprocess.PIPE,
+            [sys.executable, '-m', 'swarm_backend.sim.birds', 'fly'], stdin=subprocess.PIPE,
             stdout=open(BIRDS_LOG, 'w'), stderr=subprocess.STDOUT, text=True)
         self.birds_proc.stdin.write(json.dumps(plan))
         self.birds_proc.stdin.close()

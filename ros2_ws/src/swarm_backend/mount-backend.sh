@@ -9,19 +9,14 @@
 #   ./mount-backend.sh spawn TYPE      start ONE more drone of TYPE (see below) at the next free id
 #   ./mount-backend.sh single [args]   Milestone 1 test (tests/single_drone_test.py --help)
 #   ./mount-backend.sh multi [args]    Milestone 2 test (tests/multi_drone_swarm_test.py --help)
-#   ./mount-backend.sh intercept [args] chase test: drone 2 chases drone 0 at 50 m using mock
-#                                      radar fixes (tests/intercept_test.py --help, e.g.
-#                                      --pattern figure8 --speed 5 --csv /tmp/run.csv)
 #   ./mount-backend.sh scenario NAME [--sim] [args]  run a scenario (swarm_backend/scenarios/):
 #                                      in Gazebo, or with --sim in the fast simulation (no
 #                                      Gazebo or PX4 needed, seconds per run). NAME: attack,
-#                                      baseline_eval, intercept_baseline; `scenario --help`
+#                                      baseline_eval; `scenario --help`
 #                                      lists them, `scenario NAME --help` their arguments.
 #                                      attack and baseline_eval use scenarios/surveillance.yaml
 #                                      unless SWARM_CONFIG is set. Without the container:
 #                                      cd ros2_ws/src/swarm_backend && python3 -m swarm_backend.scenarios NAME --sim
-#   ./mount-backend.sh baseline-intercept [args]  = scenario intercept_baseline: one intercept
-#                                      baseline scenario of the report (e.g. --aspect 90 --speed 8 --seed 3)
 #   ./mount-backend.sh fakedetect [args] fake camera detector: publishes /px4_2/detection/target_position
 #                                      and target_offset from Gazebo's true positions (attack: in
 #                                      swarm.yaml; --realistic for delay, noise and blind zone)
@@ -29,21 +24,21 @@
 #                                      what the detection topics report (pure pursuit), lands on
 #                                      Ctrl-C (swarm_backend/nodes/attack_node.py --help)
 #   ./mount-backend.sh bird spawn|move|wander|remove [args]  birds in the running world
-#                                      (swarm_backend/birds.py --help), e.g. bird spawn dove
+#                                      (swarm_backend/sim/birds.py --help), e.g. bird spawn dove
 #                                      --at 20 0 30, then bird wander bird_1 --around 20 0 30
 #   ./mount-backend.sh boxtest [args]  try Gazebo's bounding-box camera for training labels: a bare
 #                                      camera, a labelled x500 and dove at 3-150 m, images with the
-#                                      boxes drawn in data/box_test/ (swarm_backend/box_test.py --help)
+#                                      boxes drawn in data/box_test/ (swarm_backend/datagen/box_test.py --help)
 #   ./mount-backend.sh gendata --run NAME [--count N] [args]  labelled YOLO training images
 #                                      in data/gen/NAME/ (+ NAME/labels_check.png): random camera, sun and drones in the
 #                                      running world (hive_base); --yaml --val R --test R writes
-#                                      data/gen/data.yaml, split by run (swarm_backend/gen_data.py)
+#                                      data/gen/data.yaml, split by run (swarm_backend/datagen/gen_data.py)
 #   ./mount-backend.sh genlive ID --run NAME [--count N] [args]  the same, but drone ID (spawn
 #                                      gimbal_labels) flies and its own gimbal camera takes the
-#                                      images (swarm_backend/gen_live.py)
+#                                      images (swarm_backend/datagen/gen_live.py)
 #   ./mount-backend.sh makecrops [args] cut-outs around the baseline's candidates in data/gen/,
 #                                      for YOLO as a second stage, in data/crops/ (same split by
-#                                      run; swarm_backend/make_crops.py)
+#                                      run; swarm_backend/datagen/make_crops.py)
 #   ./mount-backend.sh showlabels DIR [--n 5] [--out F]  draw the YOLO labels of a run (e.g.
 #                                      data/gen/b05) with zoomed cut-outs, to check them
 #                                      by eye; writes DIR/labels_check.png (training/show_labels.py)
@@ -55,7 +50,7 @@
 #                                      error by size and distance, plots in data/results/range_fit/
 #                                      (training/fit_range.py; offline, changes no live code)
 #   ./mount-backend.sh yololabels DIR  YOLO label files (labels/*.txt) for the images snap saved in
-#                                      DIR, from the boxes in their .json (swarm_backend/yolo_labels.py)
+#                                      DIR, from the boxes in their .json (swarm_backend/datagen/yolo_labels.py)
 #   ./mount-backend.sh attacktest [args] = scenario attack: defenders 1-3 patrol the arc,
 #                                      the base station sends one at hostile drone 4 flying in
 #                                      toward the base, real camera detectors (started by the
@@ -83,8 +78,6 @@
 #   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
 #                                      the operator UI's background map (map_snapshot.py --help,
 #                                      default 800 m across, --half-size 600 for more). Restart `ui`.
-#   ./mount-backend.sh demo [N]        formation demo (swarm_node)
-#   ./mount-backend.sh legacy          old backend_node + keyboard teleop
 #   ./mount-backend.sh view [ID]       show drone ID in RViz with its cameras and lidars, default 1.
 #                                      Any drone type; one without sensors shows where it is.
 #                                      (`lidar [ID]` and `camera [ID]` do the same)
@@ -128,7 +121,7 @@
 #                                      /tmp/px4_0.log), then drones 1..N-1 of swarm.yaml if N is
 #                                      given. Keeps the world, drone 0 model and headless setting
 #                                      it was running with, else baylands and gz_x500.
-#                                      Example: ./mount-backend.sh restart && scenarios/scenario1.sh
+#                                      Example: ./mount-backend.sh restart && scenarios/yolo.sh
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, gimbal_labels
@@ -260,7 +253,7 @@ for d in drones[1:]:
 
 view() {
   # Bridge the drone's Gazebo camera/lidar topics and poses to ROS 2 and open RViz (sensor_view.py).
-  run "python3 -m swarm_backend.sensor_view --id ${1:-1} --rviz $PKG/config/sensors.rviz"
+  run "python3 -m swarm_backend.sim.sensor_view --id ${1:-1} --rviz $PKG/config/sensors.rviz"
 }
 
 mapping() {
@@ -376,20 +369,18 @@ case "$cmd" in
     if [ -z "$1" ] || [[ "$1" =~ ^[0-9]+$ ]]; then spawn "$1"; else spawn_one "$1"; fi ;;
   single) run "python3 $PKG/tests/single_drone_test.py --config $CONFIG $*" ;;
   multi)  run "python3 $PKG/tests/multi_drone_swarm_test.py --config $CONFIG $*" ;;
-  intercept) run "python3 $PKG/tests/intercept_test.py --config $CONFIG $*" ;;
   detecttest) run "python3 $PKG/tests/detection_test.py --config $CONFIG $*" ;;
   scenario)
     # --config only when SWARM_CONFIG is set: each scenario has its own default config.
     run "python3 -m swarm_backend.scenarios $* ${SWARM_CONFIG:+--config $SWARM_CONFIG}" ;;
-  baseline-intercept) run "python3 -m swarm_backend.scenarios intercept_baseline --config $CONFIG $*" ;;
   fakedetect) run "python3 -m swarm_backend.nodes.fake_detection --config $CONFIG $*" ;;
   attack) run "python3 -m swarm_backend.nodes.attack_node --config $CONFIG $*" ;;
   hivemind) run "python3 -m swarm_backend.nodes.hivemind_node --config $CONFIG $*" ;;
-  bird)   run "python3 -m swarm_backend.birds $*" ;;
-  boxtest) run "python3 -m swarm_backend.box_test $*" ;;
+  bird)   run "python3 -m swarm_backend.sim.birds $*" ;;
+  boxtest) run "python3 -m swarm_backend.datagen.box_test $*" ;;
   gendata)
     # After a run, draw its labels to DIR/labels_check.png to check them by eye.
-    if run "python3 -m swarm_backend.gen_data $*"; then
+    if run "python3 -m swarm_backend.datagen.gen_data $*"; then
       gen_run="" gen_out=/workspace/data/gen
       while [ $# -gt 0 ]; do
         case "$1" in --run) gen_run="$2"; shift ;; --out) gen_out="$2"; shift ;; --yaml) gen_run=""; break ;; esac
@@ -399,9 +390,9 @@ case "$cmd" in
         run "cd /workspace && python3 training/show_labels.py $gen_out/$gen_run --n 10" || true
       fi
     fi ;;
-  genlive) run "python3 -m swarm_backend.gen_live $*" ;;
-  makecrops) run "python3 -m swarm_backend.make_crops $*" ;;
-  yololabels) run "cd /workspace && python3 -m swarm_backend.yolo_labels $*" ;;
+  genlive) run "python3 -m swarm_backend.datagen.gen_live $*" ;;
+  makecrops) run "python3 -m swarm_backend.datagen.make_crops $*" ;;
+  yololabels) run "cd /workspace && python3 -m swarm_backend.datagen.yolo_labels $*" ;;
   showlabels) run "cd /workspace && python3 training/show_labels.py $*" ;;
   fitrange) run "cd /workspace && python3 training/fit_range.py $*" ;;
   comparedet) run "cd /workspace && python3 training/compare_detectors.py $*" ;;
@@ -410,9 +401,7 @@ case "$cmd" in
   baseline-eval) run "python3 -m swarm_backend.scenarios baseline_eval --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
   attacktest) run "python3 -m swarm_backend.scenarios attack --config ${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml} $*" ;;
   ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
-  mapsnap) run "python3 -m swarm_backend.map_snapshot $*" ;;
-  demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
-  legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;
+  mapsnap) run "python3 -m swarm_backend.sim.map_snapshot $*" ;;
   view|lidar|camera) view "$1" ;;
   map) mapping "$@" ;;
   maptest) run "python3 $PKG/tests/mapping_test.py --config $CONFIG $*" ;;
@@ -422,7 +411,7 @@ case "$cmd" in
   snap)
     id=2
     if [[ "${1:-}" =~ ^[0-9]+$ ]]; then id="$1"; shift; fi
-    run "python3 -m swarm_backend.save_images --id $id $*" ;;
+    run "python3 -m swarm_backend.datagen.save_images --id $id $*" ;;
   detect) detect "$@" ;;
   restart) restart "$@" ;;
   *) echo "Unknown command: $cmd (see --help)"; exit 1 ;;

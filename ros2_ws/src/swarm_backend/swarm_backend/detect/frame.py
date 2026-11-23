@@ -14,7 +14,7 @@ from typing import Any
 
 from swarm_backend.config import Vector3
 from swarm_backend.detect.camera import CameraModel
-from swarm_backend.ground_truth import project
+from swarm_backend.sim.ground_truth import project
 
 
 class Kind(Enum):

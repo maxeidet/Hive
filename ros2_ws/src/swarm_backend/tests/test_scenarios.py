@@ -9,10 +9,9 @@ import json
 import pytest
 
 from swarm_backend.config import load_config
-from swarm_backend.intercept.attack_scenario import Inbound, inbound_path
-from swarm_backend.intercept.metrics import Outcome, score_run
-from swarm_backend.intercept.scenario import make_scenario
-from swarm_backend.scenarios import SCENARIOS, attack, baseline_eval, common, intercept_baseline
+from swarm_backend.evaluation.attack_scenario import Inbound, inbound_path
+from swarm_backend.evaluation.metrics import Outcome
+from swarm_backend.scenarios import SCENARIOS, attack, baseline_eval, common
 from swarm_backend.scenarios.__main__ import main as scenarios_main
 from swarm_backend.scenarios.sim_surveillance import SimSurveillance
 from swarm_backend.scenarios.surveillance import Options
@@ -31,36 +30,6 @@ def test_every_scenario_has_help(name, capsys):
 
 def test_unknown_scenario():
     assert scenarios_main(['no_such_scenario']) == 1
-
-
-# --- intercept_baseline --------------------------------------------------------------
-
-@pytest.fixture
-def baseline_implemented():
-    settings = SWARM.intercept
-    try:
-        intercept_baseline.fly_sim(make_scenario(0.0, 4.0, 0, settings), settings)
-    except NotImplementedError:
-        pytest.skip('baseline guidance not implemented yet (PurePursuitAction, '
-                    'NoisyTruthDetector)')
-
-
-def test_intercept_baseline_runs(tmp_path, baseline_implemented):
-    out = tmp_path / 'samples.csv'
-    assert intercept_baseline.main(['--sim', '--aspect', '0', '--speed', '4', '--seed', '0',
-                                    '--csv', str(out)]) == 0
-    with open(out) as f:
-        rows = list(csv.DictReader(f))
-    assert len(rows) > 10
-    assert {'t', 'interceptor', 'target', 'status'} <= set(rows[0])
-
-
-def test_intercept_baseline_same_seed_same_result(baseline_implemented):
-    settings = SWARM.intercept
-    scenario = make_scenario(0.0, 4.0, 3, settings)
-    first = score_run(intercept_baseline.fly_sim(scenario, settings), scenario, settings)
-    again = score_run(intercept_baseline.fly_sim(scenario, settings), scenario, settings)
-    assert first == again
 
 
 # --- the surveillance world ----------------------------------------------------------

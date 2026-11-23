@@ -2,7 +2,7 @@ from pathlib import Path
 
 import yaml
 
-from swarm_backend.sensor_view import (
+from swarm_backend.sim.sensor_view import (
     Drone, bridge_config, drone_transforms, find_drone, find_sensors, rviz_config)
 
 TEMPLATE = yaml.safe_load((Path(__file__).parent.parent / 'config' / 'sensors.rviz').read_text())

@@ -1,6 +1,6 @@
 """Read-only view of a PX4 drone: position and clock, no commands.
 
-For processes that watch a drone someone else flies (the mock radar node). A PX4Drone
+For processes that watch a drone someone else flies (the hivemind node). A PX4Drone
 would stream its own setpoints and fight the process that is flying it.
 """
 import math

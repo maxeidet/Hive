@@ -9,7 +9,7 @@ import pytest
 from swarm_backend.mapping import (
     MapStats, is_depth_camera, map_stats, mapping_rviz_config, ned_to_enu, octomap_args,
     pixel_scale, point_clouds, reach, saver_args, wait_for_clouds, with_free_rays)
-from swarm_backend.sensor_view import find_sensors
+from swarm_backend.sim.sensor_view import find_sensors
 
 TEMPLATE = yaml.safe_load((Path(__file__).parent.parent / 'config' / 'sensors.rviz').read_text())
 

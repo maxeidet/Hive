@@ -3,8 +3,9 @@ import random
 
 import pytest
 
-from swarm_backend import gen_data, ground_truth
-from swarm_backend.box_test import BIRD, DRONE, F, HEIGHT_PX, WIDTH
+from swarm_backend.datagen import gen_data
+from swarm_backend.sim import ground_truth
+from swarm_backend.datagen.box_test import BIRD, DRONE, F, HEIGHT_PX, WIDTH
 
 
 @pytest.mark.parametrize('heading, pitch', [(0, 0), (90, 0), (200, 20), (45, -10)])
@@ -110,12 +111,12 @@ def test_own_body_puts_its_camera_mount_on_the_camera():
 
 def test_own_body_has_no_label():
     import xml.etree.ElementTree as ET
-    from swarm_backend.box_test import drone_sdf
+    from swarm_backend.datagen.box_test import drone_sdf
     assert ET.fromstring(drone_sdf('me', label=None)).find('model/plugin') is None
 
 
 def test_target_names_are_not_taken_for_px4_drones():
-    from swarm_backend.sensor_view import MODEL_TOPIC
+    from swarm_backend.sim.sensor_view import MODEL_TOPIC
     for name in gen_data.target_names('gen_drone', 5):
         assert not MODEL_TOPIC.match(f'/world/w/model/{name}/link/base_link/sensor/imu_sensor/imu')
 

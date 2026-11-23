@@ -1,6 +1,6 @@
 import pytest
 
-from swarm_backend import make_crops
+from swarm_backend.datagen import make_crops
 from swarm_backend.detect.detectors import Detection
 
 

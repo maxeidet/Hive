@@ -8,9 +8,9 @@ from test_attack import SimDrone
 
 from swarm_backend.config import AttackConfig, InterceptConfig, SurveillanceConfig
 from swarm_backend.intercept.attack import DetectionInbox, State, attack_status, state_label
-from swarm_backend.intercept.base_station import Mode, Order
+from swarm_backend.swarm.base_station import Mode, Order
 from swarm_backend.intercept.mpc_attack import MpcAttack, make_attack
-from swarm_backend.intercept.patrol import STALE_DETECTION_S, PatrolAction
+from swarm_backend.swarm.patrol import STALE_DETECTION_S, PatrolAction
 from swarm_backend.scenarios import common
 from swarm_backend.scenarios.surveillance import Options
 

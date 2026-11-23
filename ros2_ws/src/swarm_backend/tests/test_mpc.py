@@ -9,7 +9,7 @@ from swarm_backend.intercept.mpc import (PX4_VELOCITY_GAIN, Mpc, MpcWeights,
                                          closest_approach_time, free_positions,
                                          prediction_matrix, time_to_go, velocity_command)
 
-from swarm_backend.fast_sim import SimDrone
+from swarm_backend.sim.fast_sim import SimDrone
 
 DT = 0.1
 ALT = -50.0

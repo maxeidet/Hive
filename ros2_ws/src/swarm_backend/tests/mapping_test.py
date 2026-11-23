@@ -41,7 +41,7 @@ from swarm_backend.mapping import (
     map_stats, ned_to_enu, point_clouds, reach, ros_executable, saver_args)
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
-from swarm_backend.sensor_view import find_drone, find_sensors, gz_topics
+from swarm_backend.sim.sensor_view import find_drone, find_sensors, gz_topics
 
 RUNS = Path('/workspace/runs/mapping_test')  # /workspace = the repo; runs/ is not committed
 SAMPLE_PERIOD_S = 0.1  # sim seconds between rows of samples.csv (10 Hz)

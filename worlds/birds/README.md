@@ -1,6 +1,6 @@
 # Birds
 
-Bird meshes for distractors and training images (`swarm_backend/birds.py`, `./mount-backend.sh bird`). They are loaded from `/workspace/worlds/birds/...`, the path where the start scripts mount the repo inside the container, so no Gazebo model folders are needed.
+Bird meshes for distractors and training images (`swarm_backend/sim/birds.py`, `./mount-backend.sh bird`). They are loaded from `/workspace/worlds/birds/...`, the path where the start scripts mount the repo inside the container, so no Gazebo model folders are needed.
 
 | File | Model | Author | Licence | Notes |
 |---|---|---|---|---|

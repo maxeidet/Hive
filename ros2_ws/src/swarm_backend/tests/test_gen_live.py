@@ -2,8 +2,9 @@ import math
 
 import pytest
 
-from swarm_backend import gen_data, gen_live, ground_truth
-from swarm_backend.box_test import BIRD, DRONE
+from swarm_backend.datagen import gen_data, gen_live
+from swarm_backend.sim import ground_truth
+from swarm_backend.datagen.box_test import BIRD, DRONE
 
 
 def truth_camera(heading_deg=30.0, pitch_deg=10.0, at=(5.0, -3.0, -40.0)):

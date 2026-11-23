@@ -1,9 +1,9 @@
 import pytest
 
 from swarm_backend.config import parse_config
-from swarm_backend.intercept import surveillance_msgs as m
-from swarm_backend.intercept.base_station import Mode, Order
-from swarm_backend.intercept.target_association import TargetAssociator
+from swarm_backend.swarm import messages as m
+from swarm_backend.swarm.base_station import Mode, Order
+from swarm_backend.swarm.association import TargetAssociator
 
 
 def test_messages_round_trip():

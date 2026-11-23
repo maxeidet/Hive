@@ -2,7 +2,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from swarm_backend import box_test
+from swarm_backend.datagen import box_test
 
 
 def test_camera_has_rgb_and_both_box_sensors_with_the_gimbal_settings():

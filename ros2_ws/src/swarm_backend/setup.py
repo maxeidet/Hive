@@ -25,11 +25,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'backend_node = swarm_backend.backend_node:main',
-            'keyboard = swarm_backend.keyboard:main',
-            'swarm_node = swarm_backend.nodes.swarm_node:main',
             'swarm_shell = swarm_backend.shell:main',
-            'mock_radar = swarm_backend.nodes.mock_radar:main',
             'fake_detection = swarm_backend.nodes.fake_detection:main',
             'attack_node = swarm_backend.nodes.attack_node:main',
             'base_station_node = swarm_backend.nodes.base_station_node:main',

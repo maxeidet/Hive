@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import yaml
 
-from swarm_backend.sensor_view import (
+from swarm_backend.sim.sensor_view import (
     BODY_FRAME, DEPTH_TOPIC, QOS, WORLD_FRAME, Sensor, TFPublisher, bridge_config, find_drone,
     find_sensors, gz_topics, rviz_config)
 

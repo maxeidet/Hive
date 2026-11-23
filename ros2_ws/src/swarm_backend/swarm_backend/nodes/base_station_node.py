@@ -1,5 +1,5 @@
 """The base station (`mount-backend.sh basestation`): reads what the defenders report,
-decides with intercept/dispatcher.py (the rules are in intercept/base_station.py) and sends
+decides with swarm/dispatcher.py (the rules are in swarm/base_station.py) and sends
 the orders back (surveillance plan, sections 3 and 4).
 
 It does not fly and has no camera. Settings come from the `surveillance:` section of
@@ -8,7 +8,7 @@ swarm.yaml.
     python3 -m swarm_backend.nodes.base_station_node --config <swarm.yaml>
 
 Times are when a message arrives here, not the drones' own clocks (wall clock, or the
-`clock` the scenarios give: Gazebo's). See intercept/dispatcher.py for lost defenders and
+`clock` the scenarios give: Gazebo's). See swarm/dispatcher.py for lost defenders and
 the `kill`, `contact` and `target_lost` events.
 """
 import argparse
@@ -20,9 +20,9 @@ from rclpy.signals import SignalHandlerOptions
 from std_msgs.msg import String
 
 from swarm_backend.config import default_config_path, load_config
-from swarm_backend.intercept import surveillance_msgs as msgs
-from swarm_backend.intercept.base_station import Order
-from swarm_backend.intercept.dispatcher import Dispatcher
+from swarm_backend.swarm import messages as msgs
+from swarm_backend.swarm.base_station import Order
+from swarm_backend.swarm.dispatcher import Dispatcher
 
 TICK_HZ = 5.0
 RESEND_S = 1.0  # every current order is sent again this often, so a late drone gets it

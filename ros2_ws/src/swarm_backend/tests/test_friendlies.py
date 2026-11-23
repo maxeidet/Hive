@@ -1,10 +1,10 @@
-"""The friendly-drone check (hive/friendlies.py): pointing at a friendly, with a fitting
+"""The friendly-drone check (swarm/friendlies.py): pointing at a friendly, with a fitting
 distance, means friendly; the broadcast is predicted on and expires."""
 import math
 
 import pytest
 
-from swarm_backend.hive.friendlies import (MAX_AGE_S, Friendly, FriendlyBook, decode, encode,
+from swarm_backend.swarm.friendlies import (MAX_AGE_S, Friendly, FriendlyBook, decode, encode,
                                            friendly_for, gate_deg)
 
 CAMERA = (0.0, 0.0, -30.0)  # the defender, 30 m up above the base

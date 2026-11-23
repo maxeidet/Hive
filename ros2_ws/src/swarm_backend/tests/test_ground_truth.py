@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from swarm_backend import ground_truth
+from swarm_backend.sim import ground_truth
 
 IDENTITY = (0.0, 0.0, 0.0, 1.0)
 HALF_TURN = (0.0, 0.0, 1.0, 0.0)  # about z; with SENSOR_IN_LINK the camera then looks along +x
