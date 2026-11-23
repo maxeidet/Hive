@@ -48,14 +48,17 @@ def nodes(context):
     center = arg('center').strip()
     box = box_around(center, float(arg('radius')), float(arg('z_min')),
                      float(arg('z_max'))) if center else {}
+    # DAEP counts what a viewpoint would see out to aep/gain/r_max; give it the range the map
+    # is built with, so it neither over- nor underrates far viewpoints.
+    overrides = {**box, 'aep/gain/r_max': float(arg('map_range'))}
     bridge_args = ['--id', drone_id, '--alt', arg('alt')]
     if center:
         bridge_args += ['--start', *center.split(',')]
 
     def daep_node(executable, extra_params=(), remappings=()):
-        # The box comes last, so it overrides the one in the yaml file.
+        # The overrides come last, so they replace the yaml file's box and gain range.
         return Node(package='daep', executable=executable, namespace=ns, output='screen',
-                    emulate_tty=True, parameters=[param_file, *extra_params, box],
+                    emulate_tty=True, parameters=[param_file, *extra_params, overrides],
                     remappings=list(remappings))
 
     return [
@@ -97,6 +100,7 @@ def generate_launch_description():
                               description='start the map here; false when `mount-backend.sh map` runs'),
         DeclareLaunchArgument('map_range', default_value='8.0',
                               description='how far from the sensor points go into the map, metres '
-                                          '(the depth camera sees 19.1 m)'),
+                                          '(the depth camera sees 19.1 m); DAEP counts what it '
+                                          'would see out to the same range'),
         OpaqueFunction(function=nodes),
     ])
