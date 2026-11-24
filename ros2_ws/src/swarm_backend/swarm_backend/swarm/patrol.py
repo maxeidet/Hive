@@ -58,6 +58,10 @@ class PatrolAction:
         self.mode = Mode.PATROL
         self.sector: tuple[float, float] | None = None
         self.may_start = True
+        # Hold fire: sweep, but neither report nor attack what is seen. The scenarios set
+        # it while the hostile drone climbs to its start point and waits there, so nobody
+        # attacks it before its run starts.
+        self.hold = False
         self.attack: AttackAction | None = None
         self.running = False
         self._phi = self.slot_angle
@@ -160,8 +164,8 @@ class PatrolAction:
     def _patrol(self, now: float, dt: float, fresh) -> None:
         self._sweep(dt)
         self._aim()
-        if fresh is None:
-            if now - self._last_detection > STALE_DETECTION_S:
+        if fresh is None or self.hold:
+            if self.hold or now - self._last_detection > STALE_DETECTION_S:
                 self._hits = 0
             return
         self._hits += 1

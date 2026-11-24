@@ -78,6 +78,20 @@ def test_a_drone_that_may_start_turns_on_the_target_at_once():
     assert drone.mode == 'velocity'
 
 
+def test_hold_sweeps_but_neither_reports_nor_attacks():
+    patrol, drone, inbox, clock = make()
+    patrol.apply(Order(2, Mode.PATROL, sector=(-15.0, 15.0), may_start=True))
+    patrol.hold = True
+    phi = patrol._phi
+    run(patrol, drone, clock, 2.0, inbox, (20.0, 5.0, 0.0))
+    assert patrol.mode is Mode.PATROL and patrol.take_sightings() == []
+    assert patrol._phi != phi  # still sweeping
+    patrol.hold = False  # the run starts: what it sees now counts, from the first image
+    run(patrol, drone, clock, 0.3, inbox, (20.0, 5.0, 0.0))
+    assert patrol.mode is Mode.ENGAGE
+    assert not patrol.take_sightings()[0].confirmed
+
+
 def test_an_engage_order_starts_the_attack_and_repeats_do_nothing():
     patrol, drone, inbox, clock = make()
     order = Order(2, Mode.ENGAGE, 'T1')

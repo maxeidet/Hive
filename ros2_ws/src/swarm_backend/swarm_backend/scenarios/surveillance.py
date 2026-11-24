@@ -209,6 +209,11 @@ class SurveillanceWorld:
         self.wait_until(lambda: self.clock() - start >= seconds, SETUP_TIMEOUT_S,
                         f'{seconds} s of simulation time')
 
+    def hold_fire(self, on: bool) -> None:
+        """Every defender sweeps but does not report or attack what it sees (PatrolAction.hold)."""
+        for p in self.patrols.values():
+            p.patrol.hold = on
+
     def alive(self) -> list[int]:
         """Defenders the base station still counts."""
         return [i for i in self.ids if self.station.station.drones[i].mode is not Mode.LOST]
@@ -310,6 +315,10 @@ class SurveillanceWorld:
         `end(t, hostile position)` ends it early."""
         points = [tuple(start), tuple(goal)] if path is None else [tuple(p) for p in path]
         self.read_records()  # skip what came before this run
+        # Until the run starts the hostile drone climbs to its start point and hovers
+        # there, which a detector that sees far (YOLO) can see. An attack on it then would
+        # keep that defender off patrol, and wait_patrol, with the hostile, waiting.
+        self.hold_fire(True)
         self.place_hostile(start, points[1], speed)  # facing along its first leg
         self.wait_patrol()
         self.wait_sim(SETTLE_S)
@@ -326,6 +335,7 @@ class SurveillanceWorld:
                         judges=judges, statuses=statuses)
         self.flight = HostileFlight(self.hostile, track, self.clock)
         self.judges = judges
+        self.hold_fire(False)
         self.flight.start()
         t0 = flight.t0 = self.clock()
         try:
