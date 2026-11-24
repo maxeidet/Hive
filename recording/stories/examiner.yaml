@@ -24,7 +24,7 @@ scenes:
   from: release + 5
   to: hit + 2
   layout: compare
-  show: [map]
+  show: [ui|map]
   speed: 2
   insights: [seen_at, time_to_hit, no_hit]
 
@@ -43,7 +43,7 @@ scenes:
   from: release + 5
   to: hit + 2
   layout: compare
-  show: [map]
+  show: [ui|map]
   speed: 2
   insights: [seen_at, time_to_hit, no_hit]
 
@@ -79,7 +79,7 @@ scenes:
   from: release + 5
   to: hit + 2
   layout: compare
-  show: [map]
+  show: [ui|map]
   speed: 2
   insights: [seen_at, time_to_hit, no_hit]
 
