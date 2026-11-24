@@ -183,3 +183,12 @@ def test_hit_counted_when_taken_out_late(tmp_path):
     truth = make_run(tmp_path, videos=False, takeout_delay=17.0)
     t = find_takes(tmp_path)[0]
     assert t.moments.get('hit') == pytest.approx(truth['contact'][0], abs=0.15)
+
+
+def test_two_hostile_closest_pass_is_over_both(tmp_path):
+    # check-two: the baseline missed both by 1.9 and 4.7 m, but the take said "closest 127 m"
+    # (one defender to the first hostile only). Closest over every defender and both hostiles.
+    make_run(tmp_path, videos=False, hostiles=2, hit=[False, False])
+    f = find_takes(tmp_path)[0].facts
+    assert f['closest_pass_m'] == min(f['closest_pass_m_1'], f['closest_pass_m_2'])
+    assert f['closest_pass_m'] < 10.0

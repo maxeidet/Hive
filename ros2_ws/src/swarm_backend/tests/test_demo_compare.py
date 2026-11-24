@@ -82,3 +82,12 @@ def test_compare_story_builds(tmp_path):
     story_file = Path(__file__).resolve().parents[4] / 'recording' / 'stories' / 'compare.yaml'
     out = build(folder, story_file, preview=True, skip_missing=True)
     assert out.exists()
+
+
+def test_result_text_counts_both_hostiles():
+    from swarm_backend.demo.final import result_text
+    from swarm_backend.demo.takes import Take
+    t = Take(1, {'hit': 10.0}, 1, 'x500_4', {'hit': True, 'hits': '2/2', 'sighting_to_hit_s': 12.1})
+    assert result_text(t).startswith('2/2 hit')
+    t = Take(1, {}, None, 'x500_4', {'hit': False, 'hits': '0/2', 'closest_pass_m': 1.9})
+    assert result_text(t) == '0/2 hit, closest 1.9 m'

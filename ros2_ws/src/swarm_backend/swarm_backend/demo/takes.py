@@ -317,6 +317,12 @@ def _per_hostile(m: dict, facts: dict, info, sims, rows, events, ui, grave, rel,
             a = pose_at(sims, rows, next(d for d in info.defenders if d.endswith(f'_{who}')), sight[0])
             h = pose_at(sims, rows, name, sight[0])
             rng = round(math.dist(a[0], h[0]), 1) if a and h else None
+        # Closest any defender came to this hostile, from the release until it was down
+        until = out if out is not None else end
+        gaps = [math.dist(r[d][:3], r[name][:3]) for s, r in zip(sims, rows)
+                if rel <= s <= until and name in r and not in_graveyard(r[name][:3], grave)
+                for d in info.defenders if d in r]
+        facts[f'closest_pass_m_{k}'] = round(min(gaps), 2) if gaps else None
         facts[f'attacker_{k}'] = attacker
         facts[f'sighting_range_m_{k}'] = rng
         facts[f'sighting_to_hit_s_{k}'] = (round(out - sight[0], 2)
@@ -328,6 +334,10 @@ def _per_hostile(m: dict, facts: dict, info, sims, rows, events, ui, grave, rel,
     if firsts:
         m['first_sighting'] = min(firsts)
     facts['hits'] = f'{len(hits)}/{len(info.hostiles)}'
+    passes = [facts[f'closest_pass_m_{k}'] for k in range(1, len(info.hostiles) + 1)
+              if facts.get(f'closest_pass_m_{k}') is not None]
+    if passes:  # replaces the one-defender, first-hostile fact (FACTS) after it is computed
+        facts['closest_pass_m'] = min(passes)
 
 
 def _hit_at(sims, rows, defenders, target, out: float) -> float | None:

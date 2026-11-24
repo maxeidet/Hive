@@ -187,11 +187,18 @@ def scene_clip(r: Resolved, cuts: dict, out: Path, preview: bool, label: str | N
 
 
 def result_text(t: Take) -> str:
+    """A side's result for the compare layout; with several hostiles, how many were hit."""
     f = t.facts
+    c = f.get('closest_pass_m')
+    if f.get('hits'):
+        hit = f['hits'].split('/')[0] != '0'
+        s = f.get('sighting_to_hit_s')
+        if hit:
+            return f"{f['hits']} hit" + (f', last {s:.1f} s after sighting' if s is not None else '')
+        return f"{f['hits']} hit" + (f', closest {c:.1f} m' if c is not None else '')
     if f.get('hit'):
         s = f.get('sighting_to_hit_s')
         return f'hit {s:.1f} s after sighting' if s is not None else 'hit'
-    c = f.get('closest_pass_m')
     return f'no hit, closest {c:.1f} m' if c is not None else 'no hit'
 
 
