@@ -125,6 +125,8 @@ class SurveillanceWorld:
         self._hostile_truth: Vector3 | None = None
         self._sightings: list[tuple[float, int]] = []
         self._lock = threading.Lock()
+        self.birds = 0  # birds flying in with each hostile (baseline_eval --birds; Gazebo only)
+        self.bird_seed: int | None = None
 
     @staticmethod
     def make_attack_config(attack, options: Options):
@@ -175,6 +177,13 @@ class SurveillanceWorld:
 
     def stop_and_land(self) -> None:
         raise NotImplementedError
+
+    def start_extras(self, start: Vector3, goal: Vector3, speed: float) -> None:
+        """Right before the hostile sets off from `start` toward `goal`: what else flies in
+        with it (the Gazebo backend's birds). Nothing here."""
+
+    def stop_extras(self) -> None:
+        """The run is over (or failed): stop and remove what start_extras started."""
 
     # --- shared -------------------------------------------------------------------
 
@@ -272,9 +281,10 @@ class SurveillanceWorld:
                         judges=judges, statuses=statuses)
         self.flight = HostileFlight(self.hostile, track, self.clock)
         self.judges = judges
-        self.flight.start()
-        t0 = flight.t0 = self.clock()
         try:
+            self.start_extras(start, goal, speed)
+            self.flight.start()
+            t0 = flight.t0 = self.clock()
             while True:
                 now = self.clock()
                 t = now - t0
@@ -296,6 +306,7 @@ class SurveillanceWorld:
                     break
                 self.pause()
         finally:
+            self.stop_extras()
             flight.t_end = self.clock()
             self.judges = None
             flight.hostile_at = self._hostile_truth

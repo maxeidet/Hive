@@ -314,6 +314,12 @@ def parser() -> argparse.ArgumentParser:
                    help='weave/zigzag: metres to either side of the straight line')
     p.add_argument('--path-wavelength', type=float, default=60.0,
                    help='weave/zigzag: metres along the line for one full swing')
+    p.add_argument('--birds', type=int, default=0, metavar='N',
+                   help='N birds fly in around the hostile each run (Gazebo only: the fast '
+                        'simulation has no camera images); saves to its own default folder')
+    p.add_argument('--bird-seed', type=int, default=None, metavar='S',
+                   help='where the birds start (default: the run\'s seed, so a baseline/ours '
+                        'pair gets the same birds)')
     p.add_argument('--out', type=Path, default=None,
                    help=f'folder for intercept.jsonl, detect.jsonl and summary.txt (default '
                         f'{DEFAULT_OUT}, with --sim {DEFAULT_SIM_OUT}, plus _<setup> for any '
@@ -331,6 +337,8 @@ def main(argv: list[str] | None = None) -> int:
         args.out = common.with_tag(DEFAULT_SIM_OUT if args.sim else DEFAULT_OUT, tag)
         if args.path != 'straight':
             args.out = args.out.with_name(f'{args.out.name}_{args.path}')
+        if args.birds > 0:
+            args.out = args.out.with_name(f'{args.out.name}_birds')
     where = ((tag or 'Baseline') + ' on the arc' + (' (fast simulation)' if args.sim else ''))
     attack = 'MPC' if args.guidance == 'mpc' else 'pure pursuit'
     way = None
@@ -384,6 +392,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.path != 'straight':
                 common_fields.update(path_amplitude=args.path_amplitude,
                                      path_wavelength=args.path_wavelength)
+            if args.birds > 0:
+                seed = job[0].seed if args.mode == 'intercept' else job.seed
+                world.birds = args.birds
+                world.bird_seed = seed if args.bird_seed is None else args.bird_seed
+                common_fields.update(birds=args.birds, bird_seed=world.bird_seed)
             if args.mode == 'intercept':
                 scenario, designated = job
                 world.log.info(f'Run {k + 1}/{len(todo)}: aspect {scenario.aspect_deg:.0f} deg, '

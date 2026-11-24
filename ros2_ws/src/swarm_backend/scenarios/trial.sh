@@ -14,6 +14,7 @@
 #   scenarios/trial.sh 3 --path weave        drone 4 swings side to side (sine, ±15 m)
 #   scenarios/trial.sh 3 --path zigzag       straight legs with sharp turns
 #   scenarios/trial.sh 3 --path weave --path-amplitude 5 --path-wavelength 40
+#   scenarios/trial.sh 3 --birds 8          8 birds fly in around drone 4 (Gazebo only)
 #   scenarios/trial.sh 3 --sim               the fast simulation, no Gazebo
 #
 # Run it in tmux: 3 runs in Gazebo take about 10 minutes. Ctrl-C lands the defenders; the

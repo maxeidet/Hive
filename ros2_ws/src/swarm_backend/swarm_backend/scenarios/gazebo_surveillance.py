@@ -25,6 +25,7 @@ import dataclasses
 import json
 import math
 import os
+import random
 import signal
 import subprocess
 import sys
@@ -39,12 +40,14 @@ from swarm_backend.nodes.base_station_node import BaseStationNode
 from swarm_backend.nodes.fake_detection import FakeDetectionNode, GazeboTruth
 from swarm_backend.nodes.hivemind_node import Hivemind
 from swarm_backend.nodes.patrol_node import PatrolNode
+from swarm_backend.intercept.inbound import plan_birds
 from swarm_backend.px4.observer import DroneObserver
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, wait_until
 from swarm_backend.save_images import drone_names
 from swarm_backend.scenarios.surveillance import (
     SETUP_TIMEOUT_S, SLOT_TOLERANCE_M, SurveillanceWorld)
+from swarm_backend.scenarios.bird_flight import BirdFlight
 from swarm_backend.sensor_view import find_sensors
 from swarm_backend.swarm.manager import SwarmManager
 from swarm_backend.swarm.swarm import Swarm
@@ -330,6 +333,26 @@ class GazeboSurveillance(SurveillanceWorld):
         self.hostile.set_position(*start, yaw=yaw)
         wait_until(lambda: self.hostile.reached(TOLERANCE_M), SETUP_TIMEOUT_S,
                    'the hostile drone at its start point')
+
+    BIRDS_LOG = '/tmp/surveillance_birds.log'
+
+    def start_extras(self, start, goal, speed) -> None:
+        """`birds` birds around the hostile's start, flying over the base (intercept/inbound.py
+        plan_birds), named bird_<n> so the pose log and the films find them."""
+        if self.birds <= 0:
+            return
+        from swarm_backend.birds import KINDS
+        base = self.swarm_config.surveillance.base_position
+        plans = plan_birds(self.birds, [tuple(start)], (base[0], base[1]), list(KINDS), speed,
+                           random.Random(self.bird_seed), prefix='bird_')
+        self._bird_flight = BirdFlight(self.world, self.BIRDS_LOG)
+        self._bird_flight.start(plans, self.clock())
+        self.log.info(f'{len(plans)} birds flying in with the hostile (log {self.BIRDS_LOG})')
+
+    def stop_extras(self) -> None:
+        flight, self._bird_flight = getattr(self, '_bird_flight', None), None
+        if flight is not None and not flight.stop():
+            self.log.warning('The bird process did not stop; birds may be left in Gazebo')
 
     def report_kill(self, drone_id: int) -> None:
         self._events.publish(String(data=msgs.encode_event(msgs.EventMsg(drone_id, 'kill'))))

@@ -245,6 +245,12 @@ class SimSurveillance(SurveillanceWorld):
         self.wait_patrol()
         self.log.info('All defenders on patrol')
 
+    def start_extras(self, start, goal, speed) -> None:
+        if self.birds > 0 and not getattr(self, '_birds_noted', False):
+            self._birds_noted = True
+            if self.log is not None:
+                self.log.info('--birds ignored in the fast simulation (no camera images)')
+
     def stop_and_land(self) -> None:
         if self.flight is not None:
             self.flight.stop()
