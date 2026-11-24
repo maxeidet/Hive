@@ -1,0 +1,110 @@
+/**:
+
+  # This is the param file for Terra
+  ros__parameters:
+ 
+    # Camera/Lidar field of view
+    camera/horizontal_fov: 60.0    #Original 73.0
+    camera/vertical_fov: 30.0       #Lidar
+
+    # Raycasting
+    raycast/dr:     0.2
+    raycast/dphi:   10.0
+    raycast/dtheta: 10.0
+
+    # System (Robot) parameters
+    system/bbx/use_sphere_collision_checking: false # If true, use sphere collision checking, if false, use bounding box
+    system/bbx/r: 1.0 #Bounding radius som är tunnel den åker vi, om den är för stor så är vi i kollision med marken. 0.32 sidewis, 0.5 forward
+    system/bbx/x: 1.2 # #Robot Length
+    system/bbx/y: 0.7 # #Robot Width
+    system/bbx/z: 0.5 #Robot Height
+    system/bbx/overshoot: 0.25
+
+    # AEP Gain Computation
+    aep/gain/r_min: 0.9
+    aep/gain/r_max: 5.0
+    aep/gain/zero: 15.0
+    aep/gain/lambda: 0.75
+    aep/gain/sigma_thresh: 0.2
+
+    # RRT Parameters (Local Planner)
+    aep/tree/extension_range: 1.5
+    aep/tree/max_sampling_radius: 10.0
+    aep/tree/initial_iterations: 15
+    aep/tree/cutoff_iterations: 30
+    daep/rrt/max_sampled_initial_nodes: 3
+    daep/rrt/max_sampled_nodes: 70
+    z_offset: 0.0
+
+    # DAEP parameters
+    daep/gain/cache_node_threshold: 16 # Tune me! Threshold to keep
+    daep/gain/node_gain_threshold: 10  # Tune me! Threshold to add
+    daep/dfm/zeta: 0.5
+    
+    # Kalman Filter parameters
+    daep/kf/iterations: 200  # How many steps forward in time
+    daep/kf/time_step: 0.1  # Step size in time
+    daep/kf/position_uncertainty: 0.5
+    daep/kf/velocity_uncertainty: 0.5
+    daep/kf/process_noise: 0.1
+    daep/kf/measurement_noise: 0.1
+    daep/kf/safety_iteration: 1
+
+    # Boundary boost
+    boosted_boundary_length: 1.0
+    boost_magnitude: 6.0
+
+    # RRT* parameters (Global planner)
+    rrt/min_nodes: 100
+    rrt/extension_range: 1.0
+    rrt/location_tolerance: 1.5
+
+    # Global planning
+    global_planner_counter: 25
+    look_ahead_horizon: 5
+
+    # Emergency avoidance
+    max_avoidance_counter: 15
+
+    # Toggle features
+    visualizeDFM: false
+    visualize_static_and_dynamic_rays: false
+    debug_text : false
+    drone_freeze: false
+    visualize_rays: false #NOT USED
+    visualize_tree: true #NOT USED
+    visualize_exploration_area: true #NOT USED (Always true in code)
+
+    # Human parameters
+    human_height: 1.8
+    human_width: 1.0
+    human_linear_velocity: 0.01
+    human_angular_velocity: 1.0
+    num_obstacles: 5
+
+    # Drone parameters
+    drone_height: 0.1 # NOT USED
+    drone_width: 0.5  # NOT USED
+    drone_linear_velocity: 0.31 #m/s
+    drone_angular_velocity: 0.35 #rad/s
+    
+   
+    # World parameters
+    boundary/volume: 200.0 #Tune me?
+    # 517,5 - 7.5
+    boundary/min: # Tune me!
+    - -3.0
+    - -3.0
+    - 0.0
+    boundary/max: #Tune me!
+    - 4.0
+    - 3.0
+    - 2.0
+    res: 0.1 #Tune me? Was 0.5
+    
+    # Frames
+    robot_frame: "fcu"
+    world_frame: "world"
+
+    
+    

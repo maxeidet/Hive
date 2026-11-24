@@ -1,0 +1,119 @@
+/**:
+  ros__parameters:
+
+    # THIS PARAM_FILE IS FOR THE M100
+
+    # Camera field of view and sensor range
+    camera/horizontal_fov: 60.0 #+-Degrees (Same as Husky, denotes entire horizontal FOV)
+    camera/vertical_fov: 30.0   #+-Degrees (Same as Husky, denotes entire vertical FOV)
+    
+    # Raycasting
+    raycast/dr: 0.1  # Ideally same as octomap resolution
+    raycast/dphi: 10.0  # Step size for raycasting (pitch)
+    raycast/dtheta: 10.0  # Step size for raycasting (yaw)
+    
+    # System (Robot) parameters
+    system/bbx/use_sphere_collision_checking: true # If true, use sphere collision checking, if false, use bounding box
+    system/bbx/r: 0.45  # Bounding radius for RRT collision checking, M100 diag length = 0.650 m
+    system/bbx/x: 0.990 #0.339 #Turtlebot4 Length
+    system/bbx/y: 0.670 #0.341 #Turtlebot4 Width
+    system/bbx/z: 0.390 #Turtlebot4 Height
+
+    # AEP Gain Computation
+    aep/gain/r_min: 0.0 #Start distance for gain computation
+    aep/gain/r_max: 5.0 #End distance for gain computation (NOTE: Should not surpass octomap sensor range (Default 5.0))
+    aep/gain/lambda: 0.75  # Used in dynamic score to tune how much we care about distance to node
+    aep/gain/sigma_thresh: 0.2  # Used in GP, only use GP estimate if variance (sigma) is below this threshold
+    
+    # AEP Tree parameters
+    
+    # -- Sampling and Normalization
+    z_offset: 0.0  # Offset from the ground plane where RRT expansion happens
+    aep/tree/extension_range: 1.0  # Extension of RRT (We always normalize to this)
+    aep/tree/max_sampling_radius: 10.0  # Maximum sampling radius around the robot
+    
+    # -- First check (gain enough coverage)
+    aep/tree/initial_iterations: 15  # Sample AT LEAST these many VALID (static and dynamic collision-checked) nodes
+    daep/rrt/max_sampled_initial_nodes: 90  # Sample maximum this many nodes initially (Has passed static collision checking. Agnostic to dynamic collision checking.)
+
+    # -- Secon check (gain enough gain)
+    daep/rrt/max_sampled_nodes: 170  # Sample maximum this many nodes in total (Has passed static collision checking. Agnostic to dynamic collision checking.)
+    aep/tree/cutoff_iterations: 30  # Currently not used
+    aep/gain/zero: 20.0  # Sample at least until we find a *branch* with accumulated gain above this threshold
+
+    # DAEP parameters
+    daep/gain/cache_node_threshold: 50 # In reevaluate, only keep cached nodes with a gain above this threshold
+    daep/gain/node_gain_threshold: 40  # Only insert cached nodes with a gain above this threshold
+    daep/dfm/zeta: 0.5  # Used to tune how much we DFM
+    
+    # Kalman Filter parameters
+    daep/kf/iterations: 150  # How many steps forward in time
+    daep/kf/process_noise: 0.001 #(meter/time^2)^2 (Related to maximum expected acceleration in system, in our case not applied since we accerlate with infinite acceleration when turning...)
+    daep/kf/measurement_noise: 0.0049 #meter^2 (Variance in position obvervation, format is (uncertainty)^2)
+    
+    daep/kf/position_uncertainty: 0.1 #ONLY USED FOR INITALIZATION
+    daep/kf/velocity_uncertainty: 0.1 #ONLY USED FOR INITALIZATION
+    daep/kf/time_step: 0.1  # (NOT USED, COMPUTED in aeplanner.cpp) Step size in time. Change in animate_objects.py
+    daep/kf/safety_iteration: 0 # NOT USED[0, daep/kf/iterations]
+        
+    # Boundary boost
+    boosted_boundary_length: 1.0  # If point within this threshold from boundary, boost it with boost_magnitude (see below)
+    boost_magnitude: 5.0
+    
+    # RRT* parameters (Global planner)
+    rrt/min_nodes: 100  # Sample at least these many nodes in RRT*
+    rrt/extension_range: 1.0
+    rrt/location_tolerance: 1.5
+
+    # Global planning
+    global_planner_counter: 25  # Number of times we re-do the global planning
+    look_ahead_horizon: 5  # Look ahead horizon for the safe path check
+    
+    # Emergency avoidance
+    max_avoidance_counter: 15  # Number of times we do emergency avoidance [SHOULD NOT BE USED]
+    
+    # Toggle features
+    drone_freeze: false  # Disable PublishGoalAndWait
+    visualizeDFM: false
+    visualize_static_and_dynamic_rays: false
+    visualize_rays: false  # NOT USED
+    visualize_tree: true  # NOT USED
+    visualize_exploration_area: true  # Visualize world bounding box and frustum (NOT USED; ALWAYS TRUE)
+    visualize_predictions: false # If many dynamic obstacles, set this to false to gain performance (at least in visulization)
+    debug_text : true
+    add_rejected_nodes: false
+
+
+    # Dynamic Obstacle parameters (Human if use_sphere_collision_checking = false, drone if use_sphere_collision_checking = true)
+    period_time: 0.1 #Update interval for dynamic position
+    num_obstacles: 1 #Number of dynamic obstacles to spawn in
+
+    # Human parameters  
+    human_height: 1.8
+    human_width: 1.0
+    human_linear_velocity: 0.05 #m/s (Human preferred walking speed), Should be 10% of drone_linear_velocity = 0.031 m/s, regular human walking speed 1.42 m/s
+    human_angular_velocity: 1.0
+
+    # UAV-obstacle parameters (Used for dynamic obstacles)
+    flying_obstacle_diameter : 0.7 #meter, Bounding Sphere diameter (M100 diameter = 650mm)
+    flying_obstacle_linear_velocity: 0.05
+    
+    # Drone parameters (Used for the DAEP-agent)
+    drone_height: 0.1 #NOT USED, see System/bbx/z
+    drone_width: 0.4  #NOT USSED, see System/bbx/x
+    drone_linear_velocity: 0.125 #m/s MAX for DAEP-agent
+    drone_angular_velocity: 3.14 #rad/s MAX for DAEP-agent
+    
+    # World parameters
+    boundary/volume: 1050.0
+    boundary/min: [ -5.0, 25.0, 3.0]
+    boundary/max: [ 12.5, 40.0, 7.0]
+    res: 0.1  # Octomap resolution
+    
+    # Frames
+    robot_frame: "fcu"
+    world_frame: "world"
+
+
+    
+    

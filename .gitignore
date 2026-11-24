@@ -263,10 +263,9 @@ models/
 # Test run output (hive-vault/Testing.md)
 runs/
 
-# 3D mapping: DAEP (LiU LRS2) is cloned next to our own packages and must not
-# be committed here. Our own code lives in hive_mapping / hive_mapping_msgs.
-ros2_ws/src/daep/
-ros2_ws/src/daep_msgs/
+# 3D mapping: DAEP (LiU's exploration planner) is in the repo with its owner's OK. Emil's
+# setup notes for the lab's TurtleBot hold passwords and stay out.
+ros2_ws/src/daep/README_emil.md
 ros2_ws/src/lrs_*/
 
 # DAEP run output (rpl_exploration writes ./data/*.csv in its working directory)

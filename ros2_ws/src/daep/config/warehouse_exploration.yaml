@@ -1,0 +1,150 @@
+/**:
+
+  # This is the param file for WAREHOUSE_EXPLORATION with Actors
+  ros__parameters:
+ 
+    # Camera/Lidar field of view
+    camera/horizontal_fov: 360.0 #90.0    #Original 73.0
+    camera/vertical_fov: 20.0      #Lidar
+
+    # Raycasting
+    raycast/dr:     0.1 # Must be the same as octomap resolution
+    raycast/dphi:   10.0
+    raycast/dtheta: 10.0
+
+    # System (Robot) parameters
+    husky: true #Set to true if using Husky A201
+    system/bbx/use_sphere_collision_checking: false # If true, use sphere collision checking, if false, use bounding box
+    system/bbx/r: 1.0 #Bounding radius som är tunnel den åker vi, om den är för stor så är vi i kollision med marken. 0.32 sidewis, 0.5 forward
+    system/bbx/x: 1.2  #Robot Length 
+    system/bbx/y: 0.8  #Robot Width 
+    system/bbx/z: 0.19 #0.01 #Robot Height        
+
+    # AEP Gain Computation (Must be the same as Octomap parameters)
+    aep/gain/r_min: 0.1
+    aep/gain/r_max: 10.0
+
+    # If false, use regular octomap for collision checking
+    # If true, copy octomap, remove ground from copy and use for collision checking. Let the other one remain for mapping and viz.
+    # We filter out voxels that are below robot_z - ground_filter_z_dist, so we use the robot as base.
+    filter_out_ground: true
+    viz_filtered_octomap: false # If true, visualize the filtered octomap
+    ground_filter_z_dist: 0.2 #m (Spot Max Step Height 0.3m) Must be >= 0
+    wall_height: 3.0 # ONLY USED IN TELEPORT SIMULATION
+
+    # Octomap parameters
+    resolution: 0.1 #Octomap resolution - Make sure this is the same as raycast/dr
+    use_smoothing: true
+    smoothing_factor: 0.1 # Between 0 and 1, Lower value means more smoothing
+    
+    # Note that start cylinder collision checking is currently disabled in the code
+    ignore_first_iteration: false # If true, ignore first collision check since the turtlebot might not have determined all voxels around it
+
+    sensor_model:
+      min_range: 0.1
+      max_range: 10.0
+      min: 0.12
+      max: 0.97
+      miss: 0.4
+      hit: 0.7
+  
+    aep/gain/zero: 20.0 #NOT USED
+    aep/gain/lambda: 0.0 # Increasing this will make the robot prefer to explore nodes closer to it, than further away [0 and 1.0]
+    daep/dfm/zeta: 0.0
+    aep/gain/sigma_thresh: 0.2
+
+    # RRT Parameters (Local Planner)
+    aep/tree/extension_range: 1.5
+    aep/tree/max_sampling_radius: 15.0
+    aep/tree/initial_iterations: 15
+    aep/tree/cutoff_iterations: 30
+    daep/rrt/max_sampled_initial_nodes: 30
+    daep/rrt/max_sampled_nodes: 70
+    z_offset: 0.5 #NOT USED
+    best_branch_threshold: 1.9 #New branch must be at least <best_branch_threshold> percent better to be chosen, otherwise stick to old branch
+    time_window: 3.0 # How much time before and after reaching node in the RRT-tree, where it still has to be collision-free from dynamic obstacles.
+
+    # DAEP parameters
+    daep/gain/cache_node_threshold: 15 # NOT USED
+    daep/gain/node_gain_threshold: 14  # NOT USED
+    
+    # Tune threshold to add to the frontier and what nodes to reevaluate (add to and extract from frontier) (threshold = max * ratio)
+    add_to_frontier_ratio: 0.2
+    reeval_ratio: 0.2
+    zero_gain_ratio: 0.05
+
+    # Kalman Filter parameters
+    daep/kf/iterations: 150  # How many steps forward in time
+    daep/kf/time_step: 0.1  # Step size in time
+    daep/kf/position_uncertainty: 0.1
+    daep/kf/velocity_uncertainty: 0.1
+    daep/kf/process_noise: 0.001
+    daep/kf/measurement_noise: 0.0049
+    daep/kf/safety_iteration: 200
+    human_measurement_timeout: 5.0
+    prediction_mode: 'kalman' # 'circle', linear', 'kalman'
+
+    # Boundary boost
+
+    # Boundary boost
+    boosted_boundary_length: 1.0
+    boost_magnitude: 1.0
+
+    # RRT* parameters (Global planner)
+    rrt/min_nodes: 200 #100
+    rrt/extension_range: 1.5
+    rrt/location_tolerance: 1.5
+
+    # Global planning
+    global_planner_counter: 25
+    look_ahead_horizon: 5
+
+    # Emergency avoidance
+    max_avoidance_counter: 15
+
+    # Toggle features
+    visualizeDFM: false
+    visualize_static_and_dynamic_rays: false
+    debug_text : false
+    drone_freeze: false
+    visualize_rays: false #NOT USED
+    visualize_tree: true #NOT USED
+    visualize_exploration_area: true #NOT USED (Always true in code)
+    visualize_predictions: true
+   
+    # Human parameters
+    human_height: 1.8
+    human_width: 1.0
+    human_linear_velocity: 0.1
+    human_angular_velocity: 1.0
+    num_obstacles: 3
+    period_time: 0.1
+
+    # Robot parameters
+    drone_height: 0.1 # NOT USED
+    drone_width: 0.5  # NOT USED
+
+    drone_linear_velocity: 0.31 #m/s
+    drone_angular_velocity: 0.35 #rad/s
+    rotating_while_walking: true # If true, the robot can rotate while walking (spot can do this), impacts time estimation
+      
+    # UAV flying obstacle parameters
+    flying_obstacle_diameter : 0.7 #meter, Bounding Sphere diameter (M100 diameter = 650mm)
+    flying_obstacle_linear_velocity: 0.05
+    
+   
+    # World parameters
+    #boundary/volume: 3600.0 No longer used, automatically computed from boundary/min and boundary/max
+   
+    boundary/min: # Tune me!
+    - -15.0
+    - -15.0
+    - 0.0
+    boundary/max: #Tune me!
+    - 15.0
+    - 15.0
+    - 2.0
+
+    # Frames
+    robot_frame: "fcu"
+    world_frame: "odom"
