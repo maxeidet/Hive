@@ -46,25 +46,23 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - through the defender's camera, zoomed on the detection
+- caption: Ours - through the attacking defender's own camera
   take: head-on-1-ours/1
-  from: first_sighting - 1
-  to: first_sighting + 3
-  layout: zoom
+  from: first_sighting - 3
+  to: hit + 1
+  layout: full
   show: [yolo]
-  zoom: 3
-  freeze: 1.5
 
 # --- 2. zigzag -----------------------------------------------------------------------------
 - card: 2. A zigzagging hostile
 
-- caption: Baseline - it never catches it
+- caption: Baseline - it fails, the hostile reaches the base
   take: zigzag-1-baseline/1
   from: release
-  to: release + 40
+  to: end
   layout: full
   show: [ui]
-  speed: 2.5
+  speed: 3
   insights: [seen_at, no_hit]
 
 - caption: Ours - same flight
@@ -76,12 +74,12 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - the intercept from the chase camera
+- caption: Ours - through the attacking defender's own camera
   take: zigzag-1-ours/1
-  from: first_sighting - 2
+  from: first_sighting - 3
   to: hit + 1
   layout: full
-  show: [chase]
+  show: [yolo]
 
 # --- 3. birds ------------------------------------------------------------------------------
 - card: 3. A hostile among birds
@@ -104,14 +102,12 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - through the defender's camera, the drone and not the birds
+- caption: Ours - its own camera (left) locks on the drone; every bird in green (right)
   take: birds-1-ours/1
-  from: first_sighting - 1
-  to: first_sighting + 3
-  layout: zoom
-  show: [yolo]
-  zoom: 3
-  freeze: 1.5
+  from: first_sighting - 3
+  to: hit + 1
+  layout: side
+  show: [yolo, wide]
 
 # --- 4. two hostiles -----------------------------------------------------------------------
 - card: 4. Two hostiles at once
@@ -131,4 +127,12 @@ scenes:
   to: hit + 2
   layout: side
   show: [chase, wide]
+  speed: 1.5
+
+- caption: Ours - through both attackers' own cameras
+  take: two-hostiles-1-ours/1
+  from: first_sighting - 3
+  to: hit + 1
+  layout: side
+  show: ["yolo:1", "yolo:3"]
   speed: 1.5
