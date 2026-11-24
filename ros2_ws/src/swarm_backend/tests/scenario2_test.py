@@ -69,6 +69,7 @@ from swarm_backend.config import load_config
 from swarm_backend.detect.live import offset_topic
 from swarm_backend.intercept.attack import AttackAction, State
 from swarm_backend.intercept.attack_scenario import ClosestApproach
+from swarm_backend.scenarios.bird_flight import BirdFlight
 from swarm_backend.intercept.inbound import (inbound_line, match_hostile, plan_birds,
                                               straight_at)
 from swarm_backend.nodes.attack_node import AttackNode
@@ -178,7 +179,7 @@ class Scenario2:
         self.detect_proc: subprocess.Popen | None = None
         self.hive_proc: subprocess.Popen | None = None  # nodes/hivemind_node.py
         self.birds = []  # BirdPlan, with --birds
-        self.birds_proc: subprocess.Popen | None = None  # birds.py fly
+        self.bird_flight: BirdFlight | None = None  # birds.py fly
         self.t0: float | None = None  # simulation time the hostiles left
         self.first_seen: dict[int, tuple[float | None, float]] = {}  # id: (t, true distance)
         self.seen_count = {i: 0 for i in self.hostile_ids}
@@ -466,27 +467,14 @@ class Scenario2:
         self.event('birds', birds=[dataclasses.asdict(b) for b in self.birds])
 
     def start_birds(self) -> None:
-        """The birds fly in their own process (birds.py fly): a gz-transport call in this
-        one would hold the interpreter lock while Gazebo answers and starve the setpoint
-        stream, and PX4 would leave offboard."""
-        plan = {'world': self.world, 't0': self.t0,
-                'birds': [dataclasses.asdict(b) for b in self.birds]}
-        self.birds_proc = subprocess.Popen(
-            [sys.executable, '-m', 'swarm_backend.birds', 'fly'], stdin=subprocess.PIPE,
-            stdout=open(BIRDS_LOG, 'w'), stderr=subprocess.STDOUT, text=True)
-        self.birds_proc.stdin.write(json.dumps(plan))
-        self.birds_proc.stdin.close()
+        """The birds fly in their own process (scenarios/bird_flight.py)."""
+        self.bird_flight = BirdFlight(self.world, BIRDS_LOG)
+        self.bird_flight.start(self.birds, self.t0)
         self.log.info(f'Birds flying (log {BIRDS_LOG})')
 
     def remove_birds(self) -> None:
-        proc, self.birds_proc = self.birds_proc, None
-        if proc is None or proc.poll() is not None:
-            return
-        proc.terminate()  # it removes them from Gazebo, then exits
-        try:
-            proc.wait(60)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        flight, self.bird_flight = self.bird_flight, None
+        if flight is not None and not flight.stop():
             self.log.warning('The bird process did not stop; birds may be left in Gazebo')
 
     def status(self) -> str:

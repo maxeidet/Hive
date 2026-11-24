@@ -86,3 +86,12 @@ def test_birds_stay_above_the_ground_and_follow_the_seed():
     assert all(b.start[2] <= -5.0 for b in birds)
     assert birds == plan_birds(20, low, BASE, KINDS, 5.0, random.Random(3))
     assert plan_birds(0, low, BASE, KINDS, 5.0, random.Random(3)) == []
+
+
+def test_plan_birds_prefix():
+    import random as _random
+    named = plan_birds(3, [(100.0, 0.0, -40.0)], (0.0, 0.0), ['dove'], 4.0, _random.Random(0),
+                       prefix='bird_')
+    assert [b.name for b in named] == ['bird_0', 'bird_1', 'bird_2']
+    default = plan_birds(1, [(100.0, 0.0, -40.0)], (0.0, 0.0), ['dove'], 4.0, _random.Random(0))
+    assert default[0].name.startswith('scn_bird_')

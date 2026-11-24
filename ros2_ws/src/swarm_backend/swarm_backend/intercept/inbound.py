@@ -69,12 +69,12 @@ class BirdPlan:
 def plan_birds(n: int, hostile_starts: list[Vector3], base: tuple[float, float],
                kinds: list[str], speed: float, rng: random.Random, spread_m: float = 25.0,
                height_m: float = 8.0, speed_spread: float = 0.3, past_m: float = 60.0,
-               min_up_m: float = 5.0) -> list[BirdPlan]:
+               min_up_m: float = 5.0, prefix: str = 'scn_bird_') -> list[BirdPlan]:
     """`n` birds that fly in with the hostile drones: each starts at a random point within
     `spread_m` (horizontally, at least 5 m off) and `height_m` (vertically) of a randomly
     picked hostile's start, at least `min_up_m` above the ground (z = 0), and flies in a
     straight line over the base and `past_m` beyond it, at `speed` +- `speed_spread`
-    (a share). Every kind is used before any is used twice."""
+    (a share). Every kind is used before any is used twice. Named `prefix` + its number."""
     if not hostile_starts:
         raise ValueError('plan_birds needs at least one hostile start')
     plans, pool = [], []
@@ -93,5 +93,5 @@ def plan_birds(n: int, hostile_starts: list[Vector3], base: tuple[float, float],
         f = (length + past_m) / length
         end = (start[0] + f * dx, start[1] + f * dy, z)
         v = speed * rng.uniform(1.0 - speed_spread, 1.0 + speed_spread)
-        plans.append(BirdPlan(f'scn_bird_{i}', kind, start, end, max(0.5, v)))
+        plans.append(BirdPlan(f'{prefix}{i}', kind, start, end, max(0.5, v)))
     return plans
