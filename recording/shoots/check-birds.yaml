@@ -1,0 +1,6 @@
+# Check of the birds scenario on Stellar (Demo scenarios plan, Task 4): one pair, about 20 min.
+# recording/shoot.sh recording/shoots/check-birds.yaml --name check-birds
+- name: birds
+  run: scenarios/trial.sh 1 --birds 8
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 0

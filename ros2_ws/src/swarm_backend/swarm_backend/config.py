@@ -118,6 +118,7 @@ class AttackConfig:
     the target on two topics (intercept/detection.py); the attack node flies on them."""
     attacker_id: int = 2  # the defender: a gimbal drone
     target_id: int = 0  # the hostile drone (the fake detector looks for this one)
+    second_target_id: int | None = None  # a second hostile flying in at once (--hostiles 2)
     guard_altitude: float = 20.0  # metres above the attacker's start point, while searching
     search_heading_deg: float = 0.0  # where the hostile drone comes from, degrees from north
     search_pitch_deg: float = 10.0  # gimbal pitch while searching, degrees above the horizon
@@ -232,6 +233,14 @@ def parse_config(data: dict, num_drones: int | None = None) -> SwarmConfig:
         if len(set(values)) != len(values):
             raise ValueError(f'Drone {field}s must be unique, got {values}')
 
+    attack = _parse_attack(data.get('attack') or {})
+    surveillance = _parse_surveillance(data.get('surveillance') or {})
+    second = attack.second_target_id
+    if second is not None and (second == attack.target_id or second in surveillance.drone_ids
+                               or second not in [d.id for d in drones]):
+        raise ValueError(f'attack: second_target_id {second} must be a drone in the config, '
+                         'not target_id and not a defender (surveillance.drone_ids)')
+
     return SwarmConfig(
         rate_hz=float(swarm['rate_hz']),
         takeoff_altitude=float(swarm['takeoff_altitude']),
@@ -240,8 +249,8 @@ def parse_config(data: dict, num_drones: int | None = None) -> SwarmConfig:
         drones=drones,
         intercept=_parse_intercept(data.get('intercept') or {}),
         detect=_parse_section(DetectConfig, 'detect', data.get('detect') or {}),
-        attack=_parse_attack(data.get('attack') or {}),
-        surveillance=_parse_surveillance(data.get('surveillance') or {}),
+        attack=attack,
+        surveillance=surveillance,
     )
 
 
@@ -270,6 +279,7 @@ def _parse_intercept(entry: dict) -> InterceptConfig:
 
 def _parse_attack(entry: dict) -> AttackConfig:
     types = {f.name: type(f.default) for f in dataclasses.fields(AttackConfig)}
+    types['second_target_id'] = int
     unknown = set(entry) - set(types)
     if unknown:
         raise ValueError(f'Unknown attack settings: {sorted(unknown)}')

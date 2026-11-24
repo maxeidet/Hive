@@ -1,0 +1,7 @@
+# A quick check that shoot.sh works (about 25 min): one head-on pair, baseline and ours on
+# the same seed. recording/shoot.sh recording/shoots/quick-check.yaml --name quick-check
+- name: head-on
+  run: scenarios/trial.sh 1 --aspects 0 --speeds 4
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 1
+# The new scenarios get their own check files: check-birds.yaml, check-two.yaml.

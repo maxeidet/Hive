@@ -51,7 +51,8 @@ print(*yaml.safe_load(open('$SWARM_CONFIG'))['surveillance']['drone_ids'])"
 surveillance_hostile() {
   docker exec "$CONTAINER" python3 -c "
 import yaml
-print(yaml.safe_load(open('$SWARM_CONFIG'))['attack']['target_id'])"
+a = yaml.safe_load(open('$SWARM_CONFIG'))['attack']
+print(a['target_id'], a.get('second_target_id') or '')"
 }
 
 _not_ready() {

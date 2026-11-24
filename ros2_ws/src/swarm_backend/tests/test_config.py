@@ -46,3 +46,44 @@ def test_shipped_config_parses():
     from swarm_backend.config import load_config
     config = load_config(Path(__file__).parent.parent / 'config' / 'swarm.yaml')
     assert [d.id for d in config.drones] == [0, 1, 2]
+
+
+# --- two hostiles (Demo scenarios plan, Task 5) ------------------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+import yaml  # noqa: E402
+
+from swarm_backend.config import load_config  # noqa: E402
+
+SCENARIOS = Path(__file__).resolve().parents[1] / 'scenarios'
+
+
+def test_second_target_loads():
+    two = load_config(SCENARIOS / 'surveillance2.yaml')
+    assert two.attack.second_target_id == 5
+    assert 5 in [d.id for d in two.drones]
+    assert load_config(SCENARIOS / 'surveillance.yaml').attack.second_target_id is None
+
+
+def _with_attack(**attack):
+    data = yaml.safe_load((SCENARIOS / 'surveillance2.yaml').read_text())
+    data['attack'].update(attack)
+    return data
+
+
+def test_second_target_must_differ():
+    with pytest.raises(ValueError, match='second_target_id'):
+        parse_config(_with_attack(second_target_id=4))      # the first hostile
+    with pytest.raises(ValueError, match='second_target_id'):
+        parse_config(_with_attack(second_target_id=2))      # a defender
+    with pytest.raises(ValueError, match='second_target_id'):
+        parse_config(_with_attack(second_target_id=9))      # not in drones
+
+
+def test_surveillance2_matches():
+    one = yaml.safe_load((SCENARIOS / 'surveillance.yaml').read_text())
+    two = yaml.safe_load((SCENARIOS / 'surveillance2.yaml').read_text())
+    two['attack'].pop('second_target_id')
+    assert [d for d in two.pop('drones') if d['id'] != 5] == one.pop('drones')
+    assert two == one

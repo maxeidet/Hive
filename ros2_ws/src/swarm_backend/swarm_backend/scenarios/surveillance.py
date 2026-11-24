@@ -107,6 +107,8 @@ class SurveillanceWorld:
         self.attack_config = self.make_attack_config(swarm_config.attack, options)
         self.swarm_config = replace(swarm_config, attack=self.attack_config)
         self.hostile_id = self.attack_config.target_id
+        second = swarm_config.attack.second_target_id
+        self.hostile_ids = (self.hostile_id,) + (() if second is None else (second,))
         self.ids = tuple(s.drone_ids)
         if self.hostile_id in self.ids:
             raise RuntimeError(f'attack.target_id {self.hostile_id} is also a defender '
