@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 import numpy as np
@@ -151,20 +151,17 @@ def main(args=None):
     
     executor.add_node(node)
 
-    thread = threading.Thread(target=node.visualize_dfm)
+    thread = threading.Thread(target=node.visualize_dfm, daemon=True)
     thread.start()
     
     try:
         executor.spin()
-    except KeyboardInterrupt:
-        pass
-    
-    # rclpy.spin(node)
-    # node.do_command()
-
-    node.destroy_node()
-    executor.shutdown()    
-    rclpy.shutdown()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass  # Ctrl-C, or ROS shut down by its own SIGINT handler (Jazzy)
+    finally:
+        executor.shutdown(timeout_sec=2.0)
+        node.destroy_node()
+        rclpy.try_shutdown()  # ROS may already be shut down
 
 
 if __name__ == '__main__':

@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
 from rclpy.qos import DurabilityPolicy, QoSProfile
@@ -123,9 +123,10 @@ class PIGain(Node):
 
 
     def wait_future(self, future, print_waiting=False):
-        while True:
-            if future.done():
-                break
+        while not future.done():
+            if not rclpy.ok():
+                return None
+            sleep(0.01)
         resp = future.result()
         return resp
         
@@ -177,7 +178,12 @@ class PIGain(Node):
         try:
             req = Reevaluate.Request()
             req.points = points
-            self.reevaluate_client.wait_for_service()
+            if not self.reevaluate_client.wait_for_service(timeout_sec=1.0):
+                if not getattr(self, '_warned_no_reevaluate', False):
+                    self._warned_no_reevaluate = True
+                    self.get_logger().warn('reevaluate service not available (it is off in '
+                                           'aeplanner); cached frontiers are not reevaluated')
+                return None
             future = self.reevaluate_client.call_async(req)
             resp = self.wait_future(future, print_waiting=True)
             return resp
@@ -224,7 +230,8 @@ class PIGain(Node):
         # Aquire new gain for each node in reevaluate list
         res = self.reevaluate_call(reevaluate_position_list)
         if not res:
-            self.get_logger().error("Calling reevaluate service failed")
+            if not getattr(self, '_warned_no_reevaluate', False):  # else reevaluate_call warned once
+                self.get_logger().error("Calling reevaluate service failed")
             self.inside_reevaluate = False
             return
 
@@ -557,13 +564,13 @@ def main(args=None):
  
     try:
         executor.spin()
-    except KeyboardInterrupt:
-        pass
-    
-    node.frontier_visualizer.stop()
-    node.destroy_node()
-    executor.shutdown()    
-    rclpy.shutdown()
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass  # Ctrl-C, or ROS shut down by its own SIGINT handler (Jazzy)
+    finally:
+        node.frontier_visualizer.stop()
+        executor.shutdown(timeout_sec=2.0)
+        node.destroy_node()
+        rclpy.try_shutdown()  # ROS may already be shut down
 
 if __name__ == '__main__':
     main()
