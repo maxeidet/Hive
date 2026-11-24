@@ -1,0 +1,91 @@
+# The examiner demo, at most 5 minutes, from the examiner shoot (recording/shoots/examiner.yaml).
+#   recording/video.sh final --story examiner --preview examiner     then without --preview
+# Every scenario is a baseline/ours pair on the same seed: side by side (compare), synced on
+# the hostile's release, with each side's result at its own hit. Approaches at 2x speed.
+title: Hive - a drone swarm that defends its base
+subtitle: TDDE19, group 3 - our system against the baseline
+take: best
+end_card: compare
+evidence: data/baseline_eval
+
+scenes:
+- caption: The base and the defenders' arc
+  take: overview-1/overview
+  from: start + 2
+  to: start + 14
+  layout: full
+  show: [cam:base_orbit]
+  speed: 1.5
+
+- card: 1. One hostile, head-on
+
+- caption: Head-on - baseline left, ours right
+  take: pair:head-on-1
+  from: release + 5
+  to: hit + 2
+  layout: compare
+  show: [map]
+  speed: 2
+  insights: [seen_at, time_to_hit, no_hit]
+
+- caption: Both runs on one map
+  take: pair:head-on-1
+  from: release + 5
+  to: hit + 2
+  layout: ghost
+  show: [map]
+  speed: 2
+
+- card: 2. A zigzagging hostile
+
+- caption: Zigzag - baseline left, ours right
+  take: pair:zigzag-1
+  from: release + 5
+  to: hit + 2
+  layout: compare
+  show: [map]
+  speed: 2
+  insights: [seen_at, time_to_hit, no_hit]
+
+- caption: The intercept from the chase camera
+  take: pair:zigzag-1
+  from: first_sighting - 3
+  to: hit + 1
+  layout: compare
+  show: [chase]
+
+- card: 3. A hostile among birds (green)
+
+- caption: Birds - baseline left, ours right
+  take: pair:birds-1
+  from: release + 5
+  to: hit + 2
+  layout: compare
+  show: [chase]
+  speed: 2
+  insights: [seen_at, time_to_hit, no_hit]
+
+- caption: What our defender's camera saw
+  take: birds-1-ours/1
+  from: first_sighting - 2
+  to: hit
+  layout: side
+  show: [chase, yolo]
+
+- card: 4. Two hostiles at once
+
+- caption: Two hostiles - baseline left, ours right
+  take: pair:two-hostiles-1
+  from: release + 5
+  to: hit + 2
+  layout: compare
+  show: [map]
+  speed: 2
+  insights: [seen_at, time_to_hit, no_hit]
+
+- caption: Two defenders, one at each hostile
+  take: two-hostiles-1-ours/1
+  from: first_sighting - 3
+  to: hit + 2
+  layout: grid
+  show: [chase, ui|map, "wide|map|plot:range", yolo]

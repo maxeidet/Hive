@@ -1,0 +1,28 @@
+# The examiner demo (hive-vault/recording/Demo scenarios (design).md): every scenario as a
+# baseline/ours pair on the same seed, plus the orbit overview. 9 runs, about 1.5 h.
+#   recording/shoot.sh recording/shoots/examiner.yaml --name examiner     (in tmux)
+#   recording/video.sh final --story examiner --preview examiner
+- name: overview
+  run: idle 60                       # no scenario: the orbit camera around the base
+  options: [--cameras, base_orbit, --no-yolo]
+
+- name: head-on
+  run: scenarios/trial.sh 1 --aspects 0 --speeds 4
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 0
+
+- name: zigzag
+  run: scenarios/trial.sh 1 --path zigzag
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 0
+
+- name: birds
+  run: scenarios/trial.sh 1 --birds 8
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 0
+
+- name: two-hostiles
+  run: scenarios/trial.sh 1 --hostiles 2
+  config: /workspace/ros2_ws/src/swarm_backend/scenarios/surveillance2.yaml
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 0
