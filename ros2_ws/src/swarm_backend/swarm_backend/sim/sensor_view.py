@@ -12,7 +12,9 @@ camera_link). So several views can run at once without mixing their frames.
 """
 import argparse
 import copy
+import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -217,14 +219,35 @@ def gz_topics() -> list[str]:
 
 
 def start_bridge(config: list[dict], name: str) -> subprocess.Popen:
-    """ros_gz_bridge running `config` (bridge_config), logging to /tmp/<name>.log."""
+    """ros_gz_bridge running `config` (bridge_config), logging to /tmp/<name>.log. Stop it
+    with stop_bridge: `ros2 run` starts the bridge as a child of its own, which a plain
+    terminate() would leave running, so it gets a process group to stop as one."""
     config_file = Path(f'/tmp/{name}.yaml')
     config_file.write_text(yaml.safe_dump(config, sort_keys=False))
     with open(f'/tmp/{name}.log', 'w') as log:
         return subprocess.Popen(
             ['ros2', 'run', 'ros_gz_bridge', 'parameter_bridge',
              '--ros-args', '-p', f'config_file:={config_file}'],
-            stdout=log, stderr=subprocess.STDOUT)
+            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+
+
+def stop_bridge(bridge: subprocess.Popen, timeout: float = 5.0) -> None:
+    """Stop a start_bridge bridge: `ros2 run` and the bridge it started."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(bridge.pid, sig)
+        except ProcessLookupError:
+            break  # the whole group is gone
+        try:
+            bridge.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            continue
+        try:  # the wrapper has ended; give the bridge itself a moment too
+            for _ in range(int(timeout * 10)):
+                os.killpg(bridge.pid, 0)
+                time.sleep(0.1)
+        except ProcessLookupError:
+            break
 
 
 class TFPublisher:
@@ -328,8 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         except KeyboardInterrupt:
             pass
         finally:
-            bridge.terminate()
-            bridge.wait()
+            stop_bridge(bridge)
             tf.close()
     return 0
 
