@@ -371,13 +371,13 @@ class SurveillanceWorld:
                 self.pause()
         finally:
             t_end = self.clock()
-            self.stop_extras()
             for f in flights.values():
                 f.stop()
             self.flights, self._multi_judges = [], None
             for h in ids:
                 if h not in down:
                     self.remove_hostile(h)
+            self.stop_extras()  # after the hostiles are out (see fly)
         results = []
         for h in ids:
             best = min(judges[h].items(), key=lambda kv: kv[1].closest, default=(None, None))
@@ -448,13 +448,15 @@ class SurveillanceWorld:
                     break
                 self.pause()
         finally:
-            self.stop_extras()
             flight.t_end = self.clock()
             self.judges = None
             flight.hostile_at = self._hostile_truth
             self.flight.stop()
             self.flight = None
             self.remove_hostile()
+            # After the hostile is out: stopping the birds takes seconds (each is removed
+            # from Gazebo), and a hit hostile left that long tumbles on in the films.
+            self.stop_extras()
             flight.truth, self.truth_log = self.truth_log, None
         if flight.killer is not None:
             self.report_kill(flight.killer)

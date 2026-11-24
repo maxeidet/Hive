@@ -35,6 +35,7 @@ RELEASE_MPS = 0.5         # moving at least this fast horizontally (not the clim
 RELEASE_HOLD_S = 1.0      # ...for this long: released
 HIT_M = 2.5               # a defender this close (attack.hit_radius 1.5 m + pose lag)...
 HIT_WINDOW_S = 0.5        # ...in this long before the hostile is taken out: a hit
+CONTACT_LOOKBACK_S = 30.0  # taken out later than that (a collision, slow clean-up): the contact counts
 CONFIG = REPO / 'recording' / 'recording_config.json'
 
 SIGHTING = re.compile(r'^Drone (\d+) sees the target')
@@ -297,8 +298,8 @@ def _per_hostile(m: dict, facts: dict, info, sims, rows, events, ui, grave, rel,
     for k, name in enumerate(info.hostiles, 1):
         track = [(s, tuple(r[name][:3])) for s, r in zip(sims, rows) if name in r]
         out = _taken_out(track, rel, end, grave)
-        if out is not None and not _defender_close(sims, rows, info.defenders, name, out):
-            out = None
+        if out is not None:
+            out = _hit_at(sims, rows, info.defenders, name, out)
         attacker = None
         if out is not None:
             m[f'hit_{k}'] = round(out, 3)
@@ -327,6 +328,23 @@ def _per_hostile(m: dict, facts: dict, info, sims, rows, events, ui, grave, rel,
     if firsts:
         m['first_sighting'] = min(firsts)
     facts['hits'] = f'{len(hits)}/{len(info.hostiles)}'
+
+
+def _hit_at(sims, rows, defenders, target, out: float) -> float | None:
+    """When a hostile taken out at `out` was hit: `out` itself when a defender was that close
+    just before, else the closest contact within CONTACT_LOOKBACK_S before it (the hostile was
+    taken out late, e.g. after a collision while the birds were removed), else None (a miss:
+    Gazebo takes the hostile out after every run)."""
+    if _defender_close(sims, rows, defenders, target, out):
+        return out
+    contact = None  # (distance, sim) of the closest contact
+    for sim, row in zip(sims, rows):
+        if out - CONTACT_LOOKBACK_S <= sim <= out and target in row:
+            h = row[target][:3]
+            near = [math.dist(row[d][:3], h) for d in defenders if d in row]
+            if near and min(near) <= HIT_M and (contact is None or min(near) < contact[0]):
+                contact = (min(near), sim)
+    return None if contact is None else contact[1]
 
 
 def _ids(names: list[str]) -> set[int]:
@@ -383,9 +401,9 @@ def find_takes(folder: Path) -> list[Take]:
         attacker = (icpt or seen or (None, None))[1]
         out = _taken_out(track, rel, end, grave)
         # Gazebo takes the hostile out after every run (surveillance.py fly's finally), hit or
-        # not: it was a hit only if a defender was that close just before.
-        if out is not None and not _defender_close(sims, rows, info.defenders, target, out):
-            out = None
+        # not: it was a hit only if a defender was that close just before (or made contact).
+        if out is not None:
+            out = _hit_at(sims, rows, info.defenders, target, out)
         if out is not None:
             m['hit'] = round(out, 3)
             if attacker is None:

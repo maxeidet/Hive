@@ -20,6 +20,10 @@ class Recording(SimSurveillance):
     def stop_extras(self):
         self.calls.append(('stop',))
 
+    def remove_hostile(self, hostile_id=None):
+        self.calls.append(('remove',))
+        super().remove_hostile(hostile_id)
+
     def pause(self):
         self.pauses += 1
         if self.fail_at_pause is not None and self.pauses == self.fail_at_pause:
@@ -37,7 +41,7 @@ def test_hooks_called_around_the_flight():
     w = recording_world()
     scenario, start, goal = head_on(w)
     w.fly(start, goal, scenario.speed)
-    assert [c[0] for c in w.calls] == ['start', 'stop']
+    assert [c[0] for c in w.calls if c[0] != 'remove'][:2] == ['start', 'stop']
     _, s, g, speed, before_release = w.calls[0]
     assert s == tuple(start) and g == tuple(goal) and speed == scenario.speed
     assert before_release  # the hostile still at its start: it had not set off yet
@@ -49,7 +53,7 @@ def test_birds_stopped_when_the_run_fails():
     w.fail_at_pause = w.pauses + 3
     with pytest.raises(RuntimeError, match='boom'):
         w.fly(start, goal, scenario.speed)
-    assert w.calls[-1] == ('stop',)
+    assert ('stop',) in w.calls
 
 
 def test_birds_option_in_rows(tmp_path):
@@ -60,3 +64,13 @@ def test_birds_option_in_rows(tmp_path):
     assert baseline_eval.main(common + ['--out', str(tmp_path / 'n')]) == 0
     row = baseline_eval.load_runs(tmp_path / 'n' / 'intercept.jsonl')[0]
     assert 'birds' not in row and 'bird_seed' not in row
+
+
+def test_hostile_out_before_the_birds_stop():
+    # Stopping the bird process takes seconds of sim time (it removes every bird from Gazebo);
+    # a hit hostile must be gone first, or the films see it tumble on for 17 s (check-birds).
+    w = recording_world()
+    scenario, start, goal = head_on(w)
+    w.fly(start, goal, scenario.speed)
+    order = [c[0] for c in w.calls]
+    assert order.index('remove') < order.index('stop')

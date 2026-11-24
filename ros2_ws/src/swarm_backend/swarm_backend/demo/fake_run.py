@@ -67,7 +67,8 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
              teleport: bool = True, videos: bool = True, cam_start_delay: float = 0.0,
              screen: bool = False, hit_event: bool = False, detect: bool = True,
              attackers: tuple[int, ...] = ATTACKERS, boxes: bool = True,
-             early_sighting: bool = False, birds_late: bool = False, hostiles: int = 1) -> dict:
+             early_sighting: bool = False, birds_late: bool = False, hostiles: int = 1,
+             takeout_delay: float = 0.1) -> dict:
     """hostiles=2: one take, drone 5 too; `hit` is then per hostile ([drone 4, drone 5])."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
@@ -100,8 +101,11 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
         p = take_at(sim)
         if p is None or (teleport and sim >= end - RESET_BEFORE_END):
             return PARK
-        if p['hit'] is not None and sim >= p['hit'] + 0.1:
+        if p['hit'] is not None and sim >= p['hit'] + takeout_delay:
             return GRAVEYARD
+        if p['hit'] is not None and sim >= p['hit']:  # hit, tumbling down until taken out
+            hx, hy, hz = _lerp(START, (0.0, 0.0, 50.0), (p['hit'] - p['release']) * SPEED / START[1])
+            return (hx, hy, max(0.0, hz - 2.0 * (sim - p['hit'])))
         if p['hit'] is None and sim >= p['sighting'] + HIT_AFTER + MISS_OUT_S:
             return GRAVEYARD  # as Gazebo: the hostile is taken out after every run (fly's finally)
         if sim < p['release']:
@@ -298,6 +302,7 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
                                          'target': 7}) + '\n')
     return {'release': [p['release'] for p in plan], 'sighting': [p['sighting'] for p in plan],
             'hit': [p['hit'] for p in plan], 'attacker': [p['attacker'] for p in plan],
+            'contact': [p['hit'] for p in plan],
             **({'hit2': q['hit'], 'sighting2': q['sighting'], 'attacker2': ATTACKER2}
                if q is not None else {})}
 

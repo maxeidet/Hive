@@ -175,3 +175,11 @@ def test_run_json_lists_both_hostiles(tmp_path):
     make_run(tmp_path, videos=False, hostiles=2)
     from swarm_backend.demo.runinfo import read_run_info
     assert read_run_info(tmp_path).hostiles == ['x500_4', 'x500_5']
+
+
+def test_hit_counted_when_taken_out_late(tmp_path):
+    # check-birds 24 Nov: drone 3 hit the hostile (0.38 m) and the hostile was moved to the
+    # graveyard 17 s later. The hit is the contact, not "no hit".
+    truth = make_run(tmp_path, videos=False, takeout_delay=17.0)
+    t = find_takes(tmp_path)[0]
+    assert t.moments.get('hit') == pytest.approx(truth['contact'][0], abs=0.15)
