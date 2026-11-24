@@ -148,3 +148,11 @@ def test_story_accepts_hit_2(tmp_path):
     make_run(tmp_path / 'run', videos=False, hostiles=2)
     resolved, problems = resolve(load_story(p), find_takes(tmp_path / 'run'))
     assert not problems and resolved[0].end - resolved[0].start == pytest.approx(3.0)
+
+
+def test_yolo_panel_names_the_baseline_detector():
+    # The baseline flies the blob detector, not YOLO: its camera panel must not say YOLO.
+    from swarm_backend.demo.final import role_label
+    assert role_label('yolo', 3, 'baseline') == 'Drone 3 camera - baseline detector + tracker'
+    assert role_label('yolo', 3, 'yolo-bytetrack-mpc') == 'Drone 3 camera - YOLO + tracker'
+    assert role_label('yolo:1', None, 'baseline') == 'Drone 1 camera - baseline detector + tracker'

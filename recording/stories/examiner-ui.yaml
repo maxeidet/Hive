@@ -5,8 +5,6 @@
 title: Hive - a drone swarm that defends its base
 subtitle: TDDE19, group 3 - our system against the baseline
 take: best
-end_card: compare
-evidence: data/baseline_eval
 
 scenes:
 - caption: The base
@@ -96,7 +94,7 @@ scenes:
 - caption: Baseline - its own camera swings with its hard turns, and it misses
   take: birds-1-baseline/1
   from: first_sighting - 3
-  to: first_sighting + 6
+  to: first_sighting + 16
   layout: full
   show: [yolo]
 
@@ -110,7 +108,7 @@ scenes:
 
 - caption: Improved version - its own camera locks on the drone, not the birds
   take: birds-1-ours/1
-  from: first_sighting - 3
+  from: first_sighting - 13
   to: hit + 1
   layout: full
   show: [yolo]
@@ -121,11 +119,19 @@ scenes:
 - caption: Baseline - one of two hit
   take: two-hostiles-1-baseline/1
   from: release
-  to: release + 60
+  to: release + 26     # the UI film blanks and locks at release + 27 s (screen idle)
   layout: full
   show: [ui]
   speed: 3
   insights: [seen_at]
+
+- caption: Baseline - the other hostile flies on to the base
+  take: two-hostiles-1-baseline/1
+  from: release + 37
+  to: release + 62
+  layout: full
+  show: [ui]
+  speed: 3
 
 - caption: Improved version - one defender at each hostile (wide shot)
   take: two-hostiles-1-ours/1
@@ -155,3 +161,6 @@ scenes:
   to: hit_1 + 2
   layout: side
   show: [chase, "yolo:1"]
+
+- card: Thanks for watching
+  duration: 3

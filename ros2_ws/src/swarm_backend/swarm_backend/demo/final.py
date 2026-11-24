@@ -56,16 +56,18 @@ def slug(s: str) -> str:
     return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')[:40] or 'scene'
 
 
-def role_label(role: str, attacker: int | None) -> str:
+def role_label(role: str, attacker: int | None, setup: str | None = None) -> str:
+    """The panel's title. `setup`: the take's (baseline: the blob detector, not YOLO)."""
+    detector = 'baseline detector' if setup == 'baseline' else 'YOLO'
     if role.startswith('plot:'):
         from swarm_backend.demo.plots import PLOTS
         return PLOTS[role[5:]][1]
     labels = {'map': 'Tactical map', 'ui': 'Operator UI', 'chase': 'Chase camera',
-              'wide': 'Wide shot', 'yolo': f'Drone {attacker} camera - YOLO + tracker'}
+              'wide': 'Wide shot', 'yolo': f'Drone {attacker} camera - {detector} + tracker'}
     if role in labels:
         return labels[role]
     kind, _, arg = role.partition(':')
-    return f'Drone {arg} camera' if kind == 'yolo' else arg.replace('_', ' ')
+    return f'Drone {arg} camera - {detector} + tracker' if kind == 'yolo' else arg.replace('_', ' ')
 
 
 # ---- cutting the sources ----------------------------------------------------------------------
@@ -164,8 +166,9 @@ def scene_clip(r: Resolved, cuts: dict, out: Path, preview: bool, label: str | N
         inputs += ['-ss', f'{r.start - cut_start:.3f}', '-t', f'{r.end - r.start + 0.5:.3f}',
                    '-i', str(path)]
         attacker = r.take.attacker if r.take else None
+        setup = r.take.facts.get('setup') if r.take else None
         parts.append(f'[{k}:v]fps={FPS},setpts=(PTS-STARTPTS)/{s.speed},'
-                     f'{_panel(label or role_label(role, attacker), *size)}[p{k}]')
+                     f'{_panel(label or role_label(role, attacker, setup), *size)}[p{k}]')
     pins = ''.join(f'[p{k}]' for k in range(len(s.show)))
     body = {'full': f'{pins}null',
             'side': f'{pins}hstack=inputs=2,pad={W}:{H}:0:(oh-ih)/2:color=black',
