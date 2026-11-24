@@ -224,15 +224,21 @@ class TFPublisher:
         self._frames = frames
         self._last = 0.0
         self._lock = threading.Lock()
+        self._closed = False
         self._gz = GzNode()
-        topic = f'/world/{drone.world}/dynamic_pose/info'
-        if not self._gz.subscribe(Pose_V, topic, self._on_poses):
-            raise RuntimeError(f'Could not subscribe to {topic}')
+        self._topic = f'/world/{drone.world}/dynamic_pose/info'
+        if not self._gz.subscribe(Pose_V, self._topic, self._on_poses):
+            raise RuntimeError(f'Could not subscribe to {self._topic}')
 
     def _on_poses(self, msg) -> None:
         from geometry_msgs.msg import TransformStamped
         from tf2_msgs.msg import TFMessage
 
+        import rclpy
+
+        # Gazebo calls this on its own thread, also after Ctrl-C has shut ROS down.
+        if self._closed or not rclpy.ok():
+            return
         now = time.monotonic()
         with self._lock:
             if now - self._last < 1.0 / TF_RATE_HZ:
@@ -254,12 +260,18 @@ class TFPublisher:
             t.transform.rotation.z, t.transform.rotation.w = qz, qw
             out.transforms.append(t)
         if out.transforms:
-            self._pub.publish(out)
+            try:
+                self._pub.publish(out)
+            except Exception:  # ROS shut down between the check above and here
+                if rclpy.ok() and not self._closed:
+                    raise
 
     def close(self) -> None:
         import rclpy
+        self._closed = True
+        self._gz.unsubscribe(self._topic)
         self._node.destroy_node()
-        rclpy.shutdown()
+        rclpy.try_shutdown()  # Ctrl-C may already have shut ROS down
 
 
 def main(argv: list[str] | None = None) -> int:

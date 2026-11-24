@@ -140,7 +140,14 @@ class FreeRays:
             QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT))
         self._executor = SingleThreadedExecutor()
         self._executor.add_node(self._node)
-        threading.Thread(target=self._executor.spin, daemon=True).start()
+        threading.Thread(target=self._spin, daemon=True).start()
+
+    def _spin(self) -> None:
+        from rclpy.executors import ExternalShutdownException
+        try:
+            self._executor.spin()
+        except ExternalShutdownException:
+            pass  # Ctrl-C shut ROS down
 
     def _on_cloud(self, msg) -> None:
         from sensor_msgs.msg import PointCloud2, PointField
