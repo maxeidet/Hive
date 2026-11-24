@@ -322,8 +322,13 @@ class SurveillanceWorld:
         every track is flown, or at `timeout` (seconds since the release)."""
         self.read_records()
         self.place_hostiles(legs)
-        self.wait_patrol()
-        self.wait_sim(SETTLE_S)
+        self.start_extras(legs[0].start, legs[0].goal, legs[0].speed)  # before the release (fly)
+        try:
+            self.wait_patrol()
+            self.wait_sim(SETTLE_S)
+        except BaseException:
+            self.stop_extras()
+            raise
         alive = self.alive()
         ids = [leg.hostile_id for leg in legs]
         judges = {h: {d: ClosestApproach(self.options.hit_radius) for d in alive} for h in ids}
@@ -340,7 +345,6 @@ class SurveillanceWorld:
         self._multi_judges, self.flights = judges, list(flights.values())
         t0 = t_end = self.clock()
         try:
-            self.start_extras(legs[0].start, legs[0].goal, legs[0].speed)
             for f in flights.values():
                 f.start()
             t0 = self.clock()
@@ -413,8 +417,15 @@ class SurveillanceWorld:
         points = [tuple(start), tuple(goal)] if path is None else [tuple(p) for p in path]
         self.read_records()  # skip what came before this run
         self.place_hostile(start, points[1], speed)  # facing along its first leg
-        self.wait_patrol()
-        self.wait_sim(SETTLE_S)
+        # The birds now, not at the release: spawning them takes ~12 sim s, so started at the
+        # release they appeared just before the hit (examiner shoot, 24 Nov).
+        self.start_extras(start, goal, speed)
+        try:
+            self.wait_patrol()
+            self.wait_sim(SETTLE_S)
+        except BaseException:
+            self.stop_extras()
+            raise
 
         track = Track(points, speed)  # closed, but the run ends at the goal
         alive = self.alive()
@@ -429,7 +440,6 @@ class SurveillanceWorld:
         self.flight = HostileFlight(self.hostile, track, self.clock)
         self.judges = judges
         try:
-            self.start_extras(start, goal, speed)
             self.flight.start()
             t0 = flight.t0 = self.clock()
             while True:

@@ -74,3 +74,25 @@ def test_hostile_out_before_the_birds_stop():
     w.fly(start, goal, scenario.speed)
     order = [c[0] for c in w.calls]
     assert order.index('remove') < order.index('stop')
+
+
+def test_birds_start_before_the_patrol_wait():
+    # check-birds/examiner: the bird process needs ~12 sim s to spawn 8 birds, so started at
+    # the release they appeared 0.3 s before the hit. They start once the hostile is placed.
+    order = []
+
+    class Spy(Recording):
+        def wait_patrol(self):
+            order.append('patrol')
+            super().wait_patrol()
+
+        def start_extras(self, start, goal, speed):
+            order.append('extras')
+            super().start_extras(start, goal, speed)
+
+    w = Spy(SURVEILLANCE, Options(detector='fake'), quiet=True)
+    w.setup()
+    order.clear()
+    scenario, start, goal = head_on(w)
+    w.fly(start, goal, scenario.speed)
+    assert order[:2] == ['extras', 'patrol']
