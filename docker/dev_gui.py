@@ -79,7 +79,7 @@ BUNDLED_WORLDS = ['baylands', 'default', 'forest', 'ridge', 'walls', 'lawn', 'wi
 # mount-backend.sh commands the page may run (see its header for what each does)
 BACKEND_COMMANDS = ['shell', 'spawn', 'restart', 'ui', 'mapsnap', 'view', 'fakedetect',
                     'basestation', 'patrol', 'detect', 'attack', 'bird', 'snap', 'predict',
-                    'gendata']
+                    'gendata', 'explorenode']
 # The config every scenario of this page flies (inside the container). The operator UI
 # gets it too, so it lists their drones (0-4) and shows drone 4 as the hostile.
 SURVEILLANCE_CONFIG = '/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml'

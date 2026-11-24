@@ -83,7 +83,7 @@ Open the printed URL **on this computer**. The page:
 - **Views:**
   - **Operator UI** starts `mount-backend.sh ui` if it isn't running, and opens `http://localhost:8090` once it answers. The first start builds the backend, so it can take a while.
   - **RViz N:** one button per drone that has a camera in Gazebo. It runs `mount-backend.sh view N`, and RViz opens on the GUI display (this screen with native GUI, the VNC desktop with VNC). The camera drones are found from Gazebo's topics every few seconds, so newly spawned ones show up by themselves.
-- **Backend:** runs `mount-backend.sh CMD ARGS` for a fixed list of commands (`spawn`, `restart`, `ui`, `shell`, `view`, …).
+- **Backend:** runs `mount-backend.sh CMD ARGS` for a fixed list of commands (`spawn`, `restart`, `ui`, `shell`, `view`, `explorenode`, …). `explorenode` maps the area sent from the operator UI's Map area tab with DAEP.
 - **Scenarios:** runs `mount-backend.sh scenario NAME [--sim]` or one of the `scenarios/*.sh` launchers.
 - **YOLO weights:** at startup it downloads `models/yolo26n-gazebo-only/yolo26n-gazebo-only-1280.onnx` from the repo's GitHub Releases if it is missing, in the background. A light shows when it's there; `--no-weights` skips this. Only that model is fetched, because the detector uses the newest `.onnx` in `models/` and a second download would change which one runs. The list is `WEIGHTS` in `dev_gui.py`.
 - **Jobs:** each run gets a tab with its live log and an input line, so you can type at `pxh>`, in the swarm shell or at a prompt. **Stop** sends Ctrl-C first (so drones land) and only kills the job if it doesn't end.

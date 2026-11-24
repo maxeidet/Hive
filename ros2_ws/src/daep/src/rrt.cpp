@@ -20,7 +20,6 @@ Rrt::Rrt() : rclcpp::Node("rrt"), dt_(0.5), KFiterations_(15), min_nodes_(100), 
 
   RCLCPP_INFO(this->get_logger(), "RRT INITIALIZED WITH WORLD FRAME: %s", frame_id_.c_str());
   
-  auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);
 
   ot_ = std::make_shared<octomap::OcTree>(1);  // Create dummy OcTree to prevent crash due to ot_ tree not initialized
 
@@ -33,7 +32,9 @@ Rrt::Rrt() : rclcpp::Node("rrt"), dt_(0.5), KFiterations_(15), min_nodes_(100), 
 
   // subscriptions
 
-  octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", qos,
+  // The octomap is reliable, not sensor_data: a full map is megabytes, and best effort
+  // drops it whole when one fragment is lost, so with Fast DDS it never arrived.
+  octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
                                                                                std::bind(&Rrt::octomapCallback,
                                                                                          this, std::placeholders::_1));
 

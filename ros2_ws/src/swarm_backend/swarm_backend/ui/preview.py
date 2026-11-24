@@ -56,6 +56,7 @@ class PreviewUi:
         with self._lock:
             return {'search_area': self.area.to_dict(), 'map_area': self.map_area.to_dict(),
                     'drones': [self._drone(i, t) for i in range(self.n)],
+                    'explore': {'connected': False, 'status': None},
                     'map': load_map(STATIC_DIR), 'events': self.events.after(events_after),
                     'uptime_s': round(t, 1)}
 

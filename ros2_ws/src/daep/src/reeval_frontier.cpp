@@ -84,9 +84,10 @@ class ReevalFrontierNode : public rclcpp::Node
                 RCLCPP_WARN_STREAM(this->get_logger(), "No dtheta specified. Default: " << dtheta_);    
             }
 
-            auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);
 
-            octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", qos,
+            // The octomap is reliable, not sensor_data: a full map is megabytes, and best effort
+            // drops it whole when one fragment is lost, so with Fast DDS it never arrived.
+            octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
                                                                                         std::bind(&ReevalFrontierNode::octomapCallback,
                                                                                                   this, std::placeholders::_1));
 

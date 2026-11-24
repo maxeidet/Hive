@@ -74,10 +74,12 @@ def nodes(context):
         daep_node('rrt', remappings=octomap),
         daep_node('coverage_evaluation', remappings=octomap),
         daep_node('rpl_exploration'),
-        # On Ctrl-C the bridge lands the drone, so it gets time for that before launch kills it.
+        # On Ctrl-C the bridge flies the drone back to where it took off and lands it, so it
+        # gets time for that before launch kills it (Gazebo may run slower than real time).
+        # explore_node.py's LAND_WAIT_S waits a little longer than these two together.
         Node(package='swarm_backend', executable='daep_bridge', namespace=ns, output='screen',
              emulate_tty=True, arguments=bridge_args,
-             sigterm_timeout='200', sigkill_timeout='30'),
+             sigterm_timeout='900', sigkill_timeout='30'),
         Node(package='swarm_backend', executable='save_map', namespace=ns, output='screen',
              emulate_tty=True, parameters=[{'map_ns': map_ns, 'path': 'data/map.bt'}]),
     ]

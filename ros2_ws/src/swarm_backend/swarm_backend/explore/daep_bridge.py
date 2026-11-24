@@ -5,10 +5,13 @@ DAEP only plans. This node is the robot side it expects:
   goal (daep_msgs/Goal)             -> flies there (goal_follower.py), ENU -> NED
   /goal_reached (std_msgs/Bool)     <- True once per goal, when the drone is there
   simple_pose (PoseStamped)         <- the drone's pose in the world frame (ENU)
-  /exploration_completed (Bool)     -> lands when DAEP says it is done
+  /exploration_completed (Bool)     -> flies back and lands when DAEP says it is done
 
 It takes off to --alt first and only then publishes the pose, so DAEP (which waits for a
-pose) starts planning from the air. Ctrl-C lands too. `goal` and `simple_pose` are
+pose) starts planning from the air. When DAEP is done, and on Ctrl-C (the operator UI's
+Clear, through explore_node.py), it flies back: up to --alt, across to where it took off,
+and lands there, since below it in the area there may be a tree. A second Ctrl-C lands it
+where it is. `goal` and `simple_pose` are
 relative names: run the node in DAEP's namespace.
 
     ros2 run swarm_backend daep_bridge --ros-args -r __ns:=/daep
@@ -34,7 +37,7 @@ from std_msgs.msg import Bool
 
 from swarm_backend.config import default_config_path, load_config
 from swarm_backend.explore.goal_follower import (
-    DONE, NEW, GoalFollower, enu_quaternion, enu_to_ned, ned_to_enu)
+    DONE, NEW, GoalFollower, enu_quaternion, enu_to_ned, ned_to_enu, route_home)
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, spinning, wait_until
 
@@ -51,6 +54,8 @@ class Bridge:
         self.log = node.get_logger()
         self.world_frame = world_frame
         self.flying = False  # set after take-off: publish the pose and take goals
+        self.start = None  # NED position where the drone took off, set at take-off
+        self.cruise_z = None  # NED z of the flight to the area
         self.completed = threading.Event()
         self._acked = 0.0  # time.monotonic() of the last /goal_reached
         self._pose_pub = node.create_publisher(PoseStamped, 'simple_pose', 1)
@@ -101,6 +106,8 @@ class Bridge:
         """Take off to `altitude` and, with `start` (x, y in ENU), fly there at that altitude."""
         d = self.drone
         wait_until(lambda: d.ready, timeout, 'PX4 status, position and pre-flight checks')
+        self.start = d.position
+        self.cruise_z = d.home[2] - altitude
         d.arm()
         wait_until(lambda: d.armed, timeout, 'arming')
         d.start_offboard()
@@ -115,6 +122,26 @@ class Bridge:
             wait_until(lambda: d.reached(tolerance), timeout, 'the start of the area')
         self.flying = True
         self.log.info('In the air: publishing the pose and taking goals from DAEP')
+
+    def return_home(self, tolerance: float, timeout: float) -> None:
+        """Fly back to where the drone took off (see route_home), to land there. Does
+        nothing when it is not flying under our control: on the ground, or PX4 took over
+        (a failsafe or QGroundControl), which then decides itself."""
+        d = self.drone
+        self.flying = False  # no more goals from DAEP
+        if self.start is None or d.position is None or not (d.armed and d.offboard):
+            return
+        if math.dist(d.position[:2], self.start[:2]) < tolerance:
+            return
+        self.log.info(f'Returning to the take-off point at {d.home[2] - self.cruise_z:g} m '
+                      'before landing')
+        for x, y, z in route_home(d.position, self.start, self.cruise_z):
+            d.set_position(x, y, z)
+            wait_until(lambda: d.reached(tolerance) or not (d.armed and d.offboard), timeout,
+                       'the way back')
+            if not (d.armed and d.offboard):
+                self.log.warning('PX4 took over on the way back; not taking control back')
+                return
 
     def land(self) -> None:
         d = self.drone
@@ -158,13 +185,13 @@ def main() -> int:
                             args.lead, math.radians(args.turn_step))
     bridge = Bridge(node, drone, follower, config.rate_hz, args.world_frame)
 
-    stopping = threading.Event()
+    # 'flying' until the first signal, 'returning' while flying back, 'landing' after.
+    phase = ['flying']
 
     def stop(*_):
-        # Only the first signal: ros2 launch sends SIGTERM 5 s after SIGINT, and that must
-        # not interrupt the landing.
-        if not stopping.is_set():
-            stopping.set()
+        # The first signal flies the drone back, a second one lands it where it is (also
+        # launch's SIGTERM after the bridge's sigterm_timeout). Nothing interrupts landing.
+        if phase[0] != 'landing':
             raise KeyboardInterrupt
     # SIGTERM lands like Ctrl-C. SIGINT is set too: Python leaves it ignored when the node
     # is started in the background of a script (`px4_bridge.py &`).
@@ -173,13 +200,19 @@ def main() -> int:
 
     with spinning(node):
         try:
-            bridge.take_off(args.alt, config.position_tolerance, args.timeout, args.start)
-            while not bridge.completed.wait(0.5):
-                pass
+            try:
+                bridge.take_off(args.alt, config.position_tolerance, args.timeout, args.start)
+                while not bridge.completed.wait(0.5):
+                    pass
+            except (KeyboardInterrupt, TimeoutError) as e:
+                node.get_logger().warning(f'Stopping ({str(e) or "interrupted"})')
+            phase[0] = 'returning'
+            bridge.return_home(config.position_tolerance, args.timeout)
         except (KeyboardInterrupt, TimeoutError) as e:
-            node.get_logger().warning(f'Stopping ({str(e) or "interrupted"})')
+            node.get_logger().warning(f'Not flying back ({str(e) or "interrupted again"}); '
+                                      'landing where it is')
         finally:
-            stopping.set()
+            phase[0] = 'landing'
             bridge.land()
 
     node.destroy_node()

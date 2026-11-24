@@ -76,6 +76,8 @@
   .hint kbd { font: 10px var(--mono); color: var(--muted); padding: 0 4px; border-radius: 4px; border: 1px solid var(--edge); }
   .planner { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--edge); font-size: 11.5px; color: var(--muted); }
   .planner .led { background: var(--faint); box-shadow: none; }
+  .planner .led.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(95, 212, 154, .18); }
+  .planner .led.err { background: var(--hostile); box-shadow: 0 0 0 3px rgba(255, 91, 58, .18); }
 
   .title { grid-row: 2; grid-column: 2; align-self: start; padding: 4px; }
   .title h1 { margin: 0; font: 300 32px/1.1 var(--sans); letter-spacing: -.01em; text-shadow: 0 2px 20px rgba(0, 0, 0, .6); }
@@ -293,8 +295,8 @@
         <div id="scanSpanBox"><span class="label" id="scanSpanLbl">Span</span><b id="scanSpan">–</b></div>
       </div>
       <div class="row"><button class="btn scan" id="scanSend" disabled>Send</button><button class="btn" id="scanUndo" disabled>Undo</button><button class="btn" id="scanClear" disabled>Clear</button><span class="note" id="scanNote">click the map to add corners</span></div>
-      <p class="hint"><span id="hintPolygon">Polygon: click to add a corner, click the first one (or double-click) to close the area.</span><span id="hintCircle" hidden>Circle: click the centre, then click again where the edge should be.</span> Drag a handle to change the area, drag elsewhere to move the map. <kbd>⌫</kbd> removes the last corner, <kbd>Enter</kbd> sends, <kbd>Esc</kbd> reverts.</p>
-      <div class="planner" title="No mapping planner takes the area yet: Send only stores it in the UI node"><span class="led"></span>Mapping planner not connected · the area is stored only</div>
+      <p class="hint"><span id="hintPolygon">Polygon: click to add a corner, click the first one (or double-click) to close the area.</span><span id="hintCircle" hidden>Circle: click the centre, then click again where the edge should be.</span> Drag a handle to change the area, drag elsewhere to move the map. <kbd>⌫</kbd> removes the last corner, <kbd>Enter</kbd> sends, <kbd>Esc</kbd> reverts. The drone flies there at 23 m, above the trees, and maps 2–24 m.</p>
+      <div class="planner" id="planner"><span class="led" id="plannerLed"></span><span id="plannerText">Mapping planner not connected · the area is stored only</span></div>
     </section>
 
     <div class="cards" id="cards"></div>
@@ -946,11 +948,32 @@
     syncForm();
   };
 
-  // ---- area to map panel: Send stores the draft in the UI node -------------------------
+  // ---- area to map panel: Send stores the draft and starts mapping it --------------------
+  // The exploration node (mount-backend.sh explorenode) as /explore/status reports it.
+  const EXPLORE_STATES = { idle: 'ready', starting: 'starting', taking_off: 'taking off', flying_to_area: 'flying to the area',
+    exploring: 'exploring', landing: 'landing', done: 'done', stopping: 'stopping', stopped: 'stopped', failed: 'failed' };
+  function syncPlanner() {
+    const x = server.explore || {}, st = x.status;
+    let text, cls = '', title = 'mount-backend.sh explorenode maps the area sent here with DAEP';
+    if (!x.connected) { text = 'Mapping planner not connected · the area is stored only'; title = 'Start it with: mount-backend.sh explorenode'; }
+    else if (!st) text = 'Mapping planner connected';
+    else {
+      text = 'Mapping planner: ' + (EXPLORE_STATES[st.state] || st.state);
+      if (st.coverage_pct != null) text += ` · ${st.coverage_pct.toFixed(0)} % covered`;
+      if (st.detail) text += ' · ' + st.detail;
+      if (st.map && st.state === 'done') title = 'Map: ' + st.map;
+      cls = st.state === 'failed' ? 'err' : 'ok';
+    }
+    if (x.connected && !cls) cls = 'ok';
+    $('plannerText').textContent = text; $('planner').title = title;
+    $('plannerLed').className = 'led' + (cls ? ' ' + cls : '');
+  }
+
   const areaText = m2 => m2 >= 10000 ? `${(m2 / 10000).toFixed(m2 >= 1e5 ? 1 : 2)}<small>ha</small>` : `${Math.round(m2)}<small>m²</small>`;
   function scanNote(text, err = false) { $('scanNote').textContent = text; $('scanNote').className = 'note' + (err ? ' err' : ''); }
   function syncScan() {
     if (!server) return;
+    syncPlanner();
     const s = scanShown(), m = server.map_area, pts = s ? s.points : [], circle = s ? isCircle(s) : tool === 'circle';
     const crossing = s && !circle && selfCrossing(pts, s.closed);
     const r = circle && pts.length === 2 ? radiusOf(s) : null;
@@ -1019,7 +1042,9 @@
       const out = await res.json();
       if (!res.ok) throw new Error(out.error || res.statusText);
       server.map_area = out; scanDraft = null;
-      scanMsg = { text: out.shape ? `stored, revision ${out.revision}` : 'cleared' };
+      const live = server.explore && server.explore.connected;
+      scanMsg = { text: out.shape ? (live ? `sent to the mapping planner, revision ${out.revision}` : `stored only (no mapping planner), revision ${out.revision}`)
+        : live ? 'cleared, mapping stopped' : 'cleared' };
     } catch (e) {
       scanMsg = { text: e.message, err: true };
     }

@@ -24,6 +24,19 @@ def ned_to_enu(p: Point) -> Point:
     return (east, north, -down)
 
 
+def route_home(position: Point, start: Point, cruise_z: float) -> list[Point]:
+    """Waypoints (NED) back to `start` from `position`: straight up to `cruise_z` first,
+    then across at that height to above `start`, where the drone lands. Never down: if the
+    drone is already higher than `cruise_z` it stays at its own height. The flight to the
+    area went across at `cruise_z`, so the way back at that height is clear too."""
+    z = min(position[2], cruise_z)  # NED: smaller is higher
+    route = []
+    if z < position[2]:
+        route.append((position[0], position[1], z))
+    route.append((start[0], start[1], z))
+    return route
+
+
 def wrap(angle: float) -> float:
     """Angle in (-pi, pi]."""
     return -((-angle + math.pi) % (2.0 * math.pi) - math.pi)

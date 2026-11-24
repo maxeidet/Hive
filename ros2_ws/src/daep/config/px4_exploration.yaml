@@ -104,7 +104,7 @@
     # Global planning
     global_planner_counter: 25  # Number of times we re-do the global planning
     coverage_threshold: 95.0  # percent of the boundary box mapped; stop there (0 = off)
-    coverage_stall_rounds: 4  # also stop when coverage grew less than coverage_stall_gain
+    coverage_stall_rounds: 50  # also stop when coverage grew less than coverage_stall_gain
     coverage_stall_gain: 1.5  # percentage points over coverage_stall_rounds rounds (0 rounds = off)
     look_ahead_horizon: 5  # Look ahead horizon for the safe path check
     

@@ -50,9 +50,9 @@ public:
 
     start_time_ = this->now();
 
-    auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);
+    // Reliable, not sensor_data: best effort drops a megabyte map whole (see aeplanner.cpp).
     octomap_sub_ = this->create_subscription<octomap_msgs::msg::Octomap>(
-        octomap_topic_, qos,
+        octomap_topic_, rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
         std::bind(&CoverageStandalone::octomapCallback, this, _1));
 
     RCLCPP_INFO(this->get_logger(), "Coverage standalone node started.");

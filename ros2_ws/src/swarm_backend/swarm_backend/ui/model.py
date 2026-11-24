@@ -82,7 +82,7 @@ class MapArea:
 
     points: polygon corners in world NED (north, east) metres, in drawing order.
     circle: (north, east, radius_m) instead. At most one of the two is set.
-    Nothing flies it yet: the mapping planner (DAEP) that will take it is not wired up.
+    The operator UI sends it to the exploration node (explore/area.py), which maps it with DAEP.
     """
     points: tuple[tuple[float, float], ...] = ()
     circle: tuple[float, float, float] | None = None

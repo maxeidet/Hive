@@ -86,7 +86,9 @@ AEPlanner::AEPlanner() : Node("aeplanner"), current_state_initialized_(false), f
   odometry_subscription = this->create_subscription<nav_msgs::msg::Odometry>("sim_ground_truth_pose", qos,
                                                                              std::bind(&AEPlanner::odometry_callback,
                                                                                        this, std::placeholders::_1));
-  octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", qos,
+  // The octomap is reliable, not sensor_data: a full map is megabytes, and best effort
+  // drops it whole when one fragment is lost, so with Fast DDS it never arrived.
+  octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
                                                                                std::bind(&AEPlanner::octomapCallback,
                                                                                          this, std::placeholders::_1));
   human_update_subscription = this->create_subscription<daep_msgs::msg::HumanListUpdate>("dynamic_objects", 100,

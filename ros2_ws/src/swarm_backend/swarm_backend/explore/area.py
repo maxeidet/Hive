@@ -30,6 +30,13 @@ DEFAULT_ALT = 4.0  # flight to the area, and where DAEP starts
 DEFAULT_Z_MIN = 0.5
 DEFAULT_Z_MAX = 5.0
 MIN_HALF_SIZE_M = 2.0  # a smaller box leaves DAEP no room to sample
+# Heights the operator UI sends, since its Map area can be drawn anywhere, also over the
+# forest: the flight to the area at 23 m is above the tallest tree in hive_base (20 m), so the
+# straight line there cannot hit anything, and DAEP then goes down to 2 m inside the box. The
+# same values as scenarios/hive_base_forest.txt. At 4 m (DEFAULT_ALT) a drone flew into a tree.
+UI_ALT = 23.0
+UI_Z_MIN = 2.0
+UI_Z_MAX = 24.0
 
 # What the exploration is doing, in order. DONE, STOPPED and FAILED end it.
 IDLE, STARTING, TAKING_OFF, FLYING_TO_AREA, EXPLORING, LANDING, DONE, STOPPING, STOPPED, \
@@ -97,6 +104,21 @@ def box_around(area: dict, alt: float = DEFAULT_ALT, z_min: float = DEFAULT_Z_MI
     return Box(center, half, float(z_min), float(z_max), float(alt))
 
 
+def area_command(points=(), circle=None, alt: float = UI_ALT, z_min: float = UI_Z_MIN,
+                 z_max: float = UI_Z_MAX) -> str:
+    """The JSON for /explore/command from the operator UI's map area (ui/model.py MapArea):
+    start mapping the circle (north, east, radius_m) or polygon [(north, east), ...] between
+    the given heights, or stop when there is neither (the operator cleared the area)."""
+    if circle:
+        area = {'circle': {'centre': [circle[0], circle[1]], 'radius_m': circle[2]}}
+    elif points:
+        area = {'points': [list(p) for p in points]}
+    else:
+        return json.dumps({'command': 'stop'})
+    return json.dumps({'command': 'start', 'area': area, 'alt': alt, 'z_min': z_min,
+                       'z_max': z_max})
+
+
 def parse_command(text: str) -> Command:
     """A Command from the JSON on /explore/command. Raises ValueError if it is not one."""
     try:
@@ -137,6 +159,7 @@ _PROGRESS = [
     (re.compile(r'daep\.px4_bridge\]: In the air'), EXPLORING),
     (re.compile(r'exploration complete!', re.IGNORECASE), LANDING),
 ]
+_RETURNING = re.compile(r'daep\.px4_bridge\]: Returning to the take-off point')
 _MAP_SAVED = re.compile(r'Map saved: (\S+)')
 _LANDED = re.compile(r'daep\.px4_bridge\.drone\d+\]: disarmed')
 _DIED = re.compile(r'\[ERROR\] \[([\w.]+)-\d+\]: process has died')
@@ -156,7 +179,9 @@ class Progress:
             if pattern.search(text):
                 self.status = replace(s, state=state, detail='')
                 return
-        if m := _MAP_SAVED.search(text):
+        if _RETURNING.search(text):
+            self.status = replace(s, detail='Flying back to the take-off point')
+        elif m := _MAP_SAVED.search(text):
             self.status = replace(s, map_path=m.group(1))
         elif _LANDED.search(text):
             self.landed = True

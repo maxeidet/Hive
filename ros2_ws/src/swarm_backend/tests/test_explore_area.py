@@ -5,7 +5,7 @@ import pytest
 
 from swarm_backend.explore.area import (
     DONE, EXPLORING, FAILED, FLYING_TO_AREA, IDLE, LANDING, STOPPING, TAKING_OFF, Box, Progress,
-    Status, box_around, last_coverage, parse_command)
+    Status, area_command, box_around, last_coverage, parse_command)
 
 
 def test_circle_becomes_the_square_around_it_in_enu():
@@ -47,6 +47,17 @@ def test_commands():
             parse_command(bad)
 
 
+def test_the_operator_uis_map_area_becomes_a_command():
+    circle = parse_command(area_command(circle=(-14.0, 13.5, 7.0)))
+    assert circle.kind == 'start' and circle.box.center == (13.5, -14.0)
+    assert circle.box.half == (7.0, 7.0)
+    # Above the trees on the way there, whatever is below the area.
+    assert (circle.box.alt, circle.box.z_min, circle.box.z_max) == (23.0, 2.0, 24.0)
+    polygon = parse_command(area_command(points=((0.0, -4.0), (10.0, 2.0), (0.0, 8.0))))
+    assert polygon.box.center == (2.0, 5.0) and polygon.box.half == (6.0, 5.0)
+    assert parse_command(area_command()).kind == 'stop'  # cleared
+
+
 # Lines as the launch prints them (colours removed), in the order a run prints them.
 RUN = [
     '[daep_bridge-8] [INFO] [1.0] [daep.px4_bridge]: Taking off to 4 m',
@@ -70,6 +81,14 @@ def test_progress_follows_a_run():
     assert p.status.map_path == '/workspace/ros2_ws/data/map.bt'
     assert p.finished_flying
     assert not Progress(Status(state=LANDING)).finished_flying
+
+
+def test_progress_says_when_the_drone_flies_back():
+    p = Progress(Status(state=LANDING))
+    p.line('[daep_bridge-8] [INFO] [5.0] [daep.px4_bridge]: Returning to the take-off point '
+           'at 23 m before landing')
+    assert p.status.state == LANDING
+    assert p.status.detail == 'Flying back to the take-off point'
 
 
 def test_a_node_dying_fails_the_run_unless_we_stop_it():

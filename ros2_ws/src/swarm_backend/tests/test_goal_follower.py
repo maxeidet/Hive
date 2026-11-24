@@ -5,7 +5,7 @@ import pytest
 
 from swarm_backend.explore.goal_follower import (
     ACTIVE, DONE, IGNORED, NEW, GoalFollower, carrot, enu_quaternion, enu_to_ned, ned_to_enu,
-    roll_pitch_yaw, swap_yaw, wrap)
+    roll_pitch_yaw, route_home, swap_yaw, wrap)
 
 
 def heading(yaw: float):
@@ -122,3 +122,14 @@ def test_ignores_goals_without_a_position():
     follower = GoalFollower(drone)
     assert follower.on_goal('a', (1.0, 0.0, 2.0), 0.0) == IGNORED
     assert not follower.step()
+
+
+def test_route_home_climbs_first_then_goes_across():
+    # Low in the area (z -2 NED = 2 m up), cruise at 23 m: up on the spot, then across.
+    assert route_home((10.0, -30.0, -2.0), (0.0, 5.0, -0.1), -23.0) == [
+        (10.0, -30.0, -23.0), (0.0, 5.0, -23.0)]
+
+
+def test_route_home_never_descends_on_the_way():
+    # Already above the cruise height: straight across at its own height.
+    assert route_home((10.0, -30.0, -25.0), (0.0, 5.0, -0.1), -23.0) == [(0.0, 5.0, -25.0)]

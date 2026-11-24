@@ -4,7 +4,8 @@ Waits for commands on /explore/command (std_msgs/String, JSON, see explore/area.
 command with an area runs launch/daep_exploration.launch.py for the box around it: the drone
 takes off, flies to the area, DAEP explores it, the map is saved as data/map.bt and the
 drone lands. Then the launch is stopped and the node waits for the next area. A stop command
-ends the exploration early; the bridge lands the drone. One area at a time.
+ends the exploration early; the bridge flies the drone back to where it took off and lands
+it there. One area at a time.
 
 What it is doing goes out on /explore/status (latched, so a UI that starts later still gets
 it): the state, the box, DAEP's coverage of it and the saved map. Each run's launch output is
@@ -12,7 +13,7 @@ in /tmp/explore_run_<N>.log.
 
 DAEP is LiU's private code: the daep and daep_msgs forks must be built in the workspace.
 
-    python3 -m swarm_backend.explore.explore_node [--id 0] [--map-range 8]
+    python3 -m swarm_backend.explore.explore_node [--id 0] [--map-range 18]
     ros2 topic pub --once /explore/command std_msgs/msg/String \\
         "{data: '{\\"command\\": \\"start\\", \\"area\\": {\\"circle\\": {\\"centre\\": [-14, 13.5], \\"radius_m\\": 7}}}'}"
 """
@@ -23,6 +24,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -38,7 +40,10 @@ from swarm_backend.explore.area import (
 from swarm_backend.runner import spinning
 
 ANSI = re.compile(r'\x1b\[[0-9;]*m')
-LAND_WAIT_S = 240.0  # for the bridge to land the drone when the launch is stopped
+# For the bridge to fly the drone back and land it when the launch is stopped; a little more
+# than the bridge's sigterm_timeout + sigkill_timeout in launch/daep_exploration.launch.py.
+LAND_WAIT_S = 960.0
+DISCOVERY_S = 3.0  # how long to look for another exploration node before starting
 LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
                      reliability=ReliabilityPolicy.RELIABLE)
 
@@ -98,8 +103,8 @@ class ExploreNode:
             if self.progress.status.state in FINISHED:
                 return
             self.progress.status = replace(self.progress.status, state=STOPPING,
-                                           detail='Stopped by the operator; landing')
-        self.log.info('Stopping the exploration; the bridge lands the drone')
+                                           detail='Stopped by the operator; flying back to land')
+        self.log.info('Stopping the exploration; the bridge flies the drone back and lands it')
         self._interrupt()
         self._publish()
 
@@ -131,8 +136,16 @@ class ExploreNode:
         self._publish()
 
     def _interrupt(self) -> None:
+        """Ctrl-C for the launch and every node in it. To the whole process group (the
+        launch leads its own, see start()): ros2 launch does not pass a SIGINT on to its
+        nodes, it expects the terminal to have sent it to all of them. Sent only to the
+        launch, the nodes got SIGTERM 5 s later and the bridge only after its
+        sigterm_timeout, hovering until then."""
         if self.proc is not None and self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGINT)
+            try:
+                os.killpg(self.proc.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
 
     def _tick(self) -> None:
         if self.progress.status.state in (EXPLORING, LANDING):
@@ -173,18 +186,40 @@ class ExploreNode:
                 self.proc.kill()
 
 
+def other_explore_node(node: Node, wait_s: float = DISCOVERY_S) -> bool:
+    """True if another node already takes /explore/command. Nothing but an exploration node
+    subscribes to it, and discovery takes a moment, so look for a few seconds."""
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        if node.count_subscribers(COMMAND_TOPIC) > 0:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--id', type=int, default=0, help='PX4 instance of the mapping drone')
-    parser.add_argument('--map-range', type=float, default=8.0,
+    parser.add_argument('--map-range', type=float, default=18.0,
                         help='metres the map takes points from the sensor (and DAEP counts gain '
-                             'to); the depth camera sees 19.1 m')
+                             'to), default 18 as in scenarios/explore_areas.sh: the operator UI '
+                             'sends areas flown at 23 m (explore/area.py UI_ALT), and with 8 m the '
+                             'drone hardly sees below the tree tops, so DAEP stops at ~10 %%. The '
+                             'depth camera sees 19.1 m, the 3D lidar 100 m')
     parser.add_argument('--workdir', type=Path, default=Path.cwd(),
                         help='where data/ (map.bt, coverage.csv) is written (default: here)')
     args = parser.parse_args()
 
     rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     node = Node('explore_node')
+    if other_explore_node(node):
+        # Two would both start DAEP for every area: two planners sending the one drone
+        # their own goals in turn, so it never gets past the first.
+        print(f'Another exploration node already listens on {COMMAND_TOPIC}: stop it first '
+              '(one per ROS network).', file=sys.stderr)
+        node.destroy_node()
+        rclpy.try_shutdown()
+        return 1
     explore = ExploreNode(node, args.id, args.map_range, args.workdir.resolve())
 
     stopping = threading.Event()

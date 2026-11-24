@@ -37,9 +37,10 @@ CoverageEvaluator::CoverageEvaluator() : Node("coverage_evaluator") {
     RCLCPP_ERROR(this->get_logger(), "No maximum boundary values found...");
   }
   
-  auto qos = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);
   
-  octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", qos,
+  // The octomap is reliable, not sensor_data: a full map is megabytes, and best effort
+  // drops it whole when one fragment is lost, so with Fast DDS it never arrived.
+  octomap_subscription = this->create_subscription<octomap_msgs::msg::Octomap>("octomap", rclcpp::QoS(rclcpp::KeepLast(1)).reliable(),
                                                                                std::bind(&CoverageEvaluator::octomapCallback,
                                                                                          this, std::placeholders::_1));
   

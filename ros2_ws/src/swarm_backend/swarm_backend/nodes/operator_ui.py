@@ -8,8 +8,10 @@ the fields of ui.model.SearchArea, latched: a node that starts later still gets 
 one).
 
 The Map area tab lets the operator draw the area a drone should scan into the 3D map
-(POST /api/map_area). It is only stored and shown for now: no topic carries it yet, since
-how the mapping planner (DAEP) will take an area is still open (see _publish_map_area).
+(POST /api/map_area). Send publishes it as a start command on /explore/command, and Clear as
+a stop, for the exploration node (`mount-backend.sh explorenode`, explore/area.py), which
+flies it with DAEP. The page shows what that node says on /explore/status. Without the node
+running the area is only stored.
 
     python3 -m swarm_backend.nodes.operator_ui --config <swarm.yaml> [--port 8090]
 
@@ -25,6 +27,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from swarm_backend.config import DroneConfig, default_config_path, load_config
+from swarm_backend.explore.area import COMMAND_TOPIC as EXPLORE_COMMAND_TOPIC
+from swarm_backend.explore.area import STATUS_TOPIC as EXPLORE_STATUS_TOPIC
+from swarm_backend.explore.area import area_command
 from swarm_backend.ui.model import (EventLog, MapArea, SearchArea, attack_view, drone_home,
                                    drone_status, drone_view, load_map, sdf_origin,
                                    update_map_area, update_search_area, world_origin)
@@ -182,6 +187,11 @@ class OperatorUi:
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
                              durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self._area_pub = node.create_publisher(String, SEARCH_AREA_TOPIC, latched)
+        # Not latched: an exploration node started later must not fly an old area by itself.
+        self._node = node
+        self._explore_pub = node.create_publisher(String, EXPLORE_COMMAND_TOPIC, 10)
+        self.explore_status = None  # the exploration node's last /explore/status, parsed
+        node.create_subscription(String, EXPLORE_STATUS_TOPIC, self._on_explore_status, latched)
         self._log = node.get_logger()
         self.events = EventLog()
         self.started = time.monotonic()
@@ -240,6 +250,7 @@ class OperatorUi:
             map_area = self.map_area.to_dict()
             events = self.events.after(events_after)
         return {'search_area': area, 'map_area': map_area, 'drones': views,
+                'explore': self.explore(),
                 'map': load_map(STATIC_DIR),
                 'events': events, 'uptime_s': round(now - self.started, 1)}
 
@@ -271,8 +282,22 @@ class OperatorUi:
         return m
 
     def _publish_map_area(self) -> None:
-        """Placeholder: nothing takes the area to map yet. Once it is known how DAEP gets
-        an area (a box per square, a polygon in the fork, an action...), send it here."""
+        """Send the map area to the exploration node: start mapping it, or stop if cleared."""
+        m = self.map_area
+        self._explore_pub.publish(self._string(data=area_command(m.points, m.circle)))
+
+    def _on_explore_status(self, msg) -> None:
+        try:
+            status = json.loads(msg.data)
+        except ValueError:
+            return
+        if isinstance(status, dict):
+            self.explore_status = status
+
+    def explore(self) -> dict:
+        """For the page: whether an exploration node listens, and what it last said."""
+        connected = self._node.count_subscribers(EXPLORE_COMMAND_TOPIC) > 0
+        return {'connected': connected, 'status': self.explore_status if connected else None}
 
 
 def events_after(path: str) -> int:
