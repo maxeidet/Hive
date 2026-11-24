@@ -199,6 +199,14 @@ class SurveillanceWorld:
         """Shot down, or out of the way: no defender can see it any more."""
         raise NotImplementedError
 
+    def place_hostiles(self, legs: list) -> None:
+        """Every leg's hostile hovering at its start. One after the other here; a backend may
+        prepare them together (Gazebo: each restart and climb takes about a minute)."""
+        for leg in legs:
+            points = [tuple(leg.start), tuple(leg.goal)] if leg.path is None else \
+                [tuple(x) for x in leg.path]
+            self.place_hostile(leg.start, points[1], leg.speed, hostile_id=leg.hostile_id)
+
     def hostile_drone(self, hostile_id: int):
         """The Drone that flies hostile `hostile_id` (HostileFlight steers it)."""
         if hostile_id == self.hostile_id:
@@ -313,10 +321,7 @@ class SurveillanceWorld:
         hostile only (and tells the base station); the run ends when every hostile is down,
         every track is flown, or at `timeout` (seconds since the release)."""
         self.read_records()
-        for leg in legs:
-            points = [tuple(leg.start), tuple(leg.goal)] if leg.path is None else \
-                [tuple(x) for x in leg.path]
-            self.place_hostile(leg.start, points[1], leg.speed, hostile_id=leg.hostile_id)
+        self.place_hostiles(legs)
         self.wait_patrol()
         self.wait_sim(SETTLE_S)
         alive = self.alive()

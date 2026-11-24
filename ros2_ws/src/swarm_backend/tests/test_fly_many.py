@@ -71,3 +71,19 @@ def test_fly_unchanged():
     assert flight.killer == 2
     assert flight.hit_time(2) == pytest.approx(33.1, abs=0.05)
     assert flight.engaged == (pytest.approx(25.7, abs=0.05), 2)
+
+
+def test_hostiles_placed_together():
+    # fly_many hands every leg to place_hostiles at once (the Gazebo backend prepares them in
+    # parallel: check-two spent 85 s placing the second hostile after the first).
+    calls = []
+
+    class Spy(SimSurveillance):
+        def place_hostiles(self, legs):
+            calls.append([leg.hostile_id for leg in legs])
+            super().place_hostiles(legs)
+
+    w = Spy(TWO, Options(detector='fake'), quiet=True)
+    w.setup()
+    w.fly_many([leg(w, 4, -30.0), leg(w, 5, 30.0)])
+    assert calls == [[4, 5]]

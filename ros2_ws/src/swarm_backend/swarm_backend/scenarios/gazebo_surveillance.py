@@ -360,6 +360,45 @@ class GazeboSurveillance(SurveillanceWorld):
         wait_until(h.manager.ready, RESPAWN_TIMEOUT_S,
                    f"the hostile drone {h.id}'s pre-flight checks (see {log})")
 
+    def place_hostiles(self, legs: list) -> None:
+        """Every leg's hostile hovering at its start, prepared together: their PX4s restarted
+        at once, then one climb and one flight to the start points (one after the other took
+        about 85 s per hostile at the sim's 0.37x, check-two)."""
+        if len(legs) < 2:
+            super().place_hostiles(legs)
+            return
+        hs = [(self._hostile(leg.hostile_id), leg) for leg in legs]
+        for h, _ in hs:
+            self.stop_hostile_px4(h.id)
+        time.sleep(1.0)  # their last messages
+        for h, leg in hs:
+            north, east = leg.start[0], leg.start[1]
+            self.log.info(f'Starting hostile drone {h.id} at N {north:+.0f} E {east:+.0f} m')
+            self.set_hostile_down(east, north, hostile_id=h.id)
+            h.drone.reset((north, east, 0.0))
+            h.px4.start(h.name)
+        for h, _ in hs:
+            log = f'/tmp/px4_{h.id}.log'
+            wait_until(h.manager.connected, RESPAWN_TIMEOUT_S,
+                       f'the hostile drone {h.id} to connect (see {log})')
+            wait_until(h.manager.ready, RESPAWN_TIMEOUT_S,
+                       f"the hostile drone {h.id}'s pre-flight checks (see {log})")
+        for h, leg in hs:
+            self.set_hostile_param('MPC_XY_VEL_MAX', max(PX4_MIN_SPEED_LIMIT,
+                                                         leg.speed + HOSTILE_SPEED_MARGIN),
+                                   hostile_id=h.id)
+            altitude = h.drone.home[2] - leg.start[2]
+            self.log.info(f'Hostile {h.id} taking off to {altitude:.0f} m')
+            h.manager.takeoff(altitude)
+        wait_until(lambda: all(h.manager.all_reached() for h, _ in hs), SETUP_TIMEOUT_S,
+                   'the hostile drones to climb')
+        for h, leg in hs:
+            goal = leg.goal if leg.path is None else leg.path[1]
+            h.drone.set_position(*leg.start, yaw=math.atan2(goal[1] - leg.start[1],
+                                                            goal[0] - leg.start[0]))
+        wait_until(lambda: all(h.drone.reached(TOLERANCE_M) for h, _ in hs), SETUP_TIMEOUT_S,
+                   'the hostile drones at their start points')
+
     def place_hostile(self, start, goal, speed, hostile_id: int | None = None) -> None:
         h = self._hostile(hostile_id)
         self.respawn_hostile(start[0], start[1], hostile_id=h.id)
@@ -500,8 +539,10 @@ class GazeboSurveillance(SurveillanceWorld):
         for i, p in self.patrols.items():
             self.log.info(f'Drone {i} to its slot at {p.patrol.slot_angle:+.0f} deg on the arc')
             p.patrol.start()
-        self.wait_patrol()
-        self.log.info('All defenders on patrol')
+        # No waiting for the patrol here: the first run places its hostile(s) while the
+        # defenders fly out to their slots, and fly()/fly_many() release only once every
+        # defender is on patrol (wait_patrol). Saves the slot flight, ~35 s at 0.37x.
+        self.log.info('Defenders on their way to their slots; the first hostile is placed meanwhile')
 
     def stop_and_land(self) -> None:
         if self.flight is not None:
