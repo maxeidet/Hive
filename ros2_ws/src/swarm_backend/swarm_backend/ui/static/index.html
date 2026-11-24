@@ -137,6 +137,23 @@
   .metrics b { font: 400 16px var(--sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .metrics b.warn { color: var(--warn); }
 
+  /* A drone's camera (the detector's image, as RViz shows it), over the map's bottom right */
+  .camera { grid-row: 3; grid-column: 2; justify-self: end; align-self: end; width: min(460px, 100%); padding: 10px 10px 12px; }
+  .camera[hidden] { display: none; }
+  .camera .ph { padding: 0 2px 0 6px; margin-bottom: 8px; gap: 8px; }
+  .camera .ph h2 { flex: 1; }
+  .camera .ph .ico { width: 24px; height: 24px; font-size: 15px; color: var(--muted); }
+  .camera .frame { position: relative; aspect-ratio: 4 / 3; border-radius: 10px; overflow: hidden; background: #000; }
+  .camera .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .camera .frame p { position: absolute; inset: 0; margin: 0; display: grid; place-items: center; padding: 20px; text-align: center; color: var(--muted); font-size: 12px; }
+  .camera .frame p[hidden] { display: none; }
+  .camera .live { font: 10.5px var(--mono); color: var(--faint); }
+  .camera .live.ok { color: var(--ok); }
+  .camera .live.warn { color: var(--warn); }
+  .card .cam { width: 26px; height: 26px; flex: none; color: var(--muted); }
+  .card .cam svg { width: 15px; height: 15px; }
+  .card .cam[aria-pressed="true"] { color: var(--text); background: rgba(255, 255, 255, .12); }
+
   /* Right column: event log */
   .events { grid-row: 2 / 4; grid-column: 3; display: flex; flex-direction: column; min-height: 0; padding: 14px 0 0; }
   .events .ph { padding: 0 10px 0 16px; gap: 8px; }
@@ -199,6 +216,7 @@
     .left { overflow: visible; }
     .events { max-height: 70vh; }
     .mapctl { order: -1; }
+    .camera { order: -1; width: 100%; }
   }
   @media (max-width: 480px) {
     .readout:first-of-type, .brand small { display: none; }
@@ -269,6 +287,12 @@
     <div class="log" id="log" aria-live="polite"></div>
   </section>
 
+  <section class="camera glass" id="camera" hidden aria-labelledby="camTitle">
+    <div class="ph"><h2 id="camTitle">Camera</h2><span class="live" id="camLive"></span>
+      <button class="ico" id="camClose" title="Close the camera" aria-label="Close the camera">×</button></div>
+    <div class="frame"><img id="camImg" alt=""><p id="camNote" hidden></p></div>
+  </section>
+
   <div class="mapctl">
     <div class="glass">
       <button class="ico" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
@@ -294,9 +318,12 @@
   const TARGET_TRAIL_S = 20;     // where the attack saw the target, shown this long
   const VELOCITY_LEAD_S = 2;     // the commanded velocity arrow: where the drone is in 2 s
   const HISTORY = 120;           // sparkline samples, one per poll: 24 s
+  const CAMERA_STALE_S = 2;      // no new camera image for this long: shown as stale
+  const BLANK = 'data:image/gif;base64,R0lGODlhAQABAAAAACw=';  // setting this ends a camera stream
   const ENGAGED = ['intercept', 'target lost', 'hit'];  // statuses that put a drone's card on top
   const TAGS = { searching: 'searching', intercept: 'intercept', 'target lost': 'lost', hit: 'hit', 'no link': 'nolink' };
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const CAM = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="4" width="9.5" height="8" rx="1.5"/><path d="M11 7l3.5-2v6L11 9"/></svg>`;
   // A quadcopter from above, nose up: X arms, four rotor rings, a body pointed at the nose.
   const QUAD = `<svg class="quad" viewBox="0 0 48 48" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
     <path d="M14.5 14.5l19 19M33.5 14.5l-19 19"/>
@@ -672,11 +699,17 @@
       let el = box.querySelector(`[data-id="${d.id}"]`);
       if (!el) {
         el = document.createElement('article'); el.dataset.id = d.id;
-        el.innerHTML = `<div class="top"><div class="id">${d.hostile ? MARK : QUAD}<div><h3 class="nm"></h3><span class="tag"></span></div></div></div><div class="sub"></div>
+        el.innerHTML = `<div class="top"><div class="id">${d.hostile ? MARK : QUAD}<div><h3 class="nm"></h3><span class="tag"></span></div></div>${d.hostile ? '' : `<button class="ico cam" aria-pressed="false">${CAM}</button>`}</div><div class="sub"></div>
           <div class="big"><div><span class="label lbl"></span><b></b></div><canvas class="dial"></canvas></div>
           <div class="metrics" hidden></div><canvas class="spark"></canvas><div class="kv"></div>`;
       }
       el.querySelector('.nm').textContent = callsign(d);
+      const camBtn = el.querySelector('.cam');
+      if (camBtn) {
+        camBtn.onclick = () => showCamera(camId === d.id ? null : d.id);
+        camBtn.setAttribute('aria-pressed', String(camId === d.id));
+        { const t = `${camId === d.id ? 'Close' : 'Show'} drone ${d.id}'s camera`; camBtn.title = t; camBtn.setAttribute("aria-label", t); }
+      }
       box.appendChild(el);  // keeps the order
       const focus = !d.hostile && ENGAGED.includes(d.status);
       el.className = 'card glass' + (focus ? ' focus' : '') + (d.hostile ? (spotted ? ' hostile' : ' unknown') : '') + (stale(d) ? ' stale' : '');
@@ -706,6 +739,35 @@
         : `<span>spd <b>${fmt(d.speed, '', 1)}</b></span><span title="Gimbal heading, pitch ${fmt(d.gimbal_pitch_deg, '°')}; ${inArea ? 'inside' : 'outside'} the search sector">gmb <b style="${d.gimbal_heading_deg != null && !inArea ? 'color:var(--warn)' : ''}">${fmt(d.gimbal_heading_deg, '°')}</b></span><span>msg <b>${age}</b></span>`;
     }
     for (const el of [...box.children]) if (!server.drones.some(d => String(d.id) === el.dataset.id)) el.remove();
+  }
+
+  // ---- camera -------------------------------------------------------------------------
+  // One drone's camera at a time, streamed by the UI node (/camera/<id>.mjpg) only while open.
+  let camId = null, camRetry = null;
+  try { const v = localStorage.getItem('hive.camera'); camId = v ? Number(v) : null; } catch (e) { /* no storage */ }
+  function showCamera(id) {
+    camId = id; clearTimeout(camRetry);
+    try { localStorage.setItem('hive.camera', id == null ? '' : String(id)); } catch (e) { /* no storage */ }
+    $('camera').hidden = id == null;
+    $('camImg').src = id == null ? BLANK : `/camera/${id}.mjpg?t=${Date.now()}`;
+    if (id != null) $('camTitle').textContent = `Drone ${id} · camera`;
+    if (server) { renderCards(); renderCamera(); }
+  }
+  $('camClose').onclick = () => showCamera(null);
+  $('camImg').onerror = () => {  // the UI node restarted or the stream broke: try again
+    if (camId == null) return;
+    const id = camId; clearTimeout(camRetry);
+    camRetry = setTimeout(() => { if (camId === id) $('camImg').src = `/camera/${id}.mjpg?t=${Date.now()}`; }, 2000);
+  };
+  function renderCamera() {
+    if (camId == null) return;
+    const d = server.drones.find(o => o.id === camId);
+    if (!d) { showCamera(null); return; }
+    const age = d.camera_age_s, live = $('camLive'), note = $('camNote');
+    live.className = 'live' + (age == null ? '' : age < CAMERA_STALE_S ? ' ok' : ' warn');
+    live.textContent = age == null ? 'no picture' : age < CAMERA_STALE_S ? '● live' : `${age.toFixed(0)} s old`;
+    note.hidden = age != null;
+    note.textContent = `No picture from drone ${d.id}. The camera comes from its detector, with the boxes drawn on it, so it shows only while the detector runs on this drone.`;
   }
 
   function renderSummary() {
@@ -881,7 +943,7 @@
       spotted = isSpotted(next.drones);
       $('linkDot').classList.add('ok');
       $('linkText').textContent = `${server.drones.length} drone${server.drones.length === 1 ? '' : 's'} · ${Math.round(1000 / POLL_MS)} Hz`;
-      takeEvents(server.events); syncMap(); syncForm(); renderCards(); renderSummary();
+      takeEvents(server.events); syncMap(); syncForm(); renderCards(); renderCamera(); renderSummary();
       if (REDUCED) draw();
     } catch (e) {
       $('linkDot').classList.remove('ok'); $('linkText').textContent = 'no connection to the UI node';
@@ -896,6 +958,7 @@
   $('legendQuad').insertAdjacentHTML('afterbegin', QUAD);
   resize();
   setCollapsed(evCollapsed);
+  showCamera(camId);
   poll();
   if (!REDUCED) requestAnimationFrame(frame);
 })();

@@ -229,6 +229,8 @@ def world_confirmer(k: int = 3, gate_deg: float = 10.0) -> Confirmer:
     """Confirmation by world direction: the gate is an angle."""
     return Confirmer(k=k, gate=math.radians(gate_deg), distance=angle_between)
 
+BRIDGE_CHECK_S = 2.0  # how often to check a borrowed camera bridge still runs
+
 
 def camera_already_bridged(node, topic: str, wait_s: float = 2.0) -> bool:
     """True if something (e.g. `mount-backend.sh view`) already publishes this ROS topic.
@@ -457,6 +459,20 @@ class LiveDetector:
         node.create_subscription(Image, self.camera.ros_topic, self._on_image,
                                  qos_profile_sensor_data)
         node.create_timer(1.0 / rate_hz, self._process)
+        self._node = node
+        if self._bridge is None:
+            node.create_timer(BRIDGE_CHECK_S, self._keep_bridged)
+
+    def _keep_bridged(self) -> None:
+        """While another program's bridge (`view`) brings the camera, check it still runs:
+        when it is closed, start our own, so closing RViz does not stop the detector."""
+        if self._bridge is not None or self._node.count_publishers(self.camera.ros_topic) > 0:
+            return
+        self._node.get_logger().info(
+            f'The camera bridge for {self.camera.ros_topic} is gone (view closed?); '
+            'starting our own')
+        self._bridge = start_bridge(bridge_config([self.camera]),
+                                    f'detect_bridge_{self.drone_id}')
 
     def close(self) -> None:
         if self._bridge is not None:
@@ -763,8 +779,8 @@ def main(argv: list[str] | None = None) -> int:
               f'{args.lock_timeout:g} s unseen)' if args.lock else 'off (best score in every image)')
           + f'\n  own airframe ignored: {"yes" if live.body_mask else "no"}')
     if live._bridge is None:
-        print('  using the camera bridge another program (e.g. view) already runs: '
-              'closing that stops the images here too')
+        print('  using the camera bridge another program (e.g. view) already runs; '
+              'if it is closed, the detector starts its own')
     if args.save:
         print(f'  saving images to {args.save}')
     print('Running. Ctrl-C to stop.')
