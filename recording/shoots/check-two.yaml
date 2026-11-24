@@ -1,0 +1,7 @@
+# Check of the two-hostile scenario on Stellar (Demo scenarios plan, Task 9): one pair.
+# recording/shoot.sh recording/shoots/check-two.yaml --name check-two --fresh-sim
+- name: two-hostiles
+  run: scenarios/trial.sh 1 --hostiles 2
+  config: /workspace/ros2_ws/src/swarm_backend/scenarios/surveillance2.yaml
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 0

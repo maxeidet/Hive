@@ -45,3 +45,13 @@ def test_label_adds_the_label_system():
 def test_flying_birds_are_the_ones_the_generators_use():
     assert set(birds.FLYING) == {'dove', 'seagull', 'gull', 'eagle', 'soaring_bird'}
     assert all(0.3 < birds.KINDS[k].span < 2.5 for k in birds.FLYING)
+
+
+def test_flying_birds_are_dynamic_so_the_pose_log_sees_them():
+    # Static models are not in Gazebo's dynamic_pose/info, which the pose log (posesrec) and
+    # so the films' map and labels read: the scenarios' birds are kinematic, without gravity.
+    model = ET.fromstring(birds.bird_sdf('bird_1', birds.KINDS['dove'], dynamic=True)).find('model')
+    assert model.find('static').text == 'false'
+    link = model.find('link')
+    assert link.find('kinematic').text == 'true' and link.find('gravity').text == 'false'
+    assert model.find('link/collision') is None

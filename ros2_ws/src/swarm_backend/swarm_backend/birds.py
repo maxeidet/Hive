@@ -71,9 +71,11 @@ def yaw_quaternion(heading: float) -> tuple[float, float, float, float]:
     return 0.0, 0.0, math.sin(angle / 2), math.cos(angle / 2)
 
 
-def bird_sdf(name: str, kind: Kind, label: int | None = None) -> str:
-    """A static, collision-free model that shows the bird's mesh. `label`: a class number
-    for Gazebo's bounding-box and segmentation cameras (the Label system), or None."""
+def bird_sdf(name: str, kind: Kind, label: int | None = None, dynamic: bool = False) -> str:
+    """A collision-free model that shows the bird's mesh. `label`: a class number for
+    Gazebo's bounding-box and segmentation cameras (the Label system), or None. `dynamic`:
+    not static but a kinematic link without gravity (it still stays where set_pose puts it),
+    so it is in dynamic_pose/info, which the scenarios' pose log reads (demo/poselog.py)."""
     s = kind.scale
     plugin = '' if label is None else (
         '\n    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">'
@@ -81,8 +83,10 @@ def bird_sdf(name: str, kind: Kind, label: int | None = None) -> str:
     return f'''<?xml version="1.0"?>
 <sdf version="1.9">
   <model name="{name}">
-    <static>true</static>{plugin}
-    <link name="body">
+    <static>{'false' if dynamic else 'true'}</static>{plugin}
+    <link name="body">{'''
+      <kinematic>true</kinematic>
+      <gravity>false</gravity>''' if dynamic else ''}
       <visual name="visual">
         <pose>0 0 0 {kind.roll} 0 {kind.yaw}</pose>
         <geometry>
@@ -126,8 +130,8 @@ class Gazebo:
         return bool(ok and reply.data)
 
     def spawn(self, name: str, kind: Kind, north: float, east: float, up: float,
-              heading: float = 0.0, label: int | None = None) -> bool:
-        return self.spawn_sdf(name, bird_sdf(name, kind, label), north, east, up, heading)
+              heading: float = 0.0, label: int | None = None, dynamic: bool = False) -> bool:
+        return self.spawn_sdf(name, bird_sdf(name, kind, label, dynamic), north, east, up, heading)
 
     def spawn_sdf(self, name: str, sdf: str, north: float, east: float, up: float,
                   heading: float = 0.0) -> bool:
@@ -300,7 +304,8 @@ def fly_plan(plan: dict, step_s: float = 0.1) -> None:
         time.sleep(1.0)
         t = 0.0 if now['t'] is None else now['t'] - t0
         failed = [b['name'] for b in birds
-                  if not gazebo.spawn(b['name'], KINDS[b['kind']], *bird_pose(b, t))]
+                  if not gazebo.spawn(b['name'], KINDS[b['kind']], *bird_pose(b, t),
+                                      dynamic=True)]  # in dynamic_pose/info: the pose log
         # Gazebo sometimes answers false and creates the model anyway: every bird is moved
         # and removed whatever it answered.
         print(f'{len(birds)} birds spawned' + (f' (Gazebo answered false for {failed})'
