@@ -1,0 +1,20 @@
+# Every path at every altitude, with more runs where they matter. Fly it with
+#   scenarios/schedule.sh paths_altitudes            (--dry-run to see the commands first)
+# Keys: see scenarios/schedule.py. Altitudes are metres relative to the defenders (40 m).
+name: paths_altitudes
+defaults:
+  setup: yolo-bytetrack-mpc   # or baseline
+  sector: 2                   # the hostile starts in drone 2's sector
+  speed: 4
+  altitudes: [-10, 0, 10]
+  runs: 3                     # per altitude
+steps:
+  - path: straight
+    runs: {-10: 2, 0: 5, 10: 2}
+  - path: weave
+    amplitude: 5
+  - path: weave
+    amplitude: 15
+  - path: zigzag
+    amplitude: 15
+    runs: 2

@@ -357,6 +357,58 @@ def test_single_refused_while_a_scenario_runs(server, tmp_path):
     flying.stop(grace_s=1.0)
 
 
+def load_schedule_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        'schedule', dev_gui.BACKEND_DIR / 'scenarios' / 'schedule.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_schedule_writes_a_file_schedule_py_reads(tmp_path):
+    req = {'setup': 'baseline', 'steps': [
+        {'path': 'straight', 'runs': {'-10': 2, '0': 5, '10': '0'}},
+        {'path': 'zigzag_15m', 'runs': {'-10': 1, '0': 1, '10': 1}},
+        {'path': 'straight', 'runs': {'0': 1}}]}
+    argv, title, yolo = dev_gui.schedule_argv(req, models_dir=tmp_path, schedule_dir=tmp_path)
+    assert argv[0].endswith('scenarios/schedule.sh')
+    assert argv[2:] == ['--spawn-at-slots', '--restart-each-run']
+    assert not yolo and '3 steps, 11 runs' in title
+    name, steps = load_schedule_module().load(Path(argv[1]))
+    assert [s['label'] for s in steps] == ['straight', 'zigzag_15m', 'straight_2']
+    assert steps[0]['groups'] == {-10.0: 2, 0.0: 5}  # 0 runs: the altitude is skipped
+    assert steps[1]['path'] == 'zigzag' and float(steps[1]['amplitude']) == 15
+    assert steps[0]['setup'] == 'baseline'
+    argv, _, _ = dev_gui.schedule_argv({**req, 'sim': True, 'spawn_at_slots': False},
+                                       models_dir=tmp_path, schedule_dir=tmp_path)
+    assert argv[2:] == ['--sim']
+
+
+@pytest.mark.parametrize('req', [
+    {'setup': 'magic', 'steps': [{'path': 'straight', 'runs': {'0': 1}}]},
+    {'setup': 'baseline', 'steps': []},
+    {'setup': 'baseline', 'steps': [{'path': 'loop', 'runs': {'0': 1}}]},
+    {'setup': 'baseline', 'steps': [{'path': 'straight', 'runs': {'0': 0}}]},
+    {'setup': 'baseline', 'steps': [{'path': 'straight', 'runs': {'0': '-1'}}]},
+    {'setup': 'baseline', 'steps': [{'path': 'straight', 'runs': {'0': '1; rm'}}]},
+    {'setup': 'baseline', 'steps': [{'path': 'straight', 'runs': {'0': 500}}]},
+])
+def test_schedule_rejects_bad_values(req, tmp_path):
+    with pytest.raises(dev_gui.BadRequest):
+        dev_gui.schedule_argv(req, models_dir=tmp_path, schedule_dir=tmp_path)
+    assert not list(tmp_path.glob('*.yaml'))
+
+
+def test_schedule_refused_while_a_scenario_runs(server, tmp_path):
+    app, base = server
+    flying = app.jobs.start('single', 'flying', ['sleep', '10'], tmp_path)
+    code, body = call(base + '/api/jobs', {'kind': 'schedule', 'setup': 'baseline', 'sim': True,
+                                           'steps': [{'path': 'straight', 'runs': {'0': 1}}]})
+    assert code == 400 and 'already running' in body['error']
+    flying.stop(grace_s=1.0)
+
+
 def test_job_env(tmp_path):
     job = dev_gui.JobManager().start('backend', 'e', [sys.executable, '-c', 'import os; print(os.environ["SWARM_CONFIG"])'],
                                      tmp_path, env={'SWARM_CONFIG': '/x/surveillance.yaml'})

@@ -49,6 +49,15 @@
   .links { margin-top: 10px; font-size: 12px; display: grid; gap: 3px; }
   .links a { color: var(--accent); }
   .quick { display: grid; gap: 6px; }
+  /* Schedule: one row per step, runs per hostile altitude (0 skips it) */
+  .steps { display: grid; gap: 6px; }
+  .steps .head, .steps .step { display: grid; grid-template-columns: 18px minmax(0, 1fr) repeat(3, 44px) 26px; gap: 5px; align-items: center; }
+  .steps .head { font-size: 10px; color: var(--muted); text-align: center; }
+  .steps .head span:nth-child(2) { text-align: left; }
+  .steps .step > b { font: 11px var(--mono); color: var(--faint); text-align: center; }
+  .steps .step input { text-align: center; padding-left: 2px; padding-right: 2px; }
+  .steps .step button { padding: 0; height: 26px; color: var(--muted); }
+  .steps .empty { color: var(--faint); font-size: 12px; }
   .quick button { text-align: left; padding: 8px 12px; }
   .quick button small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
   .views { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -126,6 +135,19 @@
       <label class="check"><input type="checkbox" id="g-sim"> --sim (fast simulation, no Gazebo)</label>
       <div class="buttons"><button class="primary" id="g-run">Run</button></div>
       <div class="muted" id="single-note" style="font-size:11px;margin-top:6px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Schedule</h2>
+      <div class="steps" id="h-steps"></div>
+      <div class="buttons" style="margin-top:8px"><button id="h-add">+ Add step</button></div>
+      <label for="h-setup">Setup</label>
+      <select id="h-setup"></select>
+      <label class="check" title="Off: they start in the camp and fly 150 m out first"><input type="checkbox" id="h-slots" checked> Defenders start below their slots (only climb)</label>
+      <label class="check" title="Opens once drone 2 is in Gazebo, and stays open through the restarts between runs"><input type="checkbox" id="h-rviz" checked> Open RViz for drone 2 (detection boxes)</label>
+      <label class="check"><input type="checkbox" id="h-sim"> --sim (fast simulation, no Gazebo)</label>
+      <div class="buttons"><button class="primary" id="h-run">Run schedule</button></div>
+      <div class="muted" id="h-note" style="font-size:11px;margin-top:6px"></div>
     </div>
 
     <div class="card">
@@ -298,6 +320,8 @@ async function init() {
   pairs($('g-path'), config.single.paths);
   pairs($('g-setup'), config.single.setups);
   pairs($('g-alt'), config.single.altitudes);
+  pairs($('h-setup'), config.single.setups);
+  loadSchedule();
   fill($('s-name'), config.scenarios, s => s.type === 'module' ? `${s.name}  (mount-backend.sh scenario)` : s.name);
   $('s-name').onchange = () => {
     const s = config.scenarios.find(x => x.name === $('s-name').value);
@@ -397,7 +421,7 @@ let lastStatus = null;
 
 // A running scenario of this page: one at a time, they share the drones.
 function scenarioJob() {
-  return jobs.find(j => ['scenario', 'quick', 'single'].includes(j.kind) && j.running);
+  return jobs.find(j => ['scenario', 'quick', 'single', 'schedule'].includes(j.kind) && j.running);
 }
 
 function renderSingle(s) {
@@ -419,6 +443,94 @@ async function startSingle(confirmBooking = false) {
   await runJob({kind: 'single', path: $('g-path').value, setup: $('g-setup').value,
                 altitude: $('g-alt').value, runs: $('g-runs').value.trim(),
                 spawn_at_slots: $('g-slots').checked, rviz: $('g-rviz').checked,
+                sim, confirm_booking: confirmBooking});
+}
+
+// ---- schedule: steps flown one after the other (scenarios/schedule.sh) ----------------
+// Each step is a path and a number of runs for each hostile altitude (below, level, above
+// the defenders); 0 skips that altitude. Kept in this browser between visits.
+const ALT_NAMES = {'-10': 'below', '0': 'level', '10': 'above'};
+let schedule = [];
+
+function loadSchedule() {
+  try { schedule = JSON.parse(localStorage.getItem('devgui.schedule') || 'null'); } catch (e) { schedule = null; }
+  if (!Array.isArray(schedule) || !schedule.length) {
+    schedule = config.single.paths.map(([path]) => ({path, runs: {'-10': 3, '0': 3, '10': 3}}));
+  }
+  try { const setup = localStorage.getItem('devgui.scheduleSetup'); if (setup) $('h-setup').value = setup; } catch (e) { /* no storage */ }
+  drawSchedule();
+}
+
+function saveSchedule() {
+  try {
+    localStorage.setItem('devgui.schedule', JSON.stringify(schedule));
+    localStorage.setItem('devgui.scheduleSetup', $('h-setup').value);
+  } catch (e) { /* no storage */ }
+}
+
+const scheduleRuns = () => schedule.reduce((n, st) => n + config.schedule.altitudes.reduce((m, a) => m + (parseInt(st.runs[a], 10) || 0), 0), 0);
+
+function drawSchedule() {
+  const box = $('h-steps');
+  box.innerHTML = '';
+  if (!schedule.length) {
+    box.innerHTML = '<div class="empty">No steps: add one.</div>';
+  } else {
+    const head = document.createElement('div');
+    head.className = 'head';
+    head.innerHTML = '<span></span><span>Path · runs per altitude</span>' +
+      config.schedule.altitudes.map(a => `<span title="${a} m relative to the defenders">${ALT_NAMES[a]}</span>`).join('') + '<span></span>';
+    box.appendChild(head);
+  }
+  schedule.forEach((step, i) => {
+    const row = document.createElement('div');
+    row.className = 'step';
+    const num = document.createElement('b'); num.textContent = i + 1;
+    const path = document.createElement('select');
+    fill(path, config.single.paths.map(([v]) => v), v => Object.fromEntries(config.single.paths)[v]);
+    path.value = step.path;
+    path.setAttribute('aria-label', `Step ${i + 1} path`);
+    path.onchange = () => { step.path = path.value; saveSchedule(); };
+    row.append(num, path);
+    for (const a of config.schedule.altitudes) {
+      const runs = document.createElement('input');
+      runs.type = 'text'; runs.inputMode = 'numeric'; runs.value = step.runs[a] ?? 0;
+      { const t = `Step ${i + 1}: runs ${ALT_NAMES[a]} the defenders (0 skips it)`; runs.title = t; runs.setAttribute("aria-label", t); }
+      runs.oninput = () => { step.runs[a] = runs.value.trim(); saveSchedule(); lastStatus && renderSchedule(lastStatus); };
+      row.appendChild(runs);
+    }
+    const del = document.createElement('button');
+    del.textContent = '×'; del.title = `Remove step ${i + 1}`; del.setAttribute('aria-label', del.title);
+    del.onclick = () => { schedule.splice(i, 1); saveSchedule(); drawSchedule(); };
+    row.appendChild(del);
+    box.appendChild(row);
+  });
+  $('h-add').disabled = schedule.length >= config.schedule.max_steps;
+  if (lastStatus) renderSchedule(lastStatus);
+}
+
+function renderSchedule(s) {
+  const sim = $('h-sim').checked;
+  const busy = scenarioJob();
+  const noWeights = $('h-setup').value !== 'baseline' && !sim && !s.has_weights;
+  const runs = scheduleRuns();
+  $('h-run').disabled = !!busy || (!sim && !s.gazebo) || noWeights || !runs;
+  $('h-note').textContent = busy ? `Running: ${busy.title}.`
+    : !sim && !s.gazebo ? 'Start the container (Gazebo) first, or tick --sim.'
+    : noWeights ? 'No YOLO weights in models/ yet (see the YOLO weights light).'
+    : !runs ? 'Give a step some runs.'
+    : `${schedule.length} step${schedule.length === 1 ? '' : 's'}, ${runs} run${runs === 1 ? '' : 's'}` +
+      (sim ? '.' : `, about ${(runs * 5 / 60).toFixed(1)} h in Gazebo. Results in data/schedules/; Stop ends it after the drones land.`);
+}
+
+async function startSchedule(confirmBooking = false) {
+  const sim = $('h-sim').checked;
+  if (!sim && !confirmBooking && pre && pre.booking.blocks) {
+    if (!confirm(`The machine is booked by ${pre.booking.account || 'someone else'}. Have you asked, and start anyway?`)) return;
+    return startSchedule(true);
+  }
+  await runJob({kind: 'schedule', steps: schedule, setup: $('h-setup').value,
+                spawn_at_slots: $('h-slots').checked, rviz: $('h-rviz').checked,
                 sim, confirm_booking: confirmBooking});
 }
 
@@ -539,6 +651,7 @@ async function refreshStatus() {
   lastStatus = s;
   renderQuick(s);
   renderSingle(s);
+  renderSchedule(s);
   const containerJob = jobs.find(j => j.kind === 'container' && j.running);
   $('start').disabled = !!containerJob;
   $('stop-container').disabled = !containerJob;
@@ -573,6 +686,13 @@ $('drone0').onchange = () => { $('model').disabled = !$('drone0').checked; };
 $('gui').onchange = () => { $('gzwin').disabled = $('gui').value === 'headless'; };
 $('q-sim').onchange = () => lastStatus && renderQuick(lastStatus);
 $('g-run').onclick = () => startSingle();
+$('h-run').onclick = () => startSchedule();
+$('h-add').onclick = () => {
+  const last = schedule[schedule.length - 1];
+  schedule.push(last ? {path: last.path, runs: {...last.runs}} : {path: 'straight', runs: {'-10': 3, '0': 3, '10': 3}});
+  saveSchedule(); drawSchedule();
+};
+for (const id of ['h-sim', 'h-setup']) $(id).onchange = () => { saveSchedule(); lastStatus && renderSchedule(lastStatus); };
 for (const id of ['g-sim', 'g-setup']) $(id).onchange = () => lastStatus && renderSingle(lastStatus);
 $('recheck').onclick = loadPreflight;
 $('stop-container').onclick = async () => {

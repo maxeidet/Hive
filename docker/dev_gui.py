@@ -410,6 +410,88 @@ def single_argv(req: dict, backend_dir: Path = BACKEND_DIR,
     return argv, title + (' (--sim)' if sim else ''), yolo
 
 
+# A schedule (scenarios/schedule.py) built in the page: steps of a path, each altitude
+# with its own number of runs (0 skips it). Written as YAML to SCHEDULE_DIR, then flown by
+# scenarios/schedule.sh like the single runs: defenders below their slots, a fresh Gazebo
+# world for every run.
+SCHEDULE_PATHS = {'straight': {'path': 'straight'},
+                  'weave_5m': {'path': 'weave', 'amplitude': 5},
+                  'weave_15m': {'path': 'weave', 'amplitude': 15},
+                  'zigzag_15m': {'path': 'zigzag', 'amplitude': 15}}
+SCHEDULE_ALTITUDES = ('-10', '0', '10')
+MAX_SCHEDULE_STEPS = 20
+MAX_SCHEDULE_RUNS = 200  # in all
+SCENARIO_KINDS = ('scenario', 'quick', 'single', 'schedule')  # one at a time: they share the drones
+
+
+def schedule_argv(req: dict, backend_dir: Path = BACKEND_DIR, models_dir: Path = MODELS_DIR,
+                  schedule_dir: Path | None = None) -> tuple[list[str], str, bool]:
+    """Write the page's schedule as YAML and return (argv for schedule.sh, title, uses YOLO)."""
+    setup = req.get('setup')
+    if setup not in dict(SINGLE_SETUPS):
+        raise BadRequest(f'unknown setup: {setup!r}')
+    raw = req.get('steps')
+    if not isinstance(raw, list) or not raw:
+        raise BadRequest('add at least one step')
+    if len(raw) > MAX_SCHEDULE_STEPS:
+        raise BadRequest(f'at most {MAX_SCHEDULE_STEPS} steps')
+    steps, total, seen = [], 0, {}
+    for i, step in enumerate(raw, 1):
+        if not isinstance(step, dict) or step.get('path') not in SCHEDULE_PATHS:
+            raise BadRequest(f'step {i}: unknown path')
+        runs = step.get('runs')
+        if not isinstance(runs, dict):
+            raise BadRequest(f'step {i}: runs per altitude missing')
+        per_alt = {}
+        for alt in SCHEDULE_ALTITUDES:
+            try:
+                n = int(runs.get(alt) or 0)
+            except (TypeError, ValueError) as e:
+                raise BadRequest(f'step {i}: runs must be numbers') from e
+            if n < 0:
+                raise BadRequest(f'step {i}: runs must be 0 or more')
+            if n:
+                per_alt[int(alt)] = n
+        if not per_alt:
+            raise BadRequest(f'step {i}: give at least one altitude a run')
+        total += sum(per_alt.values())
+        label = step['path']
+        seen[label] = seen.get(label, 0) + 1
+        if seen[label] > 1:  # the same path again: its own folder
+            label = f'{label}_{seen[label]}'
+        steps.append({**SCHEDULE_PATHS[step['path']], 'label': label, 'runs': per_alt})
+    if total > MAX_SCHEDULE_RUNS:
+        raise BadRequest(f'{total} runs: at most {MAX_SCHEDULE_RUNS} in one schedule')
+    sim = bool(req.get('sim'))
+    yolo = setup != 'baseline'
+    if yolo and not sim and not has_weights(models_dir):
+        raise BadRequest('no YOLO weights in models/ yet: wait for the download (the YOLO '
+                         'weights light), or pick the baseline')
+    schedule_dir = schedule_dir or REPO / 'data' / 'schedules' / 'dev_gui'
+    schedule_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime('%Y-%m-%d_%H%M%S')
+    file = schedule_dir / f'{stamp}.yaml'
+    lines = ['# Built in the dev GUI.', 'name: dev_gui', 'defaults:', f'  setup: {setup}',
+             '  sector: 2', '  speed: 4', 'steps:']
+    for step in steps:
+        lines.append(f'  - path: {step["path"]}')
+        if 'amplitude' in step:
+            lines.append(f'    amplitude: {step["amplitude"]}')
+        lines.append(f'    label: {step["label"]}')
+        lines.append('    runs: {' + ', '.join(f'{a}: {n}' for a, n in step['runs'].items()) + '}')
+    file.write_text('\n'.join(lines) + '\n')
+    args = [str(file)]
+    if req.get('spawn_at_slots', True):
+        args.append('--spawn-at-slots')
+    if not sim:
+        args.append('--restart-each-run')
+    argv, _ = scenario_argv({'name': 'schedule.sh', 'args': shlex.join(args), 'sim': sim},
+                            backend_dir)
+    title = (f'schedule: {len(steps)} step{"s" if len(steps) > 1 else ""}, {total} '
+             f'run{"s" if total > 1 else ""}, {setup}' + (' (--sim)' if sim else ''))
+    return argv, title, yolo
+
+
 def has_weights(models_dir: Path = MODELS_DIR) -> bool:
     """Whether the YOLO detector has weights to load (it takes the newest models/**/*.onnx)."""
     return models_dir.is_dir() and any(models_dir.rglob('*.onnx'))
@@ -668,6 +750,7 @@ class DevGui:
         self.darwin = darwin
         self.docker_dir, self.backend_dir, self.repo = docker_dir, backend_dir, repo
         self.models_dir = models_dir
+        self.schedule_dir = repo / 'data' / 'schedules' / 'dev_gui'
         self.jobs = JobManager()
         self.ui_port = int(os.environ.get('HOST_UI_PORT', '8090'))  # as in start-stellar.sh
         self.status = StatusPoller(self.ui_port, on_update=self.auto_views)
@@ -681,7 +764,9 @@ class DevGui:
                 'ui_port': self.ui_port,
                 'quick': [{k: q[k] for k in ('id', 'label', 'about', 'yolo')} for q in QUICK_STARTS],
                 'single': {'paths': SINGLE_PATHS, 'setups': SINGLE_SETUPS,
-                           'altitudes': SINGLE_ALTITUDES, 'max_runs': MAX_SINGLE_RUNS}}
+                           'altitudes': SINGLE_ALTITUDES, 'max_runs': MAX_SINGLE_RUNS},
+                'schedule': {'altitudes': SCHEDULE_ALTITUDES, 'max_runs': MAX_SCHEDULE_RUNS,
+                             'max_steps': MAX_SCHEDULE_STEPS}}
 
     def start_job(self, req: dict) -> Job:
         kind = req.get('kind')
@@ -707,12 +792,8 @@ class DevGui:
         elif kind == 'scenario':
             argv, title = scenario_argv(req, self.backend_dir)
             cwd = self.backend_dir
-        elif kind in ('quick', 'single'):
-            if kind == 'quick':
-                argv, title, _ = quick_argv(req, self.backend_dir, self.models_dir)
-            else:
-                argv, title, _ = single_argv(req, self.backend_dir, self.models_dir)
-            if any(j.kind in ('scenario', 'quick', 'single') and j.running for j in self.jobs.all()):
+        elif kind in ('quick', 'single', 'schedule'):
+            if any(j.kind in SCENARIO_KINDS and j.running for j in self.jobs.all()):
                 raise BadRequest('a scenario is already running: two would fight over the drones')
             if not req.get('sim'):  # hours: a long job under the Stellar rules
                 book = booking(self.booking_path, getpass.getuser())
@@ -721,11 +802,18 @@ class DevGui:
                                      'confirm to start a long run anyway')
                 if not self.status.get()['gazebo']:
                     raise BadRequest('Gazebo is not running: start the container first (or tick --sim)')
+            if kind == 'quick':
+                argv, title, _ = quick_argv(req, self.backend_dir, self.models_dir)
+            elif kind == 'single':
+                argv, title, _ = single_argv(req, self.backend_dir, self.models_dir)
+            else:  # last: it writes the schedule file
+                argv, title, _ = schedule_argv(req, self.backend_dir, self.models_dir,
+                                               self.schedule_dir)
             cwd = self.backend_dir
         else:
             raise BadRequest(f'unknown job kind: {kind!r}')
         job = self.jobs.start(kind, title, argv, cwd, env)
-        if kind == 'single' and req.get('rviz', True) and not req.get('sim'):
+        if kind in ('single', 'schedule') and req.get('rviz', True) and not req.get('sim'):
             with self._auto_lock:
                 self._auto_views[job.id] = {'drone': SINGLE_RVIZ_DRONE, 'job': None, 'tries': 0}
         self.status.refresh()
