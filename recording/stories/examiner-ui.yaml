@@ -37,7 +37,7 @@ scenes:
   speed: 2
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - same flight
+- caption: Improved version - same flight
   take: head-on-1-ours/1
   from: release
   to: hit + 2
@@ -46,7 +46,7 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - through the attacking defender's own camera
+- caption: Improved version - through the attacking defender's own camera
   take: head-on-1-ours/1
   from: first_sighting - 3
   to: hit + 1
@@ -65,7 +65,7 @@ scenes:
   speed: 3
   insights: [seen_at, no_hit]
 
-- caption: Ours - same flight
+- caption: Improved version - same flight
   take: zigzag-1-ours/1
   from: release
   to: hit + 2
@@ -74,7 +74,7 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - the defender's own camera (left) and from behind it (right)
+- caption: Improved version - own camera (left), from behind (right)
   take: zigzag-1-ours/1
   from: first_sighting - 3
   to: hit + 1
@@ -93,7 +93,7 @@ scenes:
   speed: 2
   insights: [seen_at, no_hit]
 
-- caption: Ours - same birds, from behind (left) and wide (right)
+- caption: Improved version - same birds, from behind (left) and wide (right)
   take: birds-1-ours/1
   from: release
   to: hit + 2
@@ -102,7 +102,7 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - own camera (left) locks on the drone, birds in green (right)
+- caption: Improved version - own camera (left), birds in green (right)
   take: birds-1-ours/1
   from: first_sighting - 3
   to: hit + 1
@@ -121,18 +121,25 @@ scenes:
   speed: 3
   insights: [seen_at]
 
-- caption: Ours - two defenders, one at each hostile
+- caption: Improved version - one defender at each hostile, drone 3 first
   take: two-hostiles-1-ours/1
   from: first_sighting - 3
-  to: hit + 2
+  to: hit_2 + 2
   layout: side
   show: [chase, wide]
   speed: 1.5
 
-- caption: Ours - through both attackers' own cameras
+- caption: Improved version - the second intercept, from behind drone 1
   take: two-hostiles-1-ours/1
-  from: first_sighting - 3
-  to: hit + 1
-  layout: side
-  show: ["yolo:1", "yolo:3"]
+  from: hit_2 + 2
+  to: hit_1 + 2
+  layout: full
+  show: [chase]
   speed: 1.5
+
+- caption: Improved version - second intercept, drone 1's own camera
+  take: two-hostiles-1-ours/1
+  from: hit_1 - 10
+  to: hit_1 + 1
+  layout: full
+  show: ["yolo:1"]

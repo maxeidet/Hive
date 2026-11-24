@@ -202,7 +202,7 @@ def result_text(t: Take) -> str:
     return f'no hit, closest {c:.1f} m' if c is not None else 'no hit'
 
 
-SIDE_NAMES = {'ours': 'Ours', 'baseline': 'Baseline'}
+SIDE_NAMES = {'ours': 'Improved version', 'baseline': 'Baseline'}
 
 
 def compare_clip(ours: Resolved, base: Resolved, cuts, out: Path, preview: bool) -> Path:
@@ -583,10 +583,10 @@ def build(folder: Path, story_path: Path, preview: bool = False, skip_missing: b
                 W, H = PREVIEW if preview else FULL
                 image = bars_png(rates, 'Gazebo evaluation: hit rate',
                                  clip_dir / 'evidence_bars.png', (W // 3, H // 4))
-        clips.append(card_clip('Baseline vs. ours', lines, story.end_seconds,
+        clips.append(card_clip('Baseline vs. improved version', lines, story.end_seconds,
                                nxt('compare'), preview, image))
-        rows.append(('end', 'Baseline vs. ours', '-', '-', story.end_seconds,
-                     'Baseline vs. ours: ' + '; '.join(lines), []))
+        rows.append(('end', 'Baseline vs. improved version', '-', '-', story.end_seconds,
+                     'Baseline vs. improved version: ' + '; '.join(lines), []))
     if not clips:
         print('No scene left to build.')
         raise SystemExit(1)
