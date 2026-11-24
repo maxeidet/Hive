@@ -73,3 +73,13 @@ def test_resume_without_name(tmp_path):
         import shutil
         shutil.rmtree(folder, ignore_errors=True)
         y.unlink(missing_ok=True)
+
+
+def test_dry_run_fresh_sim(tmp_path):
+    # --fresh-sim: every run starts and stops its own sim, so a crashed defender (a real
+    # collision at a hit, check-birds 24 Nov) can only spoil its own run.
+    lines, y = dry(tmp_path, 'test-shoot-fresh', '--fresh-sim')
+    y.unlink()
+    rec = [line for line in lines if line.startswith('RECORD ')]
+    assert len(rec) == 3
+    assert not any('--keep-sim' in r or '--reuse-sim' in r for r in rec)

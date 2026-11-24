@@ -6,6 +6,8 @@
 #   recording/shoot.sh recording/shoots/demo.yaml --prescreen 30   pick random seeds in the fast sim
 #   recording/shoot.sh recording/shoots/demo.yaml --name demo-1     the folder (default yaml + date)
 #   recording/shoot.sh recording/shoots/demo.yaml --dry-run         print what it would do
+#   recording/shoot.sh recording/shoots/demo.yaml --fresh-sim       a sim of its own for every
+#                                                                   run (a crash spoils one run)
 #   recording/shoot.sh SHOOT.yaml -- --screen                       more record.sh options, every run
 #
 # Each run is one recording/record.sh into data/recordings/<shoot>/<run>/. Runs in a row with
@@ -23,12 +25,13 @@ CONTAINER="px4-gazebo-vnc"
 YAML="$1"; shift
 STEM="$(basename "${YAML%.yaml}")"
 NAME=""
-PRESCREEN=""; DRY=0; RECORD_OPTS=()
+PRESCREEN=""; DRY=0; FRESH=0; RECORD_OPTS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
     --prescreen) PRESCREEN="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
+    --fresh-sim) FRESH=1; shift ;;
     --) shift; RECORD_OPTS=("$@"); break ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -59,6 +62,7 @@ py() {
 }
 
 PLAN_ARGS=(-m swarm_backend.demo.shoot plan "/workspace/$REL_YAML")
+[ "$FRESH" = 1 ] && PLAN_ARGS+=(--fresh-sim)
 if [ -n "$PRESCREEN" ]; then
   if [ "$DRY" = 1 ]; then echo "PRESCREEN: $PRESCREEN candidates per random entry in the fast sim"
   else

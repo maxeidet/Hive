@@ -42,7 +42,7 @@ CONTAINER="px4-gazebo-vnc"
 CONFIG="${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml}"
 
 NAME="$(date +%Y%m%d-%H%M%S)"
-SCREEN=0; WATCH=0; YOLO=1; CAMERAS="attacker_watch"; EXPORT=""; KEEP_SIM=0; DRY=0; REUSE=0; PAIR=""
+SCREEN=0; WATCH=0; YOLO=1; CAMERAS="attacker_watch"; EXPORT=""; KEEP_SIM=0; KEEP_NEXT=0; DRY=0; REUSE=0; PAIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
     --no-cameras) CAMERAS=""; shift ;;
     --no-yolo) YOLO=0; shift ;;
     --export) EXPORT="$2"; shift 2 ;;
-    --keep-sim) KEEP_SIM=1; shift ;;
+    --keep-sim) KEEP_SIM=1; KEEP_NEXT=1; shift ;;
     --reuse-sim) REUSE=1; shift ;;
     --pair) PAIR="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
@@ -135,7 +135,7 @@ stop_part() {
     # The defenders land only when the sim is kept for the next run (--keep-sim). Otherwise
     # the sim is shut down right after, and landing at the slow sim's pace took minutes.
     scenario)
-      if [ "$KEEP_SIM" = 1 ]; then how="Ctrl-C, wait up to 300 s for the defenders to land"; wait=300
+      if [ "$KEEP_NEXT" = 1 ]; then how="Ctrl-C, wait up to 300 s for the defenders to land"; wait=300
       else how="Ctrl-C, wait up to 20 s (no landing: the sim is shut down next)"; wait=20; fi ;;
     sim) how="type shutdown at pxh>, wait up to 120 s for the container to go, then docker rm -f" ;;
     session) how="tmux kill-session -t $SESSION" ;;
@@ -252,7 +252,8 @@ fi
 trap on_int INT TERM HUP
 
 if [ "$REUSE" = 1 ]; then
-  KEEP_SIM=1  # it belongs to the shoot, not to this run
+  KEEP_SIM=1  # it belongs to the shoot, not to this run (the shoot stops it; KEEP_NEXT
+              # says whether a next run needs it, with the defenders landed)
   wait_cmd sim "drone 0 (kept sim) connected to ROS" 120 dds_connected
 else
   if [ "$DRY" = 1 ]; then echo "START session: tmux new-session -d -s $SESSION"
@@ -329,7 +330,8 @@ fi
 # Quick end: the surveillance scenarios log LAST_LINE once their last engagement is over
 # (stop_and_land), then fly the defenders home and land them: minutes at the slow sim's pace,
 # for nothing when the sim is shut down next. So after AFTER_S more sim seconds (the story's
-# aftermath) the run stops there. Not with --keep-sim: the next run needs them landed.
+# aftermath) the run stops there. Not with --keep-sim: the next run needs them landed (a
+# reused sim without --keep-sim is the shoot's last run in it: the shoot stops it next).
 LAST_LINE='Defenders back to their slots'
 AFTER_S=15
 sim_now() { tail -n 1 "$REPO/$RUN/ui.jsonl" 2>/dev/null | grep -o '"sim": *[0-9.]*' | grep -o '[0-9.]*$'; }
@@ -337,7 +339,7 @@ sim_now() { tail -n 1 "$REPO/$RUN/ui.jsonl" 2>/dev/null | grep -o '"sim": *[0-9.
 start_part scenario "cd $SB && SWARM_CONFIG=$CONFIG $SCENARIO_CMD"
 if [ "$DRY" = 1 ]; then
   echo "WAIT scenario: until it ends; every 5 s check that every part still runs"
-  [ "$KEEP_SIM" = 1 ] || echo "WAIT scenario: or ${AFTER_S} sim s after '$LAST_LINE' (its last engagement), then stop: no landing"
+  [ "$KEEP_NEXT" = 1 ] || echo "WAIT scenario: or ${AFTER_S} sim s after '$LAST_LINE' (its last engagement), then stop: no landing"
 else
   say "Flying: $SCENARIO (log: $(log_of scenario))"
   LAST_AT=""
@@ -346,7 +348,7 @@ else
       [ "$p" = scenario ] || [ "$p" = session ] && continue
       ended "$p" && fail "$p stopped during the run (log: $(log_of "$p"))"
     done
-    if [ "$KEEP_SIM" = 0 ]; then
+    if [ "$KEEP_NEXT" = 0 ]; then
       if [ -z "$LAST_AT" ] && grep -aq "$LAST_LINE" "$(log_of scenario)"; then
         LAST_AT=$(sim_now); LAST_AT=${LAST_AT:-0}
         say "Last engagement over (sim ${LAST_AT} s): ${AFTER_S} sim s more for the aftermath, then stop"

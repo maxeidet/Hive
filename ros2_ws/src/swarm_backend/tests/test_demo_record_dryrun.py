@@ -123,3 +123,15 @@ def test_quick_end_after_last_engagement_unless_sim_kept():
     assert quick and 'no landing' in quick[0]
     assert not [line for line in plan('--keep-sim', 'scenarios/trial.sh', '1')
                 if 'Defenders back to their slots' in line]
+
+
+def test_last_run_of_a_shared_sim_ends_quickly():
+    # --reuse-sim without --keep-sim: the shoot stops the sim after this run, so nobody needs
+    # the defenders landed: quick end and a short stop, as for a run of its own.
+    last = plan('--reuse-sim', 'scenarios/trial.sh', '1')
+    assert any('Defenders back to their slots' in line for line in last)
+    stop = next(line for line in last if line.startswith('STOP scenario:'))
+    assert 'no landing' in stop
+    middle = plan('--reuse-sim', '--keep-sim', 'scenarios/trial.sh', '1')
+    assert not any('Defenders back to their slots' in line for line in middle)
+    assert '300' in next(line for line in middle if line.startswith('STOP scenario:'))

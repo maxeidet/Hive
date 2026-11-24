@@ -1,6 +1,7 @@
 # The examiner demo (hive-vault/recording/Demo scenarios (design).md): every scenario as a
 # baseline/ours pair on the same seed, plus the orbit overview. 9 runs, about 1.5 h.
-#   recording/shoot.sh recording/shoots/examiner.yaml --name examiner     (in tmux)
+#   recording/shoot.sh recording/shoots/examiner.yaml --name examiner --fresh-sim   (in tmux)
+# --fresh-sim: a defender that crashes at a hit (a real collision) spoils only its own run.
 #   recording/video.sh final --story examiner --preview examiner
 - name: overview
   run: idle 60                       # no scenario: the orbit camera around the base

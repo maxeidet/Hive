@@ -137,10 +137,11 @@ def same_sim(a: Run, b: Run) -> bool:
     return a.config == b.config
 
 
-def plan_lines(runs: list[Run]) -> list[str]:
+def plan_lines(runs: list[Run], fresh_sim: bool = False) -> list[str]:
+    """fresh_sim: every run starts its own sim (keep_sim 0 for all)."""
     lines = []
     for i, r in enumerate(runs):
-        keep = int(i + 1 < len(runs) and same_sim(r, runs[i + 1]))
+        keep = int(not fresh_sim and i + 1 < len(runs) and same_sim(r, runs[i + 1]))
         lines.append('\t'.join([r.id, str(keep), r.config, r.pair or '-',
                                shlex.join(r.options) or '-', shlex.join(r.command)]))
     return lines
@@ -188,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     pl.add_argument('--prescreened', type=Path)
     pl.add_argument('--rng-seed', type=int, default=0)
     pl.add_argument('--folder', type=Path, help='write shoot.json here (resume if it exists)')
+    pl.add_argument('--fresh-sim', action='store_true', help='every run starts its own sim')
     m = sub.add_parser('mark')
     m.add_argument('folder', type=Path)
     m.add_argument('run_id')
@@ -205,7 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                 runs = [Run(**{k: v for k, v in r.items() if k != 'status'}) for r in status['runs']]
             else:
                 done = set()
-            for line, r in zip(plan_lines(runs), runs):
+            for line, r in zip(plan_lines(runs, args.fresh_sim), runs):
                 print(('done\t' if r.id in done else 'todo\t') + line)
         elif args.cmd == 'mark':
             mark(args.folder, args.run_id, args.state)
