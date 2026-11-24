@@ -246,3 +246,13 @@ def test_events_after_query(path, expected):
     pytest.importorskip('yaml')  # operator_ui imports the config loader
     from swarm_backend.nodes.operator_ui import events_after
     assert events_after(path) == expected
+
+
+def test_both_hostiles_drawn_as_hostile():
+    # surveillance2.yaml: drones 4 and 5 fly in at once; the page showed 5 as friendly.
+    from swarm_backend.config import load_config
+    from swarm_backend.nodes.operator_ui import hostile_ids
+    from swarm_backend.scenarios import common
+    two = load_config(common.PKG / 'scenarios' / 'surveillance2.yaml')
+    one = load_config(common.PKG / common.SURVEILLANCE_CONFIG)
+    assert hostile_ids(two.attack) == (4, 5) and hostile_ids(one.attack) == (4,)

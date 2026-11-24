@@ -160,6 +160,12 @@ class DroneMonitor:
         return view
 
 
+def hostile_ids(attack) -> tuple[int, ...]:
+    """The drones that play hostiles: attack.target_id, and second_target_id when two fly in."""
+    second = getattr(attack, 'second_target_id', None)
+    return (attack.target_id,) + (() if second is None else (second,))
+
+
 class OperatorUi:
     """The drone monitors and the search area publisher, on one ROS node.
 
@@ -169,15 +175,16 @@ class OperatorUi:
     """
 
     def __init__(self, node, drones: tuple[DroneConfig, ...], area: SearchArea,
-                 hostile_id: int | None = None):
-        """`hostile_id`: the drone that plays the target in the simulation (attack.target_id);
-        the page draws it as a hostile."""
+                 hostile_id: int | tuple[int, ...] | None = None):
+        """`hostile_id`: the drone(s) that play the target in the simulation (hostile_ids);
+        the page draws them as hostiles."""
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
         from std_msgs.msg import String
 
         self._string = String
         self.monitors = [DroneMonitor(node, d) for d in drones]
-        self.hostile_id = hostile_id
+        self.hostile_ids = (hostile_id if isinstance(hostile_id, tuple)
+                            else () if hostile_id is None else (hostile_id,))
         self._lock = threading.Lock()
         self.area = area
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE,
@@ -192,12 +199,12 @@ class OperatorUi:
     def _views(self, now: float) -> list[dict]:
         refs = {m.id: m.ref for m in self.monitors if m.ref is not None}
         origin = world_origin(refs, {m.id: m.spawn for m in self.monitors},
-                              skip=(self.hostile_id,))
+                              skip=self.hostile_ids)
         for m in self.monitors:
             m.origin = origin
         views = [m.view(now) for m in self.monitors]
         for view in views:
-            view['hostile'] = view['id'] == self.hostile_id
+            view['hostile'] = view['id'] in self.hostile_ids
         return views
 
     def _update_events(self) -> None:
@@ -351,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
 
     rclpy.init()
     node = rclpy.create_node('operator_ui')
-    ui = OperatorUi(node, config.drones, area, hostile_id=config.attack.target_id)
+    ui = OperatorUi(node, config.drones, area, hostile_id=hostile_ids(config.attack))
     server = ThreadingHTTPServer(('0.0.0.0', args.port), make_handler(ui))
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
