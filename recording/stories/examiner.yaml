@@ -1,7 +1,7 @@
 # The examiner demo, at most 5 minutes, from the examiner shoot (recording/shoots/examiner.yaml).
 #   recording/video.sh final --story examiner --preview examiner     then without --preview
 # Every scenario is a baseline/ours pair on the same seed: side by side (compare), synced on
-# the hostile's release, with each side's result at its own hit. Approaches at 2x speed.
+# the hostile's release, with each side's result at its own hit. Approaches at 1.5x speed.
 title: Hive - a drone swarm that defends its base
 subtitle: TDDE19, group 3 - our system against the baseline
 take: best
@@ -21,30 +21,30 @@ scenes:
 
 - caption: Head-on - baseline left, ours right
   take: pair:head-on-1
-  from: release + 5
+  from: release
   to: hit + 2
   layout: compare
   show: [ui|map]
-  speed: 2
+  speed: 1.5
   insights: [seen_at, time_to_hit, no_hit]
 
 - caption: Both runs on one map
   take: pair:head-on-1
-  from: release + 5
+  from: release
   to: hit + 2
   layout: ghost
   show: [map]
-  speed: 2
+  speed: 1.5
 
 - card: 2. A zigzagging hostile
 
 - caption: Zigzag - baseline left, ours right
   take: pair:zigzag-1
-  from: release + 5
+  from: release
   to: hit + 2
   layout: compare
   show: [ui|map]
-  speed: 2
+  speed: 1.5
   insights: [seen_at, time_to_hit, no_hit]
 
 - caption: The intercept from the chase camera
@@ -58,11 +58,11 @@ scenes:
 
 - caption: Birds - baseline left, ours right
   take: pair:birds-1
-  from: release + 5
+  from: release
   to: hit + 2
   layout: compare
   show: [chase]
-  speed: 2
+  speed: 1.5
   insights: [seen_at, time_to_hit, no_hit]
 
 - caption: What our defender's camera saw
@@ -76,11 +76,11 @@ scenes:
 
 - caption: Two hostiles - baseline left, ours right
   take: pair:two-hostiles-1
-  from: release + 5
+  from: release
   to: hit + 2
   layout: compare
-  show: [ui|map]
-  speed: 2
+  show: [map]        # ours' UI film went black (screen blanking) before its 2nd hit
+  speed: 1.5
   insights: [seen_at, time_to_hit, no_hit]
 
 - caption: Two defenders, one at each hostile
@@ -88,4 +88,4 @@ scenes:
   from: first_sighting - 3
   to: hit + 2
   layout: grid
-  show: [chase, ui|map, "wide|map|plot:range", yolo]
+  show: [chase, map, wide, "yolo:1"]      # drone 1 takes hostile 4, drone 3 (the chase) hostile 5
