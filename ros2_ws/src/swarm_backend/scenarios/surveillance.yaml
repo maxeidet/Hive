@@ -46,7 +46,8 @@ drones:
   # and the defenders' cameras looking north saw it parked there.
   - id: 4
     spawn_pose: [-5.0, 0.0, 0.0]
-    model: gz_x500
+    model: gz_x500_hostile    # an x500 that friendly drones pass through (docker/drone_collisions.py):
+                              # a hit is scored at 1.5 m, so contact only crashed the defender
 
 # The defenders attack with the baseline attack (see attack: in config/swarm.yaml).
 attack:

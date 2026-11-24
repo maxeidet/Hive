@@ -124,6 +124,9 @@ Then type `shutdown` at `pxh>` in terminal 1: the simulation stops and the conta
 | `scenarios/compare_paths.sh 5 --setup baseline` | 5 seeds per case (0–4): 60 runs |
 | `scenarios/compare_paths.sh 3 --setup baseline --seeds 10-12` | other start bearings |
 | `scenarios/compare_paths.sh 3 --setup baseline --altitude-offsets 0` | only level with the defenders: 12 runs |
+| `scenarios/compare_paths.sh 1 --setup baseline --paths zigzag_15m --altitude-offsets 0` | one path only (`straight`, `weave_5m`, `weave_15m`, `zigzag_15m`; comma-separated for several): 1 run |
+| `scenarios/compare_paths.sh 1 --setup baseline --paths straight --restart-each-run` | Gazebo and every drone restarted before each run (needs a session started with `--no-drone`) |
+| `scenarios/compare_paths.sh 3 --setup baseline --spawn-at-slots` | the defenders start on the ground below their slots and only climb (a generated copy of `surveillance.yaml` in `data/configs/`, `swarm_backend/scenarios/at_slots.py`) |
 | `scenarios/compare_paths.sh 3` | the same 36 starts with YOLO + ByteTrack + MPC, to compare with the baseline: [YOLO-ByteTrack-MPC 36-case comparison - how to run](README-yolo-bytetrack-mpc.md) (needs the YOLO weights) |
 | `scenarios/compare_paths.sh --help` | all options |
 

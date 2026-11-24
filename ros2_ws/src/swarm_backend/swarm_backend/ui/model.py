@@ -194,6 +194,35 @@ def latlon_offset_m(lat: float, lon: float, lat0: float, lon0: float) -> tuple[f
     return north, east
 
 
+def sdf_origin(sdf_text: str) -> tuple[float, float] | None:
+    """The (lat, lon) of world (0, 0) from a world SDF's <spherical_coordinates>: what
+    Gazebo's NavSat, and so every PX4's GPS, is based on. Exact, unlike world_origin's
+    estimate from the spawn points in swarm.yaml, which are wrong whenever the drones were
+    started with another config. None if the world has none, or turns its frame (a
+    heading other than 0 is not handled here)."""
+    import xml.etree.ElementTree as ET
+    try:
+        root = ET.fromstring(sdf_text)
+    except ET.ParseError:
+        return None
+    sc = root.find('.//world/spherical_coordinates')
+    if sc is None:
+        return None
+
+    def number(tag, default=None):
+        el = sc.find(tag)
+        try:
+            return float(el.text) if el is not None and el.text else default
+        except ValueError:
+            return None
+
+    lat, lon = number('latitude_deg'), number('longitude_deg')
+    heading = number('heading_deg', 0.0)
+    if lat is None or lon is None or heading is None or abs(heading) > 1e-9:
+        return None
+    return lat, lon
+
+
 def world_origin(refs: dict, spawns: dict, skip=()) -> tuple[float, float] | None:
     """The (lat, lon) of world NED (0, 0), from the drones' local frame origins.
 

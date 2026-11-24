@@ -55,6 +55,11 @@ What happens:
 2. It starts the container in the background (DDS agent, repo mounted at `/workspace`).
 3. It runs PX4 + Gazebo in **this** terminal. You get the `pxh>` prompt, and the Gazebo window opens on the computer's own screen.
 
+**Or use the dev GUI**, which does the same from a browser page and also runs the backend commands and scenarios, each with its log (see "Dev GUI" in `README.md`). Start it in tmux, since closing it stops everything it started:
+```bash
+cd ~/Hive && tmux new -s devgui 'python3 docker/dev_gui.py'   # open the URL it prints
+```
+
 `hive_base` is a military tent camp inside a dense forest. Its tree meshes (from the CC0 Fuel models `Pine Tree` and `Oak tree`) are stored in `worlds/trees/` and read from `/workspace`, so no internet is needed. Regenerate it with `python3 worlds/generate_hive_base.py`.
 
 ### Flags
@@ -69,6 +74,8 @@ What happens:
 | `--headless` | No GUI at all |
 | `--gpu` | Give the container the GPU(s) (default). Prints `nvidia-smi` first. Without an NVIDIA driver the script falls back to `--no-gpu` |
 | `--no-gpu` | Do not give the container the GPU(s) |
+| `--no-gazebo-gui` | Gazebo without its window (faster, the cameras still render), but the display stays, for RViz. `--headless` has no display at all. |
+| `--no-drone` | Only the Gazebo world, no drone 0. Drones come from `mount-backend.sh spawn` or a scenario, and join the running world. `-m` is then unused. The dev GUI uses this by default. |
 | `-h` | Show usage |
 
 The last of `--native-gui`, `--vnc` and `--headless` wins. If another user already holds the VNC ports, override them:

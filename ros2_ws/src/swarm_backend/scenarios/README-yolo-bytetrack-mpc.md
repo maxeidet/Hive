@@ -48,7 +48,7 @@ curl -L -o ~/Desktop/Hive/models/yolo26n-gazebo-only/yolo26n-gazebo-only-1280.on
   https://github.com/maxeidet/Hive/releases/download/model-gazebo-only/yolo26n-gazebo-only-1280.onnx
 ```
 
-About 9 MB. The other releases:
+About 9 MB. The dev GUI (`python3 docker/dev_gui.py`, see `docker/README.md`) fetches this file by itself when it starts. The other releases:
 
 | Release | File | Trained on |
 |---|---|---|

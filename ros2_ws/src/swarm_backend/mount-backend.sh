@@ -119,13 +119,18 @@
 #                                      --help, e.g. --detector baseline --save /workspace/detect_frames)
 #   ./mount-backend.sh detecttest [args] baseline detection flight test: drone 2 watches drone 0
 #                                      fly away from it (tests/detection_test.py --help)
-#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL] [--headless|--gui]  restart Gazebo and the drones without
+#   ./mount-backend.sh restart [N] [-w WORLD] [-m MODEL] [--headless|--gui] [--no-drone|--drone0] [--keep-tools]  restart Gazebo and the drones without
 #                                      restarting the container: stops every test, shell, RViz,
 #                                      PX4 and Gazebo, starts Gazebo with drone 0 again (log:
 #                                      /tmp/px4_0.log), then drones 1..N-1 of swarm.yaml if N is
 #                                      given. Keeps the world, drone 0 model and headless setting
 #                                      it was running with, else baylands and gz_x500.
 #                                      Example: ./mount-backend.sh restart && scenarios/yolo.sh
+#                                      In a session started with no drones (start-stellar.sh
+#                                      --no-drone, the dev GUI) it starts the world alone again
+#                                      (docker/gz-world.sh); --no-drone / --drone0 choose.
+#                                      --keep-tools leaves the operator UI and RViz views running
+#                                      (the scenarios restart Gazebo this way between runs).
 #
 # spawn TYPE: plain, lidar (360° 3D, our model), lidar2d, lidar_front, lidar_down (1-beam
 #   rangefinders), camera, camera_down, depth (RGB + depth), flow, gimbal, gimbal_labels
@@ -176,7 +181,9 @@ num_arg() {
 }
 
 copy_models() {
-  docker exec "$CONTAINER" bash -c "cp -r /workspace/worlds/models/. /opt/px4-gazebo/share/gz/models/"
+  # Our models (worlds/models/), and friendly and hostile drones in collision groups that
+  # pass through each other, with the x500_hostile model (docker/drone-models.sh).
+  docker exec "$CONTAINER" /workspace/docker/drone-models.sh
 }
 
 start_drone() {
@@ -280,8 +287,12 @@ explore() {
 
 restart() {
   local n="" world="" model="" timeout="${WORLD_TIMEOUT:-180}" settings want_headless=""
+  local want_no_drone="" keep_tools=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      --no-drone) want_no_drone=1; shift ;;
+      --drone0)   want_no_drone=0; shift ;;
+      --keep-tools) keep_tools=1; shift ;;
       -w|--world) world="$2"; shift 2 ;;
       -m|--model) model="$2"; shift 2 ;;
       --headless) want_headless=1; shift ;;
@@ -310,19 +321,54 @@ restart() {
   # --headless: no Gazebo GUI window (saves a lot of CPU, e.g. for gendata); --gui: back again
   [ "$want_headless" = 1 ] && headless=HEADLESS=1
   [ "$want_headless" = 0 ] && headless=""
+  # No drone 0: the session was started that way (start-stellar.sh --no-drone, the dev
+  # GUI: NO_DRONE=1 in /tmp/hive_sim.env), unless --no-drone / --drone0 says otherwise.
+  local no_drone=""
+  grep -qx 'NO_DRONE=1' <<< "$settings" && no_drone=1
+  [ "$want_no_drone" = 1 ] && no_drone=1
+  [ "$want_no_drone" = 0 ] && no_drone=""
 
-  echo "Stopping tests, shells, RViz, PX4 and Gazebo (the container and MicroXRCE agent keep running)..."
+  # --keep-tools: the operator UI and the RViz views (sensor_view, its bridge, rviz2) keep
+  # running; they pick the new drones up. The scenarios restart Gazebo this way between runs.
+  local stop_tools="
+    pkill -f '[t]ests/[a-z_]*\.py|[s]warm_shell|-m [s]warm_backend\.'
+    pkill -f '[r]viz2'; pkill -f '[p]arameter_bridge'"
+  if [ -n "$keep_tools" ]; then
+    stop_tools="
+    pkill -f '[t]ests/[a-z_]*\.py|[s]warm_shell'
+    for pid in \$(pgrep -f -- '-m [s]warm_backend\.'); do
+      case \$(tr '\\0' ' ' < /proc/\$pid/cmdline 2>/dev/null) in
+        *operator_ui*|*sensor_view*) ;;
+        *) kill \$pid 2>/dev/null ;;
+      esac
+    done"
+  fi
+
+  if [ -n "$keep_tools" ]; then
+    echo "Stopping tests, shells, PX4 and Gazebo (the operator UI, RViz views, container and MicroXRCE agent keep running)..."
+  else
+    echo "Stopping tests, shells, RViz, PX4 and Gazebo (the container and MicroXRCE agent keep running)..."
+  fi
   # Killed ROS/PX4 processes leave Fast DDS shared memory behind, and new drones then never
   # reach ROS. `fastdds shm clean` removes it.
   docker exec "$CONTAINER" bash -c "
-    pkill -f '[t]ests/[a-z_]*\.py|[s]warm_shell|-m [s]warm_backend\.'
-    pkill -f '[r]viz2'; pkill -f '[p]arameter_bridge'
+    $stop_tools
     pkill -f '[p]x4(-gazebo)? -i [0-9]'; pkill -f '[g]z sim'
     for _ in \$(seq 10); do pgrep -f '[g]z sim|[b]in/px4 -i' >/dev/null || break; sleep 1; done
     pkill -9 -f '[g]z sim'; pkill -9 -f '[b]in/px4 -i'
     source /opt/ros/jazzy/setup.bash; ros2 daemon stop >/dev/null 2>&1; fastdds shm clean >/dev/null 2>&1
     printf '%s\n' PX4_GZ_WORLD=$world PX4_SIM_MODEL=$model $headless > /tmp/hive_sim.env
     true"
+
+  if [ -n "$no_drone" ]; then
+    echo "Starting Gazebo ($world) with no drones, log: /tmp/gz_server.log in the container"
+    # docker/gz-world.sh: detached, and waits until the world's clock runs.
+    docker exec "$CONTAINER" env $headless WORLD_TIMEOUT="$timeout" \
+      /workspace/docker/gz-world.sh "$world" || exit 1
+    if [ -n "$n" ]; then spawn "$n"; fi
+    restart_wait_connected "$timeout"
+    return
+  fi
 
   echo "Starting Gazebo ($world) and drone 0 ($model), log: /tmp/px4_0.log in the container"
   docker exec "$CONTAINER" bash -c "cp /workspace/worlds/*.sdf /opt/px4-gazebo/share/gz/worlds/ 2>/dev/null || true"
@@ -342,11 +388,18 @@ restart() {
     exit 1
   fi
   if [ -n "$n" ]; then spawn "$n"; fi
+  restart_wait_connected "$timeout"
+}
 
+restart_wait_connected() {
   # ros2 topic list still shows the old drones' topics, so ask each PX4 if it is connected.
-  echo "Waiting for the drones to connect to ROS (can take a minute or two)..."
-  local ids status
+  local timeout="$1" ids status=""
   ids=$(docker exec "$CONTAINER" ps -eo args | grep -oE 'px4(-gazebo)? -i [0-9]+' | awk '{print $NF}' | sort -un)
+  if [ -z "$ids" ]; then
+    echo "Gazebo is up, with no drones (spawn them, or let a scenario do it)."
+    return
+  fi
+  echo "Waiting for the drones to connect to ROS (can take a minute or two)..."
   for _ in $(seq "$timeout"); do
     status=$(docker exec "$CONTAINER" bash -c "for i in $(echo $ids); do /opt/px4-gazebo/bin/px4-uxrce_dds_client --instance \$i status 2>/dev/null | head -1 | grep -q ', connected' || echo \$i; done")
     [ -z "$status" ] && break

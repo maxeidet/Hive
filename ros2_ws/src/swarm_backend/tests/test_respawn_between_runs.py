@@ -104,3 +104,55 @@ def test_a_failed_respawn_is_tried_again_and_the_crash_recorded_once():
     second = w.head_on()  # flown with two; then the respawn is tried again
     assert second.crashes == []  # the same crash is not recorded twice
     assert w.respawned == [[1], [1]] and w.crashed() == {}
+
+
+# --- restart_on_crash: Gazebo is restarted instead (baseline_eval --restart-on-crash) ----
+
+def test_restart_on_crash_records_the_crash_and_does_not_respawn():
+    w = world(crash_hitter=True)
+    w.restart_on_crash = True
+    flight = w.head_on()
+    assert flight.killer is not None
+    assert [c['drone'] for c in flight.crashes] == [flight.killer]  # still in the saved run
+    assert w.respawned == []  # no teleport, no new PX4
+    assert w.restart_needed
+
+
+def test_without_a_crash_no_restart_is_asked_for():
+    w = world()
+    w.restart_on_crash = True
+    w.head_on()
+    assert not getattr(w, 'restart_needed', False)
+
+
+class RecordingWorld(CrashingWorld):
+    """Records how the scenario ended: a landing, or a stop for a Gazebo restart (which
+    the fast simulation, having no Gazebo, carries out as a landing)."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls = []
+
+    def stop_and_land(self):
+        self.calls.append('land')
+        super().stop_and_land()
+
+    def stop_for_restart(self):
+        self.calls.append('stop_for_restart')
+        super().stop_for_restart()
+
+
+def test_a_restart_ends_through_stop_for_restart_with_exit_75():
+    w = RecordingWorld()
+
+    def body(world):
+        raise common.RestartGazebo('one run per Gazebo start; 2 runs left')
+
+    assert common._fly(w, body) == common.EXIT_RESTART == 75
+    assert w.calls[0] == 'stop_for_restart'
+
+
+def test_a_normal_end_still_lands():
+    w = RecordingWorld()
+    assert common._fly(w, lambda world: None) == 0
+    assert w.calls == ['land']

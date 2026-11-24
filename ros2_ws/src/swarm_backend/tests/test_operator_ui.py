@@ -1,8 +1,10 @@
 import math
 
+from pathlib import Path
+
 import pytest
 
-from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home,
+from swarm_backend.ui.model import (EventLog, SearchArea, attack_view, drone_home, sdf_origin,
                                    drone_status, drone_view, latlon_offset_m, load_map,
                                    update_search_area, world_origin)
 
@@ -246,3 +248,41 @@ def test_events_after_query(path, expected):
     pytest.importorskip('yaml')  # operator_ui imports the config loader
     from swarm_backend.nodes.operator_ui import events_after
     assert events_after(path) == expected
+
+
+# The world's own origin (<spherical_coordinates>), so positions do not depend on the
+# spawn points in the config the UI was started with.
+
+HIVE_BASE_SDF = Path(__file__).resolve().parents[4] / 'worlds' / 'hive_base.sdf'
+
+
+def sdf(inner: str) -> str:
+    return f'<sdf version="1.9"><world name="w">{inner}</world></sdf>'
+
+
+def test_sdf_origin_of_hive_base():
+    assert sdf_origin(HIVE_BASE_SDF.read_text()) == pytest.approx((47.397971057728974, 8.546163739800146))
+
+
+def test_sdf_origin_missing_turned_or_broken():
+    assert sdf_origin(sdf('<gravity>0 0 -9.8</gravity>')) is None
+    turned = ('<spherical_coordinates><latitude_deg>47</latitude_deg><longitude_deg>8</longitude_deg>'
+              '<heading_deg>90</heading_deg></spherical_coordinates>')
+    assert sdf_origin(sdf(turned)) is None
+    assert sdf_origin('<sdf><world') is None
+    plain = '<spherical_coordinates><latitude_deg>47</latitude_deg><longitude_deg>8</longitude_deg></spherical_coordinates>'
+    assert sdf_origin(sdf(plain)) == (47.0, 8.0)
+
+
+def test_drones_placed_right_whatever_spawns_the_config_has():
+    """The bug: defenders started below their slots (at_slots), UI started with
+    config/swarm.yaml's spawn points. The estimate from those is off by 150 m; the
+    world's origin puts every drone where Gazebo has it."""
+    true_spawn = {1: (129.904, -75.0, 0.0), 2: (150.0, 0.0, 0.0), 3: (129.904, 75.0, 0.0)}
+    refs = {i: ref_at(n, e) for i, (n, e, _) in true_spawn.items()}
+    wrong_config = {1: (0.0, 5.0, 0.0), 2: (5.0, 0.0, 0.0), 3: (0.0, 0.0, 0.0)}
+    estimate = world_origin(refs, wrong_config)
+    off = drone_home(wrong_config[2], refs[2], estimate)
+    assert abs(off[0] - 150.0) > 100  # the old way: far off
+    for i, spawn in true_spawn.items():
+        assert drone_home(wrong_config[i], refs[i], WORLD) == pytest.approx(spawn, abs=1e-3)

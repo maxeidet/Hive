@@ -525,6 +525,17 @@ class GazeboSurveillance(SurveillanceWorld):
         self.log.info('All defenders on patrol')
         self.crash_watch.watch(self.ids)  # from now on they should be flying
 
+    def stop_for_restart(self) -> None:
+        """Stop the flight, the patrols and the detectors, and leave the drones as they
+        are: the launcher restarts Gazebo and every PX4 (common.RestartGazebo)."""
+        self.crash_watch.stop()
+        if self.flight is not None:
+            self.flight.stop()
+            self.flight = None
+        for p in self.patrols.values():
+            p.patrol.stop()
+        self.stop_detectors()
+
     def stop_and_land(self) -> None:
         self.crash_watch.stop()  # landing is not a crash
         if self.flight is not None:
@@ -552,8 +563,9 @@ class GazeboSurveillance(SurveillanceWorld):
             self.log.info('Landing')
             self.defenders.land([p.drone.id for p in armed])
             # Wall clock: from 20 m at PX4's landing speed, minutes when Gazebo runs slowly.
-            wait_until(self.defenders.all_landed, max(LAND_TIMEOUT_S, SETUP_TIMEOUT_S),
-                       'the defenders to land and disarm')
+            # Only the ones told to land: a crashed defender (upside down) never disarms.
+            wait_until(lambda: not any(p.drone.armed for p in armed),
+                       max(LAND_TIMEOUT_S, SETUP_TIMEOUT_S), 'the defenders to land and disarm')
             self.log.info('Landed')
         # Respawned defenders back where the config expects them (restart_defender_at).
         for i in sorted(self._away_from_spawn):
