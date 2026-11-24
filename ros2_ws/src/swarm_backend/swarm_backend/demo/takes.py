@@ -25,7 +25,10 @@ from swarm_backend.ui.camera_video import load_poses, pose_at
 from swarm_backend.ui.replay import ReplayUi, load_recording
 
 MOMENTS = ('start', 'release', 'takeoff', 'first_sighting', 'intercept', 'hit', 'return',
-           'landed', 'end')
+           'landed', 'end',
+           # two hostiles at once (baseline_eval --hostiles 2), in run.json's hostiles order;
+           # then `hit` is when the last one is down and `first_sighting` the earlier sighting
+           'first_sighting_1', 'first_sighting_2', 'hit_1', 'hit_2')
 TELEPORT_M = 50.0         # a jump this big between two pose rows: put in place
 GRAVEYARD_M = 30.0        # this close (x, y) to graveyard_enu: taken out
 RELEASE_MPS = 0.5         # moving at least this fast horizontally (not the climb)...
@@ -261,6 +264,71 @@ def _defender_close(sims, rows, defenders, target, at: float) -> bool:
     return False
 
 
+def _sightings_by_hostile(events, ui, sims, rows, hostiles, defenders, rel, end) -> dict:
+    """{hostile index (1-based): (sim, defender id) of its first sighting}. A sighting belongs
+    to the hostile nearest the defender's detection estimate at that moment (the UI state),
+    or nearest the defender itself when the state has no estimate."""
+    first = {}
+    for sim, _, e in events:
+        m = SIGHTING.match(e['text'])
+        if not m or not rel <= sim < end or int(m.group(1)) not in defenders:
+            continue
+        drone = int(m.group(1))
+        view = next((d for d in ui.at(sim)['state'].get('drones', []) if d.get('id') == drone), {})
+        est = view.get('detection')
+        at = ((est['east'], est['north'], est['altitude']) if est else
+              (view.get('east'), view.get('north'), view.get('altitude')))
+        if at[0] is None:
+            continue
+        near = [(math.dist(at, p[0]), k) for k, name in enumerate(hostiles, 1)
+                if (p := pose_at(sims, rows, name, sim)) is not None]
+        if near:
+            first.setdefault(min(near)[1], (sim, drone))
+    return first
+
+
+def _per_hostile(m: dict, facts: dict, info, sims, rows, events, ui, grave, rel, end) -> None:
+    """Two hostiles at once: hit_k, first_sighting_k and their facts; `hit` only when every
+    hostile is down (the last one), `first_sighting` the earliest."""
+    defenders = _ids(info.defenders)
+    seen = _sightings_by_hostile(events, ui, sims, rows, info.hostiles, defenders, rel, end)
+    m.pop('hit', None)
+    hits = []
+    for k, name in enumerate(info.hostiles, 1):
+        track = [(s, tuple(r[name][:3])) for s, r in zip(sims, rows) if name in r]
+        out = _taken_out(track, rel, end, grave)
+        if out is not None and not _defender_close(sims, rows, info.defenders, name, out):
+            out = None
+        attacker = None
+        if out is not None:
+            m[f'hit_{k}'] = round(out, 3)
+            hits.append(out)
+            h = pose_at(sims, rows, name, out)[0]
+            near = [(math.dist(pose_at(sims, rows, d, out)[0], h), d) for d in info.defenders
+                    if pose_at(sims, rows, d, out) is not None]
+            attacker = int(min(near)[1].rsplit('_', 1)[1]) if near else None
+        sight = seen.get(k)
+        if sight is not None:
+            m[f'first_sighting_{k}'] = sight[0]
+        who = attacker or (sight[1] if sight else None)
+        rng = None
+        if sight is not None and who is not None:
+            a = pose_at(sims, rows, next(d for d in info.defenders if d.endswith(f'_{who}')), sight[0])
+            h = pose_at(sims, rows, name, sight[0])
+            rng = round(math.dist(a[0], h[0]), 1) if a and h else None
+        facts[f'attacker_{k}'] = attacker
+        facts[f'sighting_range_m_{k}'] = rng
+        facts[f'sighting_to_hit_s_{k}'] = (round(out - sight[0], 2)
+                                           if out is not None and sight is not None else None)
+    if len(hits) == len(info.hostiles):
+        m['hit'] = round(max(hits), 3)
+    firsts = [m[f'first_sighting_{k}'] for k in range(1, len(info.hostiles) + 1)
+              if f'first_sighting_{k}' in m]
+    if firsts:
+        m['first_sighting'] = min(firsts)
+    facts['hits'] = f'{len(hits)}/{len(info.hostiles)}'
+
+
 def _ids(names: list[str]) -> set[int]:
     return {int(n.rsplit('_', 1)[1]) for n in names if n.rsplit('_', 1)[-1].isdigit()}
 
@@ -326,10 +394,13 @@ def find_takes(folder: Path) -> list[Take]:
             back = _first(events, RETURN, out, end, attacker) if attacker else None
             if back:
                 m['return'] = back[0]
+        extra = {}
+        if len(info.hostiles) > 1:
+            _per_hostile(m, extra, info, sims, rows, events, ui, grave, rel, end)
         take = Take(len(takes) + 1, m, attacker, target, folder=folder,
                     name=str(len(takes) + 1), pair=info.options.get('pair') or None)
         data = TakeData(take, sims, rows, info.defenders, info.setup, folder, ui)
-        take.facts = {name: f(data) for name, f in FACTS.items()}
+        take.facts = {**{name: f(data) for name, f in FACTS.items()}, **extra}
         takes.append(take)
     return takes
 

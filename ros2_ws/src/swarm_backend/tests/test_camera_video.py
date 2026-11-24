@@ -175,3 +175,27 @@ def test_overlay_labels_birds_green():
                     'x500_4', HFOV, 0.0, None)
     centre = img[H // 2 - 120:H // 2 + 60, W // 2 - 120:W // 2 + 120].reshape(-1, 3).astype(int)
     assert (np.abs(centre - np.array((80, 200, 80))).sum(axis=1) < 30).any()
+
+
+# --- two hostiles (Demo scenarios plan, Task 8) ------------------------------------------------
+
+def test_attacker_nearest_any_hostile():
+    t = Tracker((450.0, -450.0))
+    d = Director('a', {'follow': '@attacker', 'offset': [-6.0, 0.0, 2.0], 'look_at_model': '@target'},
+                 DEF, ['x500_4', 'x500_5'], smooth_s=0.0)
+    t.update(poses(x500_gimbal_1=(-75.0, 130.0, 40.0), x500_gimbal_2=(0.0, 150.0, 40.0),
+                   x500_gimbal_3=(75.0, 130.0, 40.0), x500_4=(0.0, 400.0, 40.0),
+                   x500_5=(-90.0, 160.0, 40.0)))
+    d.step(t, 10.0, 0.04)
+    assert d.attacker == 'x500_gimbal_1'
+
+
+def test_target_watch_looks_at_the_nearest_hostile():
+    t = Tracker((450.0, -450.0))
+    t.update(poses(x500_gimbal_1=(0.0, 150.0, 40.0), x500_4=(300.0, 300.0, 40.0),
+                   x500_5=(0.0, 250.0, 40.0)))
+    d = Director('w', {'follow': 'x500_gimbal_1', 'offset': [-6.0, 0.0, 2.0], 'look_at_model': '@target'},
+                 DEF, ['x500_4', 'x500_5'], smooth_s=0.0)
+    cam, q = d.step(t, 0.0, 0.0)
+    u, v, _ = project(cam, q, (0.0, 250.0, 40.0), HFOV, W, H)
+    assert u == pytest.approx(W / 2) and v == pytest.approx(H / 2)

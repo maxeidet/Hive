@@ -32,7 +32,7 @@ CARD_KEYS = {'card', 'duration'}
 STORY_KEYS = {'title', 'subtitle', 'title_seconds', 'take', 'end_card', 'end_seconds', 'scenes',
               'evidence'}
 OURS = 'yolo-bytetrack-mpc'
-_MOMENT = re.compile(r'^\s*([a-z_]+)\s*(?:([+-])\s*(\d+(?:\.\d*)?|\.\d+))?\s*$')
+_MOMENT = re.compile(r'^\s*([a-z][a-z0-9_]*)\s*(?:([+-])\s*(\d+(?:\.\d*)?|\.\d+))?\s*$')
 
 
 class StoryError(ValueError):

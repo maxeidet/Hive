@@ -6,11 +6,12 @@
   "extra_resource_paths": ["/opt/px4-gazebo/share/gz/models", "/opt/px4-gazebo/share/gz/worlds",
                            "/workspace/worlds/models", "/workspace/worlds"],
 
-  "_live_comment": "Live cameras (mount-backend.sh camrec, swarm_backend/ui/camera_video.py) use the same angles. Differences from the replay: a follow angle with look_at_model puts its offset in the frame of the line from the followed drone to the looked-at one (x = towards it), so the camera stays behind the drone as seen from the target; '@attacker' follows whichever of 'defenders' is nearest 'hostile'. A model moved to graveyard_enu (the hostile at a hit, gazebo_surveillance.GRAVEYARD_ENU) is held where it was, so the cameras stay on the hit.",
+  "_live_comment": "Live cameras (mount-backend.sh camrec, swarm_backend/ui/camera_video.py) use the same angles. Differences from the replay: a follow angle with look_at_model puts its offset in the frame of the line from the followed drone to the looked-at one (x = towards it), so the camera stays behind the drone as seen from the target; '@attacker' follows whichever of 'defenders' is nearest any of 'hostiles' (or 'hostile'), and look_at_model '@target' is the hostile nearest the followed drone (two hostiles at once). A model moved to graveyard_enu (the hostile at a hit, gazebo_surveillance.GRAVEYARD_ENU) is held where it was, so the cameras stay on the hit.",
   "live_camera": {"width": 1280, "height": 720, "hfov": 1.2, "rate": 25, "smooth_s": 0.3},
   "graveyard_enu": [450.0, -450.0],
   "defenders": ["x500_gimbal_1", "x500_gimbal_2", "x500_gimbal_3"],
   "hostile": "x500_4",
+  "hostiles": ["x500_4", "x500_5"],
   "pose_log": {"prefixes": ["x500", "bird_", "rec_cam_"], "hz": 25},
   "map": {"half_size_m": 260, "centre_enu": [0, 110], "trail_s": 10},
 
@@ -20,7 +21,7 @@
     "d1_watch":       {"follow": "x500_gimbal_1", "offset": [-4.0, 0.0, 1.5], "look_at_model": "x500_4"},
     "d2_watch":       {"follow": "x500_gimbal_2", "offset": [-4.0, 0.0, 1.5], "look_at_model": "x500_4"},
     "d3_watch":       {"follow": "x500_gimbal_3", "offset": [-4.0, 0.0, 1.5], "look_at_model": "x500_4"},
-    "attacker_watch": {"follow": "@attacker", "offset": [-6.0, 0.0, 2.0], "look_at_model": "x500_4"},
+    "attacker_watch": {"follow": "@attacker", "offset": [-6.0, 0.0, 2.0], "look_at_model": "@target"},
     "base_tripod":    {"position": [0.0, -15.0, 12.0], "look_at_point": [0.0, 150.0, 40.0], "track_model": "x500_4"},
     "arc_overhead":   {"position": [0.0, 60.0, 260.0], "look_at_point": [0.0, 170.0, 40.0], "track_model": "x500_4"},
     "arc_side":       {"position": [180.0, 150.0, 45.0], "look_at_point": [0.0, 160.0, 40.0], "track_model": "x500_4"},

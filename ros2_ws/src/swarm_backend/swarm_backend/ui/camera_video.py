@@ -123,10 +123,14 @@ class Tracker:
 class Director:
     """Where one angle's camera should be: a smoothed position and a smoothed look-at point."""
 
-    def __init__(self, name: str, spec: dict, defenders: list[str], hostile: str,
+    def __init__(self, name: str, spec: dict, defenders: list[str], hostile: str | list[str],
                  smooth_s: float):
+        """`hostile`: one name, or several (two hostiles at once): `@attacker` is then the
+        defender nearest any of them, and `look_at_model: "@target"` the one nearest the
+        followed drone."""
         self.name, self.spec = name, spec
-        self.defenders, self.hostile = defenders, hostile
+        self.hostiles = [hostile] if isinstance(hostile, str) else list(hostile)
+        self.defenders, self.hostile = defenders, self.hostiles[0]
         self.smooth_s = smooth_s
         self.cam: Vec | None = None
         self.aim: Vec | None = None
@@ -135,18 +139,30 @@ class Director:
         self._yaw: float | None = None  # a watch angle's last direction (from the drone to its target)
         self._orbit_t0: float | None = None  # an orbit angle's first sim time
 
+    def _target_for(self, tracker: Tracker, drone: str) -> str | None:
+        """The hostile nearest `drone` (of those Gazebo has)."""
+        there = [h for h in self.hostiles if h in tracker.pos]
+        if not there or drone not in tracker.pos:
+            return there[0] if there else None
+        return min(there, key=lambda h: dist(tracker.pos[h], tracker.pos[drone]))
+
     def _attacker(self, tracker: Tracker, sim: float) -> str | None:
-        target = tracker.pos.get(self.spec.get('look_at_model') or self.hostile)
+        look = self.spec.get('look_at_model')
+        named = [look] if look and look != '@target' else self.hostiles
+        targets = [tracker.pos[h] for h in named if h in tracker.pos]
         present = [d for d in self.defenders if d in tracker.pos]
         if not present:
             return None
-        if target is None:
+        if not targets:
             return self.attacker or present[0]
-        nearest = min(present, key=lambda d: dist(tracker.pos[d], target))
+
+        def gap(d):
+            return min(dist(tracker.pos[d], t) for t in targets)
+        nearest = min(present, key=gap)
         if self.attacker not in present:
             self.attacker, self._switched_at = nearest, sim
         elif nearest != self.attacker and sim - self._switched_at >= ATTACKER_HOLD_S and \
-                dist(tracker.pos[nearest], target) < ATTACKER_SWITCH * dist(tracker.pos[self.attacker], target):
+                gap(nearest) < ATTACKER_SWITCH * gap(self.attacker):
             self.attacker, self._switched_at = nearest, sim
             self.cam = self.aim = self._yaw = None  # a cut to the new attacker, not a long glide
         return self.attacker
@@ -170,6 +186,8 @@ class Director:
             return None
         base = tracker.pos[follow]
         other = s.get('look_at_model')
+        if other == '@target':
+            other = self._target_for(tracker, follow)
         if other:
             if other not in tracker.pos:
                 return None
@@ -382,7 +400,7 @@ def record(args) -> int:
     gazebo = Gazebo()
     world = gazebo.world
     names = {a: model_name(a) for a in angles}
-    directors = {a: Director(a, cfg['replay_angles'][a], cfg['defenders'], cfg['hostile'],
+    directors = {a: Director(a, cfg['replay_angles'][a], cfg['defenders'], cfg.get('hostiles', cfg['hostile']),
                              live['smooth_s']) for a in angles}
     tracker = Tracker(tuple(cfg['graveyard_enu']))
     node = Node()

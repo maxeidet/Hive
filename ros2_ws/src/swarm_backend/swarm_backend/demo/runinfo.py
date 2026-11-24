@@ -46,14 +46,15 @@ def gazebo_name(config: dict, drone_id: int) -> str:
 
 def roles(config: dict) -> tuple[list[str], list[str]]:
     """(defenders, hostiles) as Gazebo names. Surveillance: surveillance.drone_ids and
-    attack.target_id; scenario 2: scenario2.defender_id and scenario2.hostile_ids."""
+    attack.target_id (and second_target_id); scenario 2: scenario2.defender_id and scenario2.hostile_ids."""
     s2 = config.get('scenario2') or {}
     if s2.get('hostile_ids'):
         defender_ids = [s2.get('defender_id', (config.get('attack') or {}).get('attacker_id'))]
         hostile_ids = list(s2['hostile_ids'])
     else:
         defender_ids = list((config.get('surveillance') or {}).get('drone_ids', []))
-        hostile_ids = [(config.get('attack') or {}).get('target_id')]
+        attack = config.get('attack') or {}
+        hostile_ids = [attack.get('target_id'), attack.get('second_target_id')]
     return ([gazebo_name(config, i) for i in defender_ids if i is not None],
             [gazebo_name(config, i) for i in hostile_ids if i is not None])
 

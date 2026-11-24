@@ -141,3 +141,10 @@ def test_alternatives_skip_a_source_already_shown(tmp_path):
     (tmp_path / 'run' / 'cam_arc_side.mkv').unlink()
     resolved, _ = resolve(load_story(p), find_takes(tmp_path / 'run'))
     assert resolved[0].scene.show == ['chase', 'yolo', 'map', 'plot:range']
+
+
+def test_story_accepts_hit_2(tmp_path):
+    p = write(tmp_path, 'scenes:\n- caption: X\n  from: hit_2 - 3\n  to: hit_2\n  layout: full\n  show: [map]\n')
+    make_run(tmp_path / 'run', videos=False, hostiles=2)
+    resolved, problems = resolve(load_story(p), find_takes(tmp_path / 'run'))
+    assert not problems and resolved[0].end - resolved[0].start == pytest.approx(3.0)

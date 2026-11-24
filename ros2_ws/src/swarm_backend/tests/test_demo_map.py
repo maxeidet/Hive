@@ -4,7 +4,7 @@ import subprocess
 import numpy as np
 
 from swarm_backend.demo.fake_run import GRAVEYARD, make_run
-from swarm_backend.demo.map_video import (BG, HOSTILE, CLOCK_BOX, map_state, project, render_frame,
+from swarm_backend.demo.map_video import (BG, GREY, HOSTILE, CLOCK_BOX, map_state, project, render_frame,
                                           write_map)
 
 
@@ -146,3 +146,15 @@ def test_map_draws_birds_that_appear_later(tmp_path):
     p = pose_at(st.sims, st.rows, 'bird_7', t)[0]
     u, v = project(st, p[0], p[1])
     assert near_colour(img, u, v, (80, 200, 80))
+
+
+def test_map_draws_both_hostiles(tmp_path):
+    truth = make_run(tmp_path, videos=False, hostiles=2)
+    st = map_state(tmp_path)
+    t = truth['release'][0] + 5.0
+    img = render_frame(st, t)
+    from swarm_backend.ui.camera_video import pose_at
+    for name in ('x500_4', 'x500_5'):
+        p = pose_at(st.sims, st.rows, name, t)[0]
+        u, v = project(st, p[0], p[1])
+        assert near_colour(img, u, v, HOSTILE) or near_colour(img, u, v, GREY), name

@@ -140,3 +140,38 @@ def test_sighting_before_the_release_is_not_the_engagement(tmp_path):
     assert t.moments['first_sighting'] == pytest.approx(truth['sighting'][0], abs=0.1)
     assert t.moments['intercept'] > t.moments['release']
     assert t.attacker == truth['attacker'][0]
+
+
+# --- two hostiles at once (Demo scenarios plan, Task 8) ----------------------------------------
+
+def test_two_hostile_moments(tmp_path):
+    truth = make_run(tmp_path, videos=False, hostiles=2)
+    takes = find_takes(tmp_path)
+    assert len(takes) == 1
+    m, f = takes[0].moments, takes[0].facts
+    assert m['hit_1'] == pytest.approx(truth['hit'][0], abs=0.1)
+    assert m['hit_2'] == pytest.approx(truth['hit2'], abs=0.1)
+    assert m['hit'] == max(m['hit_1'], m['hit_2'])
+    assert m['first_sighting'] == min(m['first_sighting_1'], m['first_sighting_2'])
+    assert f['hits'] == '2/2' and f['attacker_1'] != f['attacker_2']
+    assert f['attacker_2'] == truth['attacker2']
+
+
+def test_takes_one_of_two_hit(tmp_path):
+    make_run(tmp_path, videos=False, hostiles=2, hit=[True, False])
+    m, f = find_takes(tmp_path)[0].moments, find_takes(tmp_path)[0].facts
+    assert 'hit_1' in m and 'hit_2' not in m and 'hit' not in m
+    assert f['hits'] == '1/2'
+
+
+def test_single_hostile_moments_unchanged(tmp_path):
+    make_run(tmp_path, takes=2, videos=False)
+    for t in find_takes(tmp_path):
+        assert not any(k.endswith(('_1', '_2')) for k in t.moments)
+        assert 'hits' not in t.facts or t.facts['hits'] is None
+
+
+def test_run_json_lists_both_hostiles(tmp_path):
+    make_run(tmp_path, videos=False, hostiles=2)
+    from swarm_backend.demo.runinfo import read_run_info
+    assert read_run_info(tmp_path).hostiles == ['x500_4', 'x500_5']

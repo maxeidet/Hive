@@ -37,6 +37,13 @@ START = (0.0, 300.0, 50.0)
 RESET_BEFORE_END = 2.0
 MISS_OUT_S = 6.0      # a missed run ends (the hostile taken out) this long after the closest pass  # the hostile back on its spawn point this long before the end
 GRAVEYARD = (450.0, -450.0, 50.0)
+# hostiles=2: drone 5 flies in from the north-west with drone 4, drone 1 is sent at it
+START2 = (-200.0, 220.0, 50.0)
+GRAVEYARD2 = (450.0, -430.0, 50.0)   # gazebo_surveillance: drone 5's spot, 20 m from drone 4's
+ATTACKER2 = 1
+SEE2_AFTER = 2.0                      # drone 1 sees it this long after the first sighting
+HIT2_AFTER = 5.0                      # ...and hits it this long after its own sighting
+CONFIG2 = Path(__file__).resolve().parents[2] / 'scenarios' / 'surveillance2.yaml'
 ATTACKERS = (3, 2)
 CAM_POS = (0.0, 100.0, 50.0)  # a fixed "chase camera" looking up the hostile's path
 CONFIG = Path(__file__).resolve().parents[2] / 'scenarios' / 'surveillance.yaml'
@@ -60,9 +67,17 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
              teleport: bool = True, videos: bool = True, cam_start_delay: float = 0.0,
              screen: bool = False, hit_event: bool = False, detect: bool = True,
              attackers: tuple[int, ...] = ATTACKERS, boxes: bool = True,
-             early_sighting: bool = False, birds_late: bool = False) -> dict:
+             early_sighting: bool = False, birds_late: bool = False, hostiles: int = 1) -> dict:
+    """hostiles=2: one take, drone 5 too; `hit` is then per hostile ([drone 4, drone 5])."""
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
+    two = hostiles == 2
+    hit2 = True
+    if two:
+        takes = 1
+        hit, hit2 = ([True, True] if hit is None else list(hit))[:2]
+        hit = [hit]
+        attackers = tuple(a for a in attackers if a != ATTACKER2) or (3,)
     hit = list(hit) if hit is not None else [True] * takes
     end = T0 + takes * TAKE_S
     plan = []
@@ -108,6 +123,38 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
             return _lerp(slot, goal, (sim - p['sighting']) / (meet - p['sighting']))
         return _lerp(goal, slot, (sim - meet) / 10.0)
 
+    q = None  # the second hostile's timeline (hostiles=2), released with the first
+    if two:
+        s2 = plan[0]['sighting'] + SEE2_AFTER
+        q = {'place': plan[0]['place'], 'release': plan[0]['release'], 'sighting': s2,
+             'hit': s2 + HIT2_AFTER if hit2 else None, 'end': plan[0]['end']}
+
+    def hostile2(sim):
+        if q is None or sim < q['place'] or (teleport and sim >= end - RESET_BEFORE_END):
+            return (-5.0, 4.0, 0.0)
+        if q['hit'] is not None and sim >= q['hit'] + 0.1:
+            return GRAVEYARD2
+        if q['hit'] is None and sim >= q['sighting'] + HIT2_AFTER + MISS_OUT_S:
+            return GRAVEYARD2
+        if sim < q['release']:
+            k = (sim - q['place'] - CLIMB[0]) / (CLIMB[1] - CLIMB[0])
+            return _lerp((START2[0], START2[1], 0.0), START2, k)
+        return _lerp(START2, (0.0, 0.0, 50.0),
+                     (sim - q['release']) * SPEED / math.hypot(START2[0], START2[1]))
+
+    defender1 = defender
+
+    def defender(i, sim):  # noqa: F811 - the attacker of the second hostile flies at it
+        if q is None or i != ATTACKER2 or sim < q['sighting']:
+            return defender1(i, sim)
+        slot = SLOTS[i]
+        meet = q['hit'] if q['hit'] is not None else q['sighting'] + HIT2_AFTER
+        miss = (1.0, 0.0, 0.0) if q['hit'] is not None else (6.0, 0.0, 0.0)
+        goal = tuple(a + b for a, b in zip(hostile2(min(meet, q['end']) - 0.2), miss))
+        if sim <= meet:
+            return _lerp(slot, goal, (sim - q['sighting']) / (meet - q['sighting']))
+        return _lerp(goal, slot, (sim - meet) / 10.0)
+
     def bird(sim):
         a = sim / 8.0
         return (40.0 * math.cos(a), 200.0 + 40.0 * math.sin(a), 30.0)
@@ -119,6 +166,8 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
             sim = round(T0 + j / POSE_HZ, 3)
             poses = {f'x500_gimbal_{i}': [*defender(i, sim), 0, 0, 0, 1] for i in SLOTS}
             poses['x500_4'] = [*hostile(sim), 0, 0, 0, 1]
+            if two:
+                poses['x500_5'] = [*hostile2(sim), 0, 0, 0, 1]
             poses['bird_1'] = [*bird(sim), 0, 0, 0, 1]
             if birds_late and sim >= plan[0]['release']:  # spawned with the release (--birds)
                 poses['bird_7'] = [60.0, 120.0 - 2.0 * (sim - plan[0]['release']), 35.0, 0, 0, 0, 1]
@@ -150,11 +199,25 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
                 event(p['hit'], 'attack', f'Drone {a} hit the target', a, '', 'good')
             event(p['hit'] + 2.0, 'fleet', 'Drone 4 link lost', 4, 'last message 2 s ago', 'bad')
             event(p['hit'] + 2.0, 'attack', f'Drone {a} back to searching', a)
+    if q is not None:
+        a = ATTACKER2
+        event(q['sighting'], 'detect', f'Drone {a} sees the target', a, '50 m up')
+        event(q['sighting'] + 0.3, 'attack', f'Drone {a} searching → intercept', a, 'bad')
+        if q['hit'] is not None:
+            event(q['hit'] + 2.0, 'fleet', 'Drone 5 link lost', 5, 'last message 2 s ago', 'bad')
+            event(q['hit'] + 2.0, 'attack', f'Drone {a} back to searching', a)
     for i in SLOTS:
         event(end - 3.0, 'fleet', f'Drone {i} landed and disarmed', i)
     events.sort(key=lambda e: e['_sim'])
 
     def status(i, sim):
+        if q is not None and i == ATTACKER2:
+            p = q if sim >= q['sighting'] else None
+            if p is None or sim < p['sighting'] + 0.3:
+                return 'searching'
+            if p['hit'] is not None and sim >= p['hit']:
+                return 'hit' if sim < p['hit'] + 2.0 else 'searching'
+            return 'intercept'
         p = take_at(sim)
         if p is None or p['attacker'] != i or sim < p['sighting'] + 0.3:
             return 'searching'
@@ -182,12 +245,15 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
                 v['gimbal_heading_deg'] = (20.0 * math.sin(sim / 3.0) + 30.0 * (i - 2)) % 360
                 v['status'] = status(i, sim)
                 p = take_at(sim)
+                target = hostile
+                if q is not None and i == ATTACKER2:
+                    p, target = dict(q, attacker=i), hostile2
                 if (detect and p is not None and p['attacker'] == i and sim >= p['sighting']
                         and (p['hit'] is None or sim < p['hit'])):
-                    he, hn, hu = hostile(sim)
+                    he, hn, hu = target(sim)
                     v['detection'] = {'north': hn + 1.5, 'east': he - 1.0, 'altitude': hu}
                 if v['status'] == 'intercept':
-                    he, hn, hu = hostile(sim)
+                    he, hn, hu = target(sim)
                     de, dn, du = defender(i, sim)
                     n = math.dist((he, hn, hu), (de, dn, du)) or 1.0
                     v['attack'] = {'target': {'north': hn, 'east': he, 'altitude': hu},
@@ -196,6 +262,8 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
                                    'range_m': round(n, 1)}
                 drones.append(v)
             drones.append(view('x500_4', 4, hostile(sim), sim, True))
+            if two:
+                drones.append(view('x500_5', 5, hostile2(sim), sim, True))
             new = []
             while k < len(events) and events[k]['_sim'] <= sim + 1e-9:
                 new.append({x: y for x, y in events[k].items() if x != '_sim'})
@@ -205,7 +273,9 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
             fh.write(json.dumps({'sim': sim, 'wall': round(WALL0 + 2 * (sim - T0), 3),
                                  'state': state}) + '\n')
 
-    write_run_info(folder, CONFIG, ['scenarios/trial.sh', str(takes)], {'fake': True})
+    write_run_info(folder, CONFIG2 if two else CONFIG,
+                   ['scenarios/trial.sh', str(takes)] + (['--hostiles', '2'] if two else []),
+                   {'fake': True})
 
     if videos:
         for i in SLOTS:
@@ -227,7 +297,9 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
                                                        [500, 100, 12, 9, 9]],
                                          'target': 7}) + '\n')
     return {'release': [p['release'] for p in plan], 'sighting': [p['sighting'] for p in plan],
-            'hit': [p['hit'] for p in plan], 'attacker': [p['attacker'] for p in plan]}
+            'hit': [p['hit'] for p in plan], 'attacker': [p['attacker'] for p in plan],
+            **({'hit2': q['hit'], 'sighting2': q['sighting'], 'attacker2': ATTACKER2}
+               if q is not None else {})}
 
 
 def _clip(folder: Path, stem: str, start: float, end: float, meta: dict) -> None:
