@@ -192,7 +192,7 @@ CFG
     while [ $# -gt 0 ]; do
       case "$1" in
         --story) STORY="$2"; shift 2 ;;
-        --preview|--skip-missing|--stills|--burn-subtitles) FARGS+=("$1"); shift ;;
+        --preview|--skip-missing|--stills) FARGS+=("$1"); shift ;;
         --take) FARGS+=("$1" "$2"); shift 2 ;;
         -*) echo "Unknown flag for final: $1"; exit 1 ;;
         *) RUN="$1"; shift ;;

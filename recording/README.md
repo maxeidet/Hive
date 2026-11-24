@@ -144,8 +144,8 @@ target in frame), a number in a single run, or `<run>/<k>` in a shoot (`head-on-
 **End cards**: `end_card: results` (the takes used), `end_card: compare` (the pairs used, plus
 `evidence: data/baseline_eval`: the earlier Gazebo evaluation's hit rates as bars).
 
-**Outputs** of `final`: the film, one clip per scene, a subtitle file (`.srt`) next to the film;
-`--burn-subtitles` also writes `<film>_subtitled.mp4`; `--stills` writes `stills_<story>.pdf` (one
+**Outputs** of `final`: the film, one clip per scene, a subtitle file (`.srt`) next to the film,
+for slides or a player's subtitle track (the captions are already drawn in the film); `--stills` writes `stills_<story>.pdf` (one
 frame per scene) and a GIF of every scene with "hit" in its caption (480 px, at most 8 s).
 
 Stories in this folder: `default.yaml` (one run), `compare.yaml` (a shoot with pairs).

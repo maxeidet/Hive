@@ -8,34 +8,22 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
 
 ## To do
 
-- [ ] **Map details, insights and extras on a real shoot** (added 24 Nov; do after the two below. Steps 3-4 of [[Recording - smoother demo videos (design)]], tested only on made-up runs)
-  1. Add `insights: true` and a zoom scene to a copy of `recording/stories/default.yaml` (`layout: zoom`, `show: [yolo]`, `freeze: 1.5`, from `first_sighting - 1` to `first_sighting + 3`) and a graph (`show: [chase, "plot:range"]`).
-  2. `recording/video.sh final --story <copy> --stills --burn-subtitles <run or shoot>`.
-  3. On the shoot from the test below: `recording/video.sh final --story compare --preview <shoot>` (includes the ghost map).
-
-  **Pass:** the estimate circle follows the hostile with a plausible error (a few metres at 50 m); the zoom shows the hostile inside the red box, frozen for 1.5 s; the graph's dot is lowest at the hit; the labels show at the sighting and the hit and are readable at projector size; the ghost shows the baseline in grey at the same time after release; the subtitles match the captions; the PDF has one page per scene; the hit GIF is under 5 MB; the `overview` run's orbit camera circles the base smoothly. **Note here:** how far the zoom box is off the hostile, if at all, and any label that is wrong.
-
-- [ ] **shoot.sh with a compare pair on Stellar** (added 24 Nov; step 2, tested only on made-up runs and the fast sim)
-  1. `cd ~/Hive && tmux new -s shoot 'recording/shoot.sh recording/shoots/demo.yaml --name demo-1 --prescreen 30'` and leave it (it flies 9 runs).
+- [ ] **shoot.sh with a compare pair, and the compare film** (added 24 Nov; step 2 of [[Recording - smoother demo videos (design)]], tested only on made-up runs and the fast sim. The single-run parts passed on 24 Nov, see Done)
+  1. `df -h /` first (54 GB free on 24 Nov; a run is 0.3-0.5 GB). Then `cd ~/Desktop/Hive && tmux new -s shoot 'recording/shoot.sh recording/shoots/demo.yaml --name demo-1 --prescreen 30'` and leave it (9 runs, about 2 h at the sim's 0.35x).
   2. Half-way, Ctrl-C it once, then run the same command again: it should skip the done runs.
-  3. `recording/video.sh moments demo-1`, then `recording/video.sh final --story compare --preview demo-1`.
+  3. `recording/video.sh moments demo-1`, then `recording/video.sh final --story compare --preview demo-1` (side by side and the ghost map).
 
-  **Pass:** runs with the same config follow each other without restarting the sim; the restart carries on; `moments` ranks a hit first; in the compare scenes both sides show the hostile setting off at the same moment, and each side's result appears at its own hit. **Note here:** for the zigzag entry, how many of the pre-screened "ours hits, baseline misses" seeds really did so in Gazebo (the fast sim's prediction quality), and how long the shoot took.
+  **Pass:** runs with the same config follow each other without restarting the sim; the restart carries on; `moments` ranks a hit first; in the compare scenes both sides show the hostile setting off at the same moment, each side's result appears at its own hit, and the ghost shows the baseline in grey at the same time after the release; the `overview` run's orbit camera circles the base smoothly. **Note here:** for the zigzag entry, how many of the pre-screened "ours hits, baseline misses" seeds really did so in Gazebo, and how long the shoot took.
 
-- [ ] **record.sh and final on Stellar** (added 23 Nov; see [[Recording demo videos]], `recording/README.md`. Claude ran the unit tests and `final --preview` on a made-up run only; the real recording, tmux, the kiosk browser and the moments in real events are untested)
-  1. `cd ~/Hive && recording/record.sh --name demo-test scenarios/trial.sh 1`. In a second terminal, `tmux attach -t hive-rec` to watch it.
-  2. `recording/video.sh moments demo-test`, then `recording/video.sh final --preview demo-test`.
-  3. Again with `--name demo-test2 --screen --watch` (leave the computer alone while it runs).
+- [ ] **record.sh ends by itself after the last intercept** (added 24 Nov; `recording/record.sh`, quick end. Only the dry run is tested)
+  1. `recording/record.sh --name <name> --screen scenarios/trial.sh 1` and let it run to the end.
 
-  **Pass:** no clicking; every part gets ready and it stops by itself; every health line is ✓; `moments` shows `release`, `first_sighting` and `hit` at plausible times and the right attacker; in the preview the hit in `chase` and `yolo` happens at the map's red hit tick, and the map shows the drones where the cameras show them. **Note here:** how long each part took to get ready (the log times), the sim speed against the 18 Nov 0.34x, and anything that failed (its `data/recordings/<run>/logs/<part>.log`).
+  **Pass:** after the hit it prints `Last engagement over (sim ...)`, about 15 sim s later `Done: stopping without landing`, then every health line is ✓ and `final --preview` builds with the aftermath scene. **Note here:** how long from the hit to `Ready to cut`.
 
-- [ ] **Demo videos still work after removing the Chromium render** (added 23 Nov; see [[Recording demo videos]] and `recording/README.md`. Removed: `ui/render.py`, `video.sh ui`, the page's replay mode, Playwright in the image. Nothing was run: Docker was not running)
-  1. Rebuild the image (the next `docker/start-stellar.sh` does it) and check it builds; it now installs `ffmpeg x11-utils` instead of Playwright.
-  2. In the container: `cd /workspace/ros2_ws/src/swarm_backend && python3 -m pytest tests/test_ui_replay.py tests/test_operator_ui.py tests/test_camera_video.py tests/test_screen_recording.py tests/test_debug_video.py`.
-  3. On an existing run: `recording/video.sh events 20261118-145347`, then `recording/video.sh cam --angle attacker_watch --start 212 --duration 5 20261118-145347` and the same with `--plain`.
-  4. A live run: the operator UI on http://localhost:8090 looks and moves as before, and `recording/video.sh screen` finds the window (xwininfo).
+- [ ] **Why the sim runs at 0.35x in flight** (added 24 Nov; to look into before long shoots)
+  Measured over phases (sim time / wall time from `ui.jsonl`): 0.58-0.95x before the drones spawn, 0.34-0.36x during takeoff and flight (run 4, headless, Gazebo on the GPU), 0.23x with `--screen` while other processes were busy, 0.17x with `--watch` (the cameras then render without the GPU). Candidates: Gazebo physics with 5 PX4s in lockstep, the 4 cameras, the screen film (x264 at 2560x1440). **Note here:** the speed with `--no-cameras --no-yolo`, then with each added back.
 
-  **Pass:** the image builds, the tests pass, `events` prints the table, both `cam` clips are written (`--plain` was broken before: it ate the next argument), and the UI is unchanged.
+- [ ] **A defender took another defender for the target** (added 24 Nov, demo-ui2, sim 93.6 s) Drone 1 reported a target at N 160, E 15, 40 m up: about 20 m from drone 2's slot at drone 2's height. The friendly check (`hive/friendlies.py`, box size against the hivemind's positions) did not mark it. **Note here:** whether it happens again (`recording/video.sh events <run>`, a "sees the target" before the release far from the hostile).
 
 - [ ] **YOLO (gazebo-only) and the new range rule in a live chase** (added 6 Nov; range rule fitted offline, see `training/fit_range.py`)
   1. Container and drone 0 up. In `ros2_ws/src/swarm_backend/`: `scenarios/scenario1.sh --duration 120`.
@@ -214,6 +202,16 @@ Back to [[Home]]. How to run things: [[Tutorial - live detector (detect)]], [[Ma
   **Pass:** it runs to the end and prints the table of detection rate per 10 m. **Note** at which distance detection stops.
 
 ## Done
+
+Run on Stellar (vultaumar) on 24 Nov by Oskar and Claude: the demo recording, from [[Recording demo videos]].
+
+| Test | Result | Verdict |
+| --- | --- | --- |
+| record.sh and final, one run (`claude-test4`) | Every part ready in under a minute (sim 20 s, UI 5 s, poses 5 s, YOLO 3 s, cameras 10 s), every health line ✓, hit by drone 3 seen at 72 m, 5.7 s to the hit; preview cut in 34 s, all panels on the same sim time. Fixed on the way: `run.json` was never written (argparse), Ctrl-C waited 300 s for the landing (now 20 s), Gazebo rendered the cameras on the CPU (now `--headless-rendering` on the GPU), the model folder. | **Pass** |
+| The UI film (`--screen`, `demo-ui3`) | The kiosk opens on the leftmost monitor and only that one is filmed (it filmed both before). The UI lines up with the cameras and the map in the film. Fixed on the way: false targets during takeoff (the detectors now start at patrol height, drone 0 is a friend), `first_sighting` counted the hostile parked before its release. | **Pass** |
+| The final film and extras (`demo-ui3`, `stories/extras.yaml`) | 1920x1080, 55 s, 8 MB in 45 s; zoom on the first locked box with the hostile inside, frozen 1.5 s; the range graph reaches 0 at the hit; insight labels at the sighting; `.srt` matches; stills PDF one page per scene; hit GIF 1.2 MB. `--burn-subtitles` drew the captions a second time, huge: removed (the captions are in the picture already). | **Pass** |
+| Demo videos after removing the Chromium render | The image builds, the 83 UI/camera/screen/debug tests pass, `events` prints the table, `cam` with and without `--plain` writes its clip (on `claude-test4`; the 18 Nov run is not on this machine), the UI looks as before. | **Pass** |
+| `--watch` (Gazebo's window) | Works, but the sim drops to 0.17x: the cameras then render without the GPU. Use the UI in the browser to watch a run. | **Works, slow** |
 
 Run by Oskar on 14 Oct; checked by Claude the same day.
 

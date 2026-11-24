@@ -521,7 +521,9 @@ def label_lines(model: str, drone: dict | None, hostile: str) -> tuple[list[str]
     lines = [f'D{i} {"base" if i == 0 else "defender"}', status]
     attack = drone.get('attack') or {}
     if attack.get('range_m') is not None and status in ('intercept', 'target lost'):
-        lines[1] += f'  {attack["range_m"]:.0f} m'
+        # The defender's own estimate (est_error in takes.json), not the true distance that the
+        # graphs (plot:range) show: often tens of metres apart, so say which it is.
+        lines[1] += f'  est. {attack["range_m"]:.0f} m'
     return lines, 'engaged' if status == 'intercept' else 'defender'
 
 

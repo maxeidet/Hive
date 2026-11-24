@@ -1,6 +1,6 @@
 # The default story plus the extras (zoom on the YOLO box, a graph, insights everywhere they fit):
 # a test of steps 3-4 of the recording design on one run.
-#   recording/video.sh final --story extras --stills --burn-subtitles [RUN]
+#   recording/video.sh final --story extras --stills [RUN]
 title: Hive - a drone swarm that defends its base
 subtitle: TDDE19, group 3
 take: best

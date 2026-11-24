@@ -100,7 +100,7 @@ def test_pose_at_interpolates_between_logged_poses(tmp_path):
 def test_labels():
     lines, kind = cv.label_lines('x500_gimbal_3', {'id': 3, 'status': 'intercept',
                                                    'attack': {'range_m': 41.6}}, 'x500_4')
-    assert lines == ['D3 defender', 'intercept  42 m'] and kind == 'engaged'
+    assert lines == ['D3 defender', 'intercept  est. 42 m'] and kind == 'engaged'
     assert cv.label_lines('x500_4', None, 'x500_4') == (['D4 hostile'], 'hostile')
     assert cv.ascii_text('Drone 3 searching → intercept') == 'Drone 3 searching -> intercept'
 

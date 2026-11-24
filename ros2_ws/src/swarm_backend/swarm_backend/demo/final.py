@@ -445,7 +445,7 @@ def subtitles(entries: list[tuple[float, float, str]]) -> str:
 
 
 def build(folder: Path, story_path: Path, preview: bool = False, skip_missing: bool = False,
-          take: str | None = None, burn_subtitles: bool = False, stills: bool = False) -> Path:
+          take: str | None = None, stills: bool = False) -> Path:
     folder, story_path = Path(folder), Path(story_path)
     try:
         story = load_story(story_path)
@@ -602,13 +602,6 @@ def build(folder: Path, story_path: Path, preview: bool = False, skip_missing: b
                 print(f'Wrote {g} ({size / 1e6:.1f} MB)')
     srt = out.with_suffix('.srt')
     srt.write_text(subtitles(entries))
-    if burn_subtitles:
-        W, H = PREVIEW if preview else FULL
-        style = f"FontName=DejaVu Sans,FontSize={max(10, H // 40)},Outline=1,MarginV={H // 9}"
-        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(out), '-vf',
-                        f"subtitles={srt}:force_style='{style}'", *encode_args(preview),
-                        '-movflags', '+faststart', '-an',
-                        str(out.with_name(out.stem + '_subtitled.mp4'))], check=True)
     print(f'{"#":>5}  {"take":>4}  {"sim":>13}  {"s":>5}  caption')
     for idx, cap, tk, sim, length, *_ in rows:
         print(f'{idx:>5}  {tk:>4}  {sim:>13}  {length:5.1f}  {cap}')
@@ -624,11 +617,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--skip-missing', action='store_true', help='build the scenes that can be built')
     p.add_argument('--take', help='use this take for every scene (best or a number)')
     p.add_argument('--stills', action='store_true', help='also a PDF of stills and GIFs of hit scenes')
-    p.add_argument('--burn-subtitles', action='store_true',
-                   help='also write <film>_subtitled.mp4 with the captions drawn in')
     args = p.parse_args(argv)
-    build(args.run, args.story, args.preview, args.skip_missing, args.take, args.burn_subtitles,
-          args.stills)
+    build(args.run, args.story, args.preview, args.skip_missing, args.take, stills=args.stills)
     return 0
 
 
