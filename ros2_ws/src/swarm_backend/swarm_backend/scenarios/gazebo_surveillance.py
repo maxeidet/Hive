@@ -452,6 +452,8 @@ class GazeboSurveillance(SurveillanceWorld):
                 path = Path(self.record_path(i))
                 path.unlink(missing_ok=True)
                 extra = ['--record', str(path)]
+            if self.options.truth_log:  # estimates against Gazebo's truth (truth_log.py)
+                extra += ['--truth-log', str(Path(self.options.truth_log) / f'drone_{i}.jsonl')]
             if self.swarm_config.detect.body_mask:  # ignore its own arms, legs, propellers
                 extra.append('--body-mask')
             self.detect_procs.append(subprocess.Popen(

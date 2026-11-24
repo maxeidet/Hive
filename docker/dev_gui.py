@@ -403,6 +403,8 @@ def single_argv(req: dict, backend_dir: Path = BACKEND_DIR,
         args.append('--spawn-at-slots')
     if not sim:  # a fresh Gazebo world for every run (the fast simulation has none)
         args.append('--restart-each-run')
+        if req.get('truth_log'):  # each detector against Gazebo's truth, per image
+            args.append('--truth-log')
     argv, _ = scenario_argv({'name': 'compare_paths.sh', 'args': shlex.join(args), 'sim': sim},
                             backend_dir)
     alt = {'0': 'level', '-10': 'below', '10': 'above', 'all': 'all altitudes'}[altitude]
@@ -485,6 +487,8 @@ def schedule_argv(req: dict, backend_dir: Path = BACKEND_DIR, models_dir: Path =
         args.append('--spawn-at-slots')
     if not sim:
         args.append('--restart-each-run')
+        if req.get('truth_log'):  # each detector against Gazebo's truth, per image
+            args.append('--truth-log')
     argv, _ = scenario_argv({'name': 'schedule.sh', 'args': shlex.join(args), 'sim': sim},
                             backend_dir)
     title = (f'schedule: {len(steps)} step{"s" if len(steps) > 1 else ""}, {total} '

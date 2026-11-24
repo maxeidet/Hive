@@ -132,6 +132,7 @@
       <select id="g-setup"></select>
       <label class="check" title="Off: they start in the camp and fly 150 m out first"><input type="checkbox" id="g-slots" checked> Defenders start below their slots (only climb)</label>
       <label class="check" title="Opens once drone 2 is in Gazebo, and stays open through the restarts between runs"><input type="checkbox" id="g-rviz" checked> Open RViz for drone 2 (detection boxes)</label>
+      <label class="check" title="Each detector writes its distance, direction, own position and friendly check against Gazebo's truth, one line per image, to data/path_compare/&lt;run&gt;/&lt;path&gt;/truth/drone_&lt;id&gt;.jsonl"><input type="checkbox" id="g-truth"> Log the detectors' errors against the truth</label>
       <label class="check"><input type="checkbox" id="g-sim"> --sim (fast simulation, no Gazebo)</label>
       <div class="buttons"><button class="primary" id="g-run">Run</button></div>
       <div class="muted" id="single-note" style="font-size:11px;margin-top:6px"></div>
@@ -145,6 +146,7 @@
       <select id="h-setup"></select>
       <label class="check" title="Off: they start in the camp and fly 150 m out first"><input type="checkbox" id="h-slots" checked> Defenders start below their slots (only climb)</label>
       <label class="check" title="Opens once drone 2 is in Gazebo, and stays open through the restarts between runs"><input type="checkbox" id="h-rviz" checked> Open RViz for drone 2 (detection boxes)</label>
+      <label class="check" title="Each detector writes its distance, direction, own position and friendly check against Gazebo's truth, one line per image, to data/schedules/&lt;run&gt;/&lt;step&gt;/truth/drone_&lt;id&gt;.jsonl"><input type="checkbox" id="h-truth"> Log the detectors' errors against the truth</label>
       <label class="check"><input type="checkbox" id="h-sim"> --sim (fast simulation, no Gazebo)</label>
       <div class="buttons"><button class="primary" id="h-run">Run schedule</button></div>
       <div class="muted" id="h-note" style="font-size:11px;margin-top:6px"></div>
@@ -443,7 +445,7 @@ async function startSingle(confirmBooking = false) {
   await runJob({kind: 'single', path: $('g-path').value, setup: $('g-setup').value,
                 altitude: $('g-alt').value, runs: $('g-runs').value.trim(),
                 spawn_at_slots: $('g-slots').checked, rviz: $('g-rviz').checked,
-                sim, confirm_booking: confirmBooking});
+                truth_log: $('g-truth').checked, sim, confirm_booking: confirmBooking});
 }
 
 // ---- schedule: steps flown one after the other (scenarios/schedule.sh) ----------------
@@ -531,6 +533,7 @@ async function startSchedule(confirmBooking = false) {
   }
   await runJob({kind: 'schedule', steps: schedule, setup: $('h-setup').value,
                 spawn_at_slots: $('h-slots').checked, rviz: $('h-rviz').checked,
+                truth_log: $('h-truth').checked,
                 sim, confirm_booking: confirmBooking});
 }
 

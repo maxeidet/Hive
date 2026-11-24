@@ -326,6 +326,12 @@ def test_single_scenario_command(tmp_path):
     argv, _, _ = dev_gui.single_argv({'path': 'straight', 'setup': 'baseline', 'altitude': 'all',
                                       'spawn_at_slots': False, 'sim': True}, models_dir=models)
     assert argv[1:] == ['1', '--paths', 'straight', '--setup', 'baseline', '--sim']
+    argv, _, _ = dev_gui.single_argv({'path': 'straight', 'setup': 'baseline', 'altitude': '0',
+                                      'truth_log': True}, models_dir=models)
+    assert argv[-1] == '--truth-log'
+    argv, _, _ = dev_gui.single_argv({'path': 'straight', 'setup': 'baseline', 'altitude': '0',
+                                      'truth_log': True, 'sim': True}, models_dir=models)
+    assert '--truth-log' not in argv  # the fast simulation has no camera images
 
 
 @pytest.mark.parametrize('req', [
@@ -383,6 +389,9 @@ def test_schedule_writes_a_file_schedule_py_reads(tmp_path):
     argv, _, _ = dev_gui.schedule_argv({**req, 'sim': True, 'spawn_at_slots': False},
                                        models_dir=tmp_path, schedule_dir=tmp_path)
     assert argv[2:] == ['--sim']
+    argv, _, _ = dev_gui.schedule_argv({**req, 'truth_log': True},
+                                       models_dir=tmp_path, schedule_dir=tmp_path)
+    assert argv[2:] == ['--spawn-at-slots', '--restart-each-run', '--truth-log']
 
 
 @pytest.mark.parametrize('req', [

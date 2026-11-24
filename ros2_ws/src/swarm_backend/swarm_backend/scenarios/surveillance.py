@@ -60,6 +60,7 @@ class Options:
     tracker: str = 'confirmer'  # real detector's tracker (detect/live.py --tracker)
     detect_args: tuple[str, ...] = ()  # more detect/live.py options, e.g. ('--detector', 'yolo')
     guidance: str = 'pursuit'  # the defenders' attack: pursuit (the baseline) or mpc
+    truth_log: str | None = None  # folder: each real detector logs against the truth there
 
     def __post_init__(self):
         if self.detector not in DETECTORS:

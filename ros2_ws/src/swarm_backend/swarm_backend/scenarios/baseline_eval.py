@@ -314,6 +314,11 @@ def parser() -> argparse.ArgumentParser:
                    help=f'Gazebo: end with exit code {common.EXIT_RESTART} after every run '
                         'while runs are left, so Gazebo is restarted between runs '
                         '(baseline_eval.sh --restart-each-run)')
+    p.add_argument('--truth-log', action='store_true',
+                   help='Gazebo: every real detector logs its distance, direction, own position '
+                        "and friendly check against Gazebo's truth, one line per image, in "
+                        '<out>/truth/drone_<id>.jsonl (summary: python3 -m '
+                        'swarm_backend.detect.truth_log FILE)')
     p.add_argument('--detect-rate', type=float, default=DEFAULT_DETECT_RATE,
                    help='images per second for each detector')
     p.add_argument('--path', choices=INBOUND_PATHS, default='straight',
@@ -373,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
     options = Options(detector='real', hit_radius=config.intercept.hit_radius,
                       max_speed=config.intercept.interceptor_max_speed,
                       detect_rate=args.detect_rate, record=True,
+                      truth_log=str(args.out / 'truth') if args.truth_log else None,
                       **common.setup_options(args))
     print(f'Setup: {options.setup}', flush=True)
 
