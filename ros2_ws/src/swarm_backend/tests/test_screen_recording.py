@@ -42,3 +42,17 @@ def test_cut_stretches_wall_time_to_sim_time():
     assert cmd[cmd.index('-ss') + 1] == '3.000'
     assert 'setpts=(PTS-STARTPTS)*0.500000,fps=25' in cmd
     assert cmd[cmd.index('-vf') + 3] == '1.000'   # the output's -t: sim seconds
+
+
+ROOT = """
+xwininfo: Window id: 0x6b6 (the root window) (has no name)
+
+  Absolute upper-left X:  0
+  Absolute upper-left Y:  0
+  Width: 1921
+  Height: 1080
+"""
+
+
+def test_root_region():
+    assert screen.root_region(ROOT) == (0, 0, 1920, 1080)

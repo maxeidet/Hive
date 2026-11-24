@@ -192,6 +192,9 @@ def main(angle, pgain=0.1, start=None):
     if not has_track:
         print('This Gazebo GUI has no /gui/track: using plain follow (no look-at, tripods stay fixed).')
 
+    if 'orbit' in a:
+        sys.exit(f'{angle} circles the base: it only exists live (mount-backend.sh camrec). '
+                 'Pick another angle for the replay.')
     if 'follow' in a:
         target, offset, other = a['follow'], a['offset'], a.get('look_at_model')
         if not has_track:

@@ -21,6 +21,7 @@
 #   normal speed) to data/recordings/<date-time>/gz/ in the repo, to film afterwards from a
 #   replay at any camera angle. Start the UI with `mount-backend.sh ui --record auto` to save
 #   it in the same folder. Then recording/video.sh (recording/README.md).
+#   RECORD_RUN=NAME names the folder (data/recordings/NAME; recording/record.sh sets it).
 #
 # --native-gui (default): the Gazebo window opens on the screen you are sitting at
 #   (course students have no remote access, so we always are). No VNC involved.
@@ -221,7 +222,7 @@ fi
 # copied in, so every run starts from the unpatched world), before PX4 starts Gazebo.
 RECORD_CMD=""
 if [ "$RECORD" = "1" ]; then
-  RUN_NAME="$(date +%Y%m%d-%H%M%S)"
+  RUN_NAME="${RECORD_RUN:-$(date +%Y%m%d-%H%M%S)}"  # recording/record.sh sets RECORD_RUN
   mkdir -p "${REPO_ROOT}/data/recordings/${RUN_NAME}"
   RECORD_CMD="python3 /workspace/recording/enable_log_record.py /opt/px4-gazebo/share/gz/worlds/${WORLD}.sdf /workspace/data/recordings/${RUN_NAME}/gz; "
 fi

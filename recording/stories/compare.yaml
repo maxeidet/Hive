@@ -1,0 +1,46 @@
+# The comparison film: our system against the baseline on the same runs, from a shoot with
+# compare: pairs (recording/shoots/demo.yaml). Build: recording/video.sh final --story compare --preview <shoot>
+title: Hive - a drone swarm that defends its base
+subtitle: TDDE19, group 3 - our system vs. the baseline
+take: best                    # scenes without a take: the best take of the shoot
+end_card: compare             # both setups' results, and the Gazebo evaluation's
+evidence: data/baseline_eval  # the baseline's evaluation folder (ours: data/baseline_eval_yolo-bytetrack-mpc)
+
+scenes:
+- caption: Defenders take off and patrol the arc
+  from: takeoff - 2
+  to: takeoff + 12
+  layout: side
+  show: [wide, map]
+
+- card: Same run, two systems
+
+- caption: The hostile comes in - baseline left, ours right
+  take: best_pair
+  from: release + 5
+  to: release + 25
+  layout: compare
+  show: [map]
+  insights: [seen_at, time_to_hit, no_hit]
+
+- caption: Both runs on one map
+  take: best_pair
+  from: release + 5
+  to: release + 25
+  layout: ghost
+  show: [map]
+
+- caption: Detection and intercept from the chase camera
+  take: best_pair
+  from: first_sighting - 4
+  to: first_sighting + 6
+  layout: compare
+  show: [chase]
+  insights: true
+
+- caption: What each defender's camera saw
+  take: best_pair
+  from: first_sighting - 2
+  to: first_sighting + 4
+  layout: compare
+  show: [yolo]

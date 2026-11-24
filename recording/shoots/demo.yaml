@@ -1,0 +1,24 @@
+# An example shoot: recording/shoot.sh recording/shoots/demo.yaml [--prescreen 30]
+# Each entry is any scenario command (run from ros2_ws/src/swarm_backend/). compare: flies the
+# same run once per setup (a pair for the story's compare and ghost layouts). seeds: random
+# draws seeds, or takes the ones --prescreen found matching want:. Keys: recording/README.md.
+- name: overview
+  run: idle 60                       # no scenario: the orbit camera around the base
+  options: [--cameras, base_orbit, --no-yolo]
+
+- name: head-on
+  run: scenarios/trial.sh 1 --aspects 0 --speeds 4
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 3
+
+- name: weave
+  run: scenarios/trial.sh 1 --path weave
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: 7
+
+- name: zigzag
+  run: scenarios/trial.sh 1 --path zigzag
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: random
+  want: [ours_hits, baseline_misses]
+  repeat: 3

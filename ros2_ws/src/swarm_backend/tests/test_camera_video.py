@@ -137,3 +137,18 @@ def test_watch_keeps_its_direction_past_the_target_and_stays_on_the_drone_after_
         assert cam == pytest.approx((0.0, y - 6.0, 42.0))                         # still behind it
         u, v, _ = project(cam, q, (0.0, y, 40.0), HFOV, W, H)
         assert u == pytest.approx(W / 2) and v == pytest.approx(H / 2)            # looking at D3
+
+
+def test_orbit_goal_circles():
+    import math
+    spec = {'orbit': [0.0, 0.0], 'radius': 200.0, 'height': 70.0, 'period_s': 60.0,
+            'look_at_point': [0.0, 100.0, 30.0]}
+    d = Director('base_orbit', spec, DEF, 'x500_4', smooth_s=0.0)
+    tr = Tracker((450.0, -450.0))
+    goals = [d.goal(tr, 100.0 + t) for t in (0.0, 15.0, 30.0)]
+    for cam, aim in goals:
+        assert math.hypot(cam[0], cam[1]) == pytest.approx(200.0)
+        assert cam[2] == pytest.approx(70.0) and aim == (0.0, 100.0, 30.0)
+    a0, a1, a2 = (math.atan2(c[1], c[0]) for c, _ in goals)
+    assert math.remainder(a1 - a0, 2 * math.pi) == pytest.approx(math.pi / 2)
+    assert abs(math.remainder(a2 - a0, 2 * math.pi)) == pytest.approx(math.pi)

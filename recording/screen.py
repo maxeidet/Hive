@@ -49,6 +49,12 @@ def parse_xwininfo(text: str) -> tuple[int, int, int, int]:
             field('Width'), field('Height'))
 
 
+def root_region(text: str) -> tuple[int, int, int, int]:
+    """The whole screen, from `xwininfo -root`, with even sizes for H.264."""
+    _, _, w, h = parse_xwininfo(text)
+    return even((0, 0, w, h))
+
+
 def parse_region(arg: str) -> tuple[int, int, int, int]:
     """WIDTHxHEIGHT+X+Y, as X11 geometry."""
     m = re.fullmatch(r'(\d+)x(\d+)\+(-?\d+)\+(-?\d+)', arg)
@@ -83,7 +89,11 @@ def record(args) -> int:
     display = os.environ.get('DISPLAY')
     if not display:
         raise SystemExit('No DISPLAY: run `video.sh screen` in a terminal on this computer\'s desktop.')
-    region = even(parse_region(args.region) if args.region else pick_window())
+    if args.fullscreen:
+        region = root_region(subprocess.run(['xwininfo', '-root'], capture_output=True, text=True,
+                                            check=True).stdout)
+    else:
+        region = even(parse_region(args.region) if args.region else pick_window())
     out = args.run / 'screen.mkv'
     (args.run / 'screen.json').write_text(json.dumps(
         {'display': display, 'region': region, 'fps': args.fps}, indent=1) + '\n')
@@ -188,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser('record')
     r.add_argument('run', type=Path, help='the run folder')
     r.add_argument('--region', help='WIDTHxHEIGHT+X+Y instead of clicking a window')
+    r.add_argument('--fullscreen', action='store_true',
+                   help='the whole screen, no click (recording/record.sh --screen)')
     r.add_argument('--fps', type=int, default=FPS)
     c = sub.add_parser('cut')
     c.add_argument('run', type=Path, help='the run folder')

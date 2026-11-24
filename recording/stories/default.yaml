@@ -1,0 +1,42 @@
+# The default demo story: the 18 Nov 2026 cut, written in named moments, so it cuts any run.
+# Edit freely and build with: recording/video.sh final --preview  (then without --preview).
+# Keys, layouts, sources and moments: recording/README.md, "The story file".
+title: Hive - a drone swarm that defends its base
+subtitle: TDDE19, group 3
+take: best                    # the first take that ended in a hit; or a take number
+end_card: results             # hits and times of the takes used
+
+scenes:
+- caption: Defenders arm and take off
+  from: takeoff - 2
+  to: takeoff + 12
+  layout: side
+  show: [wide, map]
+
+- caption: Patrol - the hostile approaches (8x speed)
+  from: takeoff + 12
+  to: first_sighting - 5
+  layout: full
+  show: [map]
+  speed: 8
+
+- caption: Drone {attacker} detects the hostile and intercepts
+  from: first_sighting - 5
+  to: hit
+  layout: grid
+  show: [chase, yolo, map, wide]
+  insights: true
+
+- caption: The hit - replay at half speed
+  from: hit - 2.5
+  to: hit + 0.2
+  layout: side
+  show: [chase, yolo]
+  speed: 0.5
+  insights: [time_to_hit, closest]
+
+- caption: Aftermath - the defenders return
+  from: hit
+  to: hit + 12
+  layout: side
+  show: [wide, map]

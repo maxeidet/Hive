@@ -11,6 +11,8 @@
   "graveyard_enu": [450.0, -450.0],
   "defenders": ["x500_gimbal_1", "x500_gimbal_2", "x500_gimbal_3"],
   "hostile": "x500_4",
+  "pose_log": {"prefixes": ["x500", "bird_", "rec_cam_"], "hz": 25},
+  "map": {"half_size_m": 260, "centre_enu": [0, 110], "trail_s": 10},
 
   "replay_angles": {
     "hostile_chase":  {"follow": "x500_4", "offset": [-10.0, 0.0, 4.0]},
@@ -21,6 +23,7 @@
     "attacker_watch": {"follow": "@attacker", "offset": [-6.0, 0.0, 2.0], "look_at_model": "x500_4"},
     "base_tripod":    {"position": [0.0, -15.0, 12.0], "look_at_point": [0.0, 150.0, 40.0], "track_model": "x500_4"},
     "arc_overhead":   {"position": [0.0, 60.0, 260.0], "look_at_point": [0.0, 170.0, 40.0], "track_model": "x500_4"},
-    "arc_side":       {"position": [180.0, 150.0, 45.0], "look_at_point": [0.0, 160.0, 40.0], "track_model": "x500_4"}
+    "arc_side":       {"position": [180.0, 150.0, 45.0], "look_at_point": [0.0, 160.0, 40.0], "track_model": "x500_4"},
+    "base_orbit":     {"orbit": [0.0, 0.0], "radius": 220.0, "height": 70.0, "period_s": 60.0, "look_at_point": [0.0, 100.0, 30.0]}
   }
 }

@@ -1,30 +1,31 @@
 # Demo videos: recording a scenario and cutting the film
 
-This folder turns a Hive scenario (e.g. `scenarios/trial.sh 1`) into a demo video. Everything
-is recorded while the scenario runs, and afterwards any part of it can be cut out, put side by
-side and edited into a final cut. All the pictures line up to the frame because every recording
-is put on Gazebo's **simulation time**.
+This folder turns a Hive scenario (e.g. `scenarios/trial.sh 1`) into a demo video, in two
+commands: **`record.sh`** records a run, **`video.sh final`** cuts it into a film from a
+**story file**. Every recording is put on Gazebo's **simulation time**, so all the pictures
+line up to the frame, and the story names **moments** (`first_sighting`, `hit`, ...) instead of
+times, so any run cuts itself. Design: `hive-vault/Recording - smoother demo videos (design).md`.
 
-What you can record, each one optional:
+What a run records (`record.sh` starts all of it):
 
-| Recording | What it shows | Command during the run | File in the run folder |
+| Recording | What it shows | Part | File in the run folder |
 |---|---|---|---|
-| Gazebo log | every model's pose, 50 Hz (for manual replays) | `docker/start-stellar.sh --record` | `gz/` |
-| UI states | what the operator UI shows, 10 Hz | `./mount-backend.sh ui --record auto` | `ui.jsonl` |
-| UI film | the operator UI, filmed from the screen | `recording/video.sh screen` | `screen.mkv` |
-| YOLO views | each defender's camera with the boxes and tracks drawn | `./mount-backend.sh debugrec` | `debug_d<ID>.mkv` |
-| Live cameras | third-person views from invisible cameras that follow the action | `./mount-backend.sh camrec` | `cam_<angle>.mkv`, `poses.jsonl` |
+| Gazebo log | every model's pose, 50 Hz (for manual replays) | `start-stellar.sh --record` | `gz/` |
+| Who is who | the command, config, setup, seeds, drones by role | `demo/runinfo.py` | `run.json` |
+| UI states | what the operator UI shows, 10 Hz | `mount-backend.sh ui --record` | `ui.jsonl` |
+| Poses | every drone's, bird's and camera's true pose, 25 Hz | `mount-backend.sh posesrec` | `poses.jsonl` |
+| YOLO views | each defender's camera with the boxes and tracks drawn | `mount-backend.sh debugrec` | `debug_d<ID>.mkv` |
+| Live cameras | third-person views from invisible cameras that follow the action | `mount-backend.sh camrec` | `cam_<angle>.mkv` |
+| UI film (`--screen`, optional) | the operator UI, filmed from the screen | `video.sh screen --fullscreen` | `screen.mkv` |
 
-Each run gets its own folder, `data/recordings/<date-time>/`, made by `start-stellar.sh
---record`. The other recorders write into the newest folder. **`data/` is not in git and not
-backed up: copy the videos you keep somewhere else.**
-
-Everything runs in the `hive-px4-vnc` Docker image (ffmpeg, OpenCV and Gazebo are in it).
-Nothing is installed on the host.
+The **tactical map** (`map`) is drawn afterwards from the poses and UI states, so it needs no
+recorder and is always there. **`data/` is not in git and not backed up: copy what you keep
+(`record.sh --export DIR`).** Everything runs in the `hive-px4-vnc` Docker image; the host
+only needs bash and tmux (both on Stellar).
 
 ---
 
-## Quick start: a full run
+## Quick start
 
 ### 0. Check the machine (Stellar rules)
 
@@ -34,104 +35,151 @@ nvidia-smi                         # someone else's heavy GPU work? Ask first
 df -h / /scratch
 ```
 
-The live cameras render on the GPU. The first `start-stellar.sh` after a change to
-`docker/Dockerfile` rebuilds the image, which takes a few minutes.
+The first `start-stellar.sh` after a change to `docker/Dockerfile` rebuilds the image (minutes).
 
-### 1. Start, in this order (six terminals)
+### 1. Record (one terminal, nothing to click)
 
-**T1: the sim, recording.** Wait for the `pxh>` prompt.
 ```bash
-cd ~/Hive && docker/start-stellar.sh --record
+cd ~/Hive && recording/record.sh scenarios/trial.sh 1
 ```
-It prints `Recording this run to /workspace/data/recordings/<run>/gz`.
 
-**T2: the UI, recording**
+It starts the sim (headless), the UI, the pose logger, the YOLO views and the live cameras,
+each only when the one before is ready, then flies the scenario, stops everything in order and
+checks the run folder (✓ / ✗ per file). It prints the run's takes and `Ready to cut: ...`.
+
+- Watch what is happening: `tmux attach -t hive-rec` (one window per part; detach with
+  `Ctrl-b d`). Add `--watch` to see Gazebo's window too.
+- `--screen` also films the operator UI (opens your browser in kiosk mode, films the whole
+  screen: leave the computer alone while it runs).
+- `--name head-on` names the folder; `--cameras attacker_watch` (one camera: the sim slows down
+  less), `--no-cameras`, `--no-yolo`; `--export /media/usb` copies the run off the machine.
+- `--dry-run` prints every step it would take. Ctrl-C stops everything in order.
+- Any scenario works: `recording/record.sh ./mount-backend.sh attacktest --runs 3`.
+
+### 2. Cut
+
 ```bash
-cd ~/Hive/ros2_ws/src/swarm_backend
-export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml
-./mount-backend.sh ui --record auto
+recording/video.sh moments                    # the takes, their moments and facts
+recording/video.sh final --preview            # stories/default.yaml at 960x540, fast
+recording/video.sh final                      # the film: data/recordings/<run>/final_default.mp4
 ```
-`SWARM_CONFIG` must be exported **in this terminal**. Without it the UI shows only drones 0–2,
-not the defenders 1–3 and the hostile 4 of the surveillance arc. Then open
-http://localhost:8090 in a browser on this computer's desktop and make it **fullscreen (F11)**:
-the film shows exactly what is on screen, tabs included.
 
-**T3: film the UI**
+Edit `recording/stories/default.yaml` (or copy it: `--story mine`) and build again: sources are
+cut once and cached, so a rebuild takes seconds. Each scene is also saved on its own in
+`scenes/<story>/01_...mp4`, for slides. If a scene's moment or recording is missing (no hit,
+recorded without cameras) nothing is built and every problem is listed; `--skip-missing` builds
+the rest. `--take 2` uses take 2 for every scene.
+
+### 3. Share
+
 ```bash
-cd ~/Hive && recording/video.sh screen      # then click the browser window
+recording/video.sh compress final_default.mp4 final_10mb.mp4 10        # to a size limit
 ```
-It prints `Filming WxH at (x, y) of :2 ...`. Keep the window where it is, with nothing on top
-of it, until the end.
 
-**T4: the YOLO views**
+All file names are relative to the newest run folder; put a run's folder name last for an
+older one, e.g. `recording/video.sh final --preview 20261118-145347`.
+
+---
+
+## The story file
+
+`recording/stories/<name>.yaml`:
+
+```yaml
+title: Hive - a drone swarm that defends its base   # title card (title_seconds: 3)
+subtitle: TDDE19, group 3
+take: best                  # default take: the first that ended in a hit, or a number
+end_card: results           # hits and times of the takes used (end_seconds: 3)
+
+scenes:
+- caption: Drone {attacker} detects the hostile and intercepts   # {attacker}, {take}
+  from: first_sighting - 5  # a moment ± seconds
+  to: hit
+  layout: grid              # full (1 source), side (2), grid (4)
+  show: [chase, yolo, map, wide]
+  speed: 1                  # 8 = 8x faster, 0.5 = slow motion
+  take: 2                   # optional: this scene from another take
+- card: A weaving hostile   # a text card between scenes (duration: 3)
+```
+
+**Moments** of a take (`video.sh moments` lists them): `start`, `release` (the hostile sets off),
+`takeoff`, `first_sighting`, `intercept`, `hit`, `return` (the attacker back to searching),
+`landed`, `end`. A take is one engagement: a recording with `trial.sh 3` has three.
+
+**Sources**: `map` (tactical map), `ui` (screen film, only with `--screen`), `yolo` (the
+attacker's YOLO view), `yolo:<id>` (a fixed defender's), `chase` (`cam_attacker_watch`), `wide`
+(`cam_arc_side`), `cam:<angle>` (any other recorded camera).
+
+**Facts** (in `takes.json`, on the end card): hit, attacker, range at first sighting, release to
+sighting, sighting to hit, closest pass, setup, the share of the engagement the chase camera kept
+the target in frame (`in_frame_frac`), and the position error of the estimate (at the sighting and
+the median).
+
+**Takes by name**: `best`, `best2` (the ranking: a hit first, then a short time to hit, then the
+target in frame), a number in a single run, or `<run>/<k>` in a shoot (`head-on-1-ours/1`).
+`video.sh moments <shoot>` prints the ranking.
+
+**More layouts**:
+
+| Layout | Shows | Keys |
+|---|---|---|
+| `compare` | a baseline/ours pair side by side (baseline left), synced on `release`; each side's result appears at its hit | `take: best_pair` or `pair:<id>`, `show: [map]` (any one source); `from`/`to` are moments of the ours run |
+| `ghost` | both runs of a pair on one map, the baseline in grey | `take: best_pair`, `show: [map]` |
+| `zoom` | the YOLO view cropped around the locked box, frozen first | `show: [yolo]`, `zoom: 3`, `freeze: 1.5` |
+
+**Insights**: `insights: true` (or a list: `seen_at`, `assigned`, `est_error`, `time_to_hit`,
+`closest`, `no_hit`) shows the take's numbers at the moment they belong to ("seen at 74 m",
+"3.1 s from sighting to hit"). In a compare scene each side gets its own.
+
+**Graphs**: `show: [chase, "plot:range"]`, also `plot:base_distance`, `plot:est_error`.
+
+**End cards**: `end_card: results` (the takes used), `end_card: compare` (the pairs used, plus
+`evidence: data/baseline_eval`: the earlier Gazebo evaluation's hit rates as bars).
+
+**Outputs** of `final`: the film, one clip per scene, a subtitle file (`.srt`) next to the film;
+`--burn-subtitles` also writes `<film>_subtitled.mp4`; `--stills` writes `stills_<story>.pdf` (one
+frame per scene) and a GIF of every scene with "hit" in its caption (480 px, at most 8 s).
+
+Stories in this folder: `default.yaml` (one run), `compare.yaml` (a shoot with pairs).
+
+---
+
+## Many runs: `shoot.sh`
+
 ```bash
-cd ~/Hive/ros2_ws/src/swarm_backend && ./mount-backend.sh debugrec      # drones 1 2 3
+recording/shoot.sh recording/shoots/demo.yaml --prescreen 30      # in tmux, then walk away
+recording/video.sh moments demo-<date>                            # the takes, ranked
+recording/video.sh final --story compare --preview demo-<date>
 ```
 
-**T5: the live cameras**
-```bash
-cd ~/Hive/ros2_ws/src/swarm_backend && ./mount-backend.sh camrec        # attacker_watch + arc_side
-```
-Wait until it prints `Camera ...: first image at sim time ...` for each camera.
+A shoot file lists runs (`recording/shoots/demo.yaml`):
 
-**T6: the scenario**
-```bash
-cd ~/Hive/ros2_ws/src/swarm_backend && scenarios/trial.sh 1
-```
-`trial.sh` spawns the drones itself. Any scenario works, e.g. `./mount-backend.sh spawn` and
-`./mount-backend.sh attacktest`.
-
-### 2. Stop, in this order
-
-1. **T6** Ctrl-C (the defenders land; wait for it).
-2. **T5** Ctrl-C (it removes the cameras and prints how many images each got).
-3. **T4** Ctrl-C (prints the sim times each drone covers).
-4. **T3** Ctrl-C.
-5. **T2** Ctrl-C (prints how many UI states it saved).
-6. **T1** type `shutdown` at `pxh>` (the container is removed, that's fine).
-
-### 3. Make the videos (from `~/Hive`)
-
-**Pick the times.** Look for the first `sees the target` and note which drone intercepts:
-```bash
-recording/video.sh events
-```
-```
- sim time       T+  event
-    218.9    199.0  Drone 3 sees the target  (40 m up)
-    219.0    199.0  Drone 3 flying → intercept
-    224.6    204.7  Drone 4 link lost  (last message 2 s ago)      <- the hit
+```yaml
+- name: head-on
+  run: scenarios/trial.sh 1 --aspects 0 --speeds 4   # any scenario command
+  compare: [baseline, yolo-bytetrack-mpc]            # the same run once per setup: a pair
+  seeds: 3                                           # or random
+- name: zigzag
+  run: scenarios/trial.sh 1 --path zigzag
+  compare: [baseline, yolo-bytetrack-mpc]
+  seeds: random
+  want: [ours_hits, baseline_misses]                 # what --prescreen looks for
+  repeat: 3
+- name: overview
+  run: idle 60                                       # no scenario: only the cameras
+  options: [--cameras, base_orbit, --no-yolo]        # the orbit around the base
 ```
 
-**Cut each recording** to the same start `S` and length `D` in sim seconds. In the example
-below, S = 212, D = 20, and drone 3 attacks:
-```bash
-recording/video.sh screen-cut --start 212 --duration 20                    # -> screen_212.mp4
-recording/video.sh debug --id 3 --start 212 --duration 20                  # -> debug_d3_212.mp4
-recording/video.sh cam --angle attacker_watch --start 212 --duration 20    # -> cam_attacker_watch_212.mp4
-recording/video.sh cam --angle arc_side --start 212 --duration 20          # -> cam_arc_side_212.mp4
-```
-Every clip's first frame shows sim time `S`, so any two of them can be put together.
-
-**Put two clips together**
-```bash
-recording/video.sh compose --ui screen_212.mp4 --gazebo cam_attacker_watch_212.mp4 --layout side --out demo.mp4
-```
-
-**Or make the final cut:** several scenes, each with its own layout. See
-[The final cut](#the-final-cut).
-```bash
-recording/video.sh final                                                   # -> final_cut.mp4
-```
-
-**Shrink for sharing**
-```bash
-recording/video.sh compress final_cut.mp4 final_cut_10mb.mp4 10           # 10 MB
-recording/video.sh compress final_cut.mp4 final_cut_10mb.mp4 10 1280      # and 1280 px wide
-```
-
-All file names are relative to the newest run folder. To use an older run, put its folder name
-last, e.g. `recording/video.sh events 20261118-145347`.
+- Each run is one `record.sh` into `data/recordings/<shoot>/<run>/`. Runs in a row with the same
+  config share the sim; only the first run's `gz/` has the Gazebo log.
+- `--prescreen N` flies N random seeds per `want:` entry in the fast sim first (well under a
+  second each, no Gazebo) and keeps the seeds that match. The fast sim has no camera images, so
+  Gazebo can still turn out differently. Wants: `ours_hits`, `ours_misses`, `baseline_hits`,
+  `baseline_misses`, `ours_sees_earlier`, `fast_hit`.
+- A failed run is noted and the shoot goes on. Run the same command again after a stop: done
+  runs are skipped (`shoot.json`), failed ones are recorded again.
+- `--dry-run` prints the runs and their `record.sh` commands. Options after `--` go to every
+  `record.sh` (e.g. `-- --screen`).
 
 ---
 
@@ -241,47 +289,10 @@ recording/video.sh compose --ui A.mp4 --gazebo B.mp4 --layout stack --out x.mp4 
 - If two clips are off by a little, `--gz-offset SEC` shifts the second one (in sim seconds).
 - A composed video can be composed again with a third clip.
 
-### The final cut
+### The film: `video.sh final`
 
-`recording/final_cut.py` builds a film from scenes. Each scene has a caption, a sim-time
-range, a layout and a speed. Nothing covers anything else:
-
-| Layout | Shows |
-|---|---|
-| `full` | one picture, 1920×1080 |
-| `side` | two pictures side by side (960×540 each) |
-| `grid` | four pictures in a 2×2 grid |
-
-Every picture gets its name in the top-right corner. Scenes fade in and out, and the sim-time
-range is in the bottom-right corner.
-
-The scenes are the `SCENES` list at the top of the script. The run 20261118-145347 was cut
-like this, 51.8 s in all:
-
-```python
-BASE = 131.0          # sim time of the sources' first frame
-ATTACKER = 3
-SCENES = [
-    ('Defenders arm and take off', 131.0, 145.0, 'side', ['wide', 'ui'], 1.0),
-    ('Patrol - the hostile approaches (8x speed)', 145.0, 212.0, 'full', ['ui'], 8.0),
-    ('Drone 3 detects the hostile and intercepts', 212.0, 224.2, 'grid', ['chase', 'yolo', 'ui', 'wide'], 1.0),
-    ('The hit - replay at half speed', 221.5, 224.2, 'side', ['chase', 'yolo'], 0.5),
-    ('Aftermath - the defenders return', 224.2, 236.0, 'side', ['wide', 'ui'], 1.0),
-]
-```
-
-To cut a run:
-1. Find where all recordings overlap: each `.json` has `start` and `end`. With `camrec`
-   started before the trial, that is about from takeoff to landing. Set `BASE` to its start,
-   and `ATTACKER` to the drone that intercepts.
-2. Cut the four sources once, from `BASE` over the whole range (here 131 + 105 s):
-   ```bash
-   recording/video.sh screen-cut --start 131 --duration 105
-   recording/video.sh debug --id 3 --start 131 --duration 105
-   recording/video.sh cam --angle attacker_watch --start 131 --duration 105
-   recording/video.sh cam --angle arc_side --start 131 --duration 105
-   ```
-3. Edit `SCENES`, then run `recording/video.sh final`. Building takes seconds, so try freely.
+See [The story file](#the-story-file). `swarm_backend/demo/final.py` replaced `final_cut.py`
+(whose times were written for one run): the 18 Nov cut is `stories/default.yaml` now.
 
 ---
 
@@ -302,6 +313,24 @@ To cut a run:
 ---
 
 ## Other ways (not needed for the workflow above)
+
+### Recording by hand (what `record.sh` does)
+
+One terminal per part, from `~/Hive`, each started when the one before is ready, stopped in
+the reverse order (the scenario first):
+
+```bash
+RECORD_RUN=myrun docker/start-stellar.sh --record --headless             # T1, wait for pxh>
+export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml
+docker exec -w /workspace/ros2_ws/src/swarm_backend px4-gazebo-vnc python3 -m swarm_backend.demo.runinfo \
+  write /workspace/data/recordings/myrun --config $SWARM_CONFIG -- scenarios/trial.sh 1
+ros2_ws/src/swarm_backend/mount-backend.sh ui --record auto              # T2
+ros2_ws/src/swarm_backend/mount-backend.sh posesrec                      # T3
+ros2_ws/src/swarm_backend/mount-backend.sh debugrec                      # T4
+ros2_ws/src/swarm_backend/mount-backend.sh camrec --no-pose-log          # T5
+recording/video.sh screen --fullscreen                                   # T6, optional
+cd ros2_ws/src/swarm_backend && scenarios/trial.sh 1                     # T7
+```
 
 ### Filming a replay of the Gazebo log by hand
 
@@ -338,13 +367,15 @@ default the newest):
 
 | Command | |
 |---|---|
+| `moments [RUN]` | the takes with their moments and facts (writes `takes.json`) |
+| `final [--story NAME] [--preview] [--skip-missing] [--take N]` | the film from a story |
+| `map --start S --duration D` | the tactical map -> `map_S.mp4` |
 | `events [RUN]` | the UI's events with their sim times |
-| `screen [--region WxH+X+Y]` | during the run: film the UI's browser window |
+| `screen [--region WxH+X+Y \| --fullscreen]` | during the run: film the UI's browser window |
 | `screen-cut --start S --duration D` | the UI film on sim time -> `screen_S.mp4` |
 | `debug --id N --start S [--duration D]` | drone N's YOLO view -> `debug_dN_S.mp4` |
 | `cam --angle A --start S [--duration D] [--plain]` | a live camera, labelled -> `cam_A_S.mp4` |
 | `compose --ui F --gazebo F [--layout pip\|side\|stack] [--out F]` | two clips in one |
-| `final [--out F]` | the final cut from `final_cut.py`'s `SCENES` |
 | `compress IN OUT [MB] [WIDTH]` | two-pass H.264 to a size |
 | `angles` | the camera angles |
 | `replay -a ANGLE [--start S]` | a replay of the Gazebo log at one angle (by hand) |
@@ -355,7 +386,8 @@ default the newest):
 |---|---|
 | `ui --record auto` | the UI, saving its states to the newest run folder |
 | `debugrec [IDS]` | the YOLO views of drones IDS (default 1 2 3) |
-| `camrec [ANGLES] [--width W --height H --hfov RAD]` | live cameras (default `attacker_watch arc_side`) |
+| `camrec [ANGLES] [--width W --height H --hfov RAD] [--no-pose-log]` | live cameras (default `attacker_watch arc_side`) |
+| `posesrec [--out DIR]` | the true poses to `poses.jsonl` |
 
 ### Files in a run folder
 
@@ -366,17 +398,23 @@ default the newest):
 | `screen.mkv`, `screen.json` | `video.sh screen` | the UI film (frames stamped with the computer's clock) and its region |
 | `debug_d<ID>.mkv`, `.json` | `debugrec` | YOLO views, 25 fps on sim time; `.json`: start, end, images, dropped |
 | `cam_<angle>.mkv`, `.json` | `camrec` | live cameras, 25 fps on sim time; `.json` also the field of view |
-| `poses.jsonl` | `camrec` | every drone's and camera's true pose, 25 Hz |
+| `poses.jsonl` | `posesrec` (or `camrec` without `--no-pose-log`) | every drone's, bird's and camera's true pose, 25 Hz |
+| `run.json` | `record.sh` | the command, config, setup, seeds, drones by role |
+| `takes.json` | `moments`, `final` | the takes, their moments and facts |
+| `logs/` | `record.sh` | one log per part |
+| `cache/` | `final` | sources cut for the film |
+| `scenes/<story>/` | `final` | one clip per scene and card |
 | `*_<S>.mp4` | the cut commands | clips from sim time S |
-| `final_cut.mp4` | `video.sh final` | the final cut |
+| `final_<story>.mp4`, `preview_<story>.mp4` | `video.sh final` | the film |
 
 ### Files in this folder
 
 | File | |
 |---|---|
+| `record.sh` | records a run in one command (tmux) |
 | `video.sh` | the host commands |
+| `stories/*.yaml` | the films' stories |
 | `screen.py` | films the UI window and puts it on sim time |
-| `final_cut.py` | the final cut's scenes |
 | `compose.py` | two clips in one (ffmpeg) |
 | `compress_to_size.sh` | two-pass H.264 to a target size |
 | `recording_config.json` | world, model paths, camera angles, live camera settings, graveyard |
@@ -386,11 +424,14 @@ default the newest):
 | `kitconf.py` | reads `recording_config.json` |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/debug_video.py` | `debugrec` and `video.sh debug`; the sim-time encoder the cameras share |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/camera_video.py` | `camrec` (cameras, director, mover) and `video.sh cam` (labels) |
+| `../ros2_ws/src/swarm_backend/swarm_backend/demo/` | `runinfo` (run.json), `takes` (takes, moments, facts), `story`, `map_video`, `final`, `poselog`, `fake_run` (a made-up run for tests) |
 | `../ros2_ws/src/swarm_backend/swarm_backend/ui/replay.py` | the UI recorder (`ui --record`) and reading it back (`events`, camera labels) |
 
-Tests (on the host: `cd ros2_ws/src/swarm_backend && ../../../.venv/bin/python -m pytest
+Tests, in the container: `docker exec px4-gazebo-vnc bash -c "cd
+/workspace/ros2_ws/src/swarm_backend && python3 -m pytest tests/test_demo_*.py
 tests/test_debug_video.py tests/test_screen_recording.py tests/test_camera_video.py
-tests/test_ui_replay.py`). The ffmpeg test in `test_debug_video.py` only runs in the container.
+tests/test_ui_replay.py"`. They run on a made-up run (`python3 -m swarm_backend.demo.fake_run
+DIR` makes one to try the commands on).
 
 ### Why the odd Gazebo replay settings (from the Flatbed Falcon kit, all hit for real)
 

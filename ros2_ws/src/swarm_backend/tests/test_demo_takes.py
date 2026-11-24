@@ -1,0 +1,132 @@
+import json
+import math
+
+import pytest
+
+from swarm_backend.demo.fake_run import make_run
+from swarm_backend.demo.takes import MOMENTS, find_takes, save_takes, source_ranges
+from swarm_backend.ui.camera_video import load_poses, pose_at
+
+
+def test_two_takes_found(tmp_path):
+    truth = make_run(tmp_path, takes=2, videos=False)
+    takes = find_takes(tmp_path)
+    assert [t.number for t in takes] == [1, 2]
+    for t, rel, see, hit in zip(takes, truth['release'], truth['sighting'], truth['hit']):
+        assert t.moments['release'] == pytest.approx(rel, abs=0.1)
+        assert t.moments['first_sighting'] == pytest.approx(see, abs=0.1)
+        assert t.moments['hit'] == pytest.approx(hit, abs=0.1)
+        assert set(t.moments) <= set(MOMENTS)
+
+
+def test_attacker_per_take(tmp_path):
+    make_run(tmp_path, takes=2, videos=False)
+    assert [t.attacker for t in find_takes(tmp_path)] == [3, 2]
+
+
+def test_take_without_hit(tmp_path):
+    make_run(tmp_path, takes=2, hit=[True, False], videos=False)
+    t2 = find_takes(tmp_path)[1]
+    assert 'hit' not in t2.moments and 'return' not in t2.moments
+    assert t2.facts['hit'] is False
+    assert t2.facts['sighting_to_hit_s'] is None
+
+
+def test_single_take_without_teleport(tmp_path):
+    truth = make_run(tmp_path, takes=1, teleport=False, videos=False)
+    takes = find_takes(tmp_path)
+    assert len(takes) == 1
+    sims, _ = load_poses(tmp_path / 'poses.jsonl')
+    assert takes[0].moments['start'] == pytest.approx(sims[0])
+    assert takes[0].moments['release'] == pytest.approx(truth['release'][0], abs=0.1)
+
+
+def test_facts_values(tmp_path):
+    truth = make_run(tmp_path, takes=1, videos=False)
+    t = find_takes(tmp_path)[0]
+    assert t.facts['hit'] is True and t.facts['attacker'] == 3
+    assert t.facts['closest_pass_m'] < 1.6
+    sims, rows = load_poses(tmp_path / 'poses.jsonl')
+    s = truth['sighting'][0]
+    a, h = pose_at(sims, rows, 'x500_gimbal_3', s)[0], pose_at(sims, rows, 'x500_4', s)[0]
+    assert t.facts['sighting_range_m'] == pytest.approx(math.dist(a, h), abs=1.0)
+    assert t.facts['sighting_to_hit_s'] == pytest.approx(4.0, abs=0.15)
+    assert t.facts['release_to_sighting_s'] == pytest.approx(10.0, abs=0.15)
+    assert t.facts['setup'] == 'yolo-bytetrack-mpc'
+
+
+def test_takes_json_written(tmp_path):
+    make_run(tmp_path, takes=2, videos=False)
+    takes = find_takes(tmp_path)
+    path = save_takes(tmp_path, takes)
+    data = json.loads(path.read_text())
+    assert [d['moments']['hit'] for d in data] == [t.moments['hit'] for t in takes]
+
+
+def test_source_ranges(tmp_path):
+    make_run(tmp_path, takes=1)
+    ranges = source_ranges(tmp_path)
+    assert ranges['debug_d3'] == (100.0, 160.0)
+    assert 'poses' in ranges and 'ui' in ranges
+
+
+# --- the real scenario flow (final review): no hit event, a climb, the hostile's own arming,
+# --- and the hostile moved back to its spawn point at the end
+
+def test_hit_from_the_graveyard_without_an_event(tmp_path):
+    truth = make_run(tmp_path, takes=2, videos=False, hit_event=False)
+    takes = find_takes(tmp_path)
+    assert [t.facts['hit'] for t in takes] == [True, True]
+    for t, hit, att in zip(takes, truth['hit'], truth['attacker']):
+        assert t.moments['hit'] == pytest.approx(hit, abs=0.1)
+        assert t.attacker == att
+
+
+def test_release_ignores_the_climb(tmp_path):
+    truth = make_run(tmp_path, takes=1, videos=False)
+    t = find_takes(tmp_path)[0]
+    assert t.moments['release'] == pytest.approx(truth['release'][0], abs=0.1)
+
+
+def test_takeoff_and_landed_are_the_defenders(tmp_path):
+    make_run(tmp_path, takes=2, videos=False)
+    for t in find_takes(tmp_path):
+        assert t.moments['takeoff'] == pytest.approx(102.0)
+
+
+def test_no_take_for_the_reset_after_landing(tmp_path):
+    make_run(tmp_path, takes=2, videos=False)
+    assert len(find_takes(tmp_path)) == 2
+
+
+def test_error_facts(tmp_path):
+    make_run(tmp_path, takes=1, videos=False)
+    f = find_takes(tmp_path)[0].facts
+    assert f['est_error_median_m'] == pytest.approx(1.80, abs=0.05)
+    assert f['est_error_at_sighting_m'] == pytest.approx(1.80, abs=0.05)
+
+
+def test_error_facts_without_detection(tmp_path):
+    make_run(tmp_path, takes=1, videos=False, detect=False)
+    f = find_takes(tmp_path)[0].facts
+    assert f['est_error_median_m'] is None and f['est_error_at_sighting_m'] is None
+    assert f['hit'] is True
+
+
+def test_idle_pseudo_take(tmp_path):
+    import json as _json
+    make_run(tmp_path, takes=1, videos=False)
+    info = _json.loads((tmp_path / 'run.json').read_text())
+    info['command'] = ['idle', '60']
+    (tmp_path / 'run.json').write_text(_json.dumps(info))
+    takes = find_takes(tmp_path)
+    assert len(takes) == 1 and takes[0].name == 'overview'
+    assert set(takes[0].moments) == {'start', 'end'}
+
+
+def test_miss_taken_out_is_not_a_hit(tmp_path):
+    # Gazebo moves the hostile to the graveyard after every run, hit or not (surveillance.py fly)
+    make_run(tmp_path, takes=2, hit=[True, False], videos=False)
+    takes = find_takes(tmp_path)
+    assert [t.facts['hit'] for t in takes] == [True, False]
+    assert 'hit' not in takes[1].moments

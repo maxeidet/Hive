@@ -92,6 +92,11 @@
 #                                      data/recordings/<newest run>/cam_<ANGLE>.mkv, with every
 #                                      drone's true pose in poses.jsonl for the overlay
 #                                      (swarm_backend/ui/camera_video.py, recording/README.md)
+#                                      (--no-pose-log: leave poses.jsonl to posesrec)
+#   ./mount-backend.sh posesrec [--out DIR]  during a recorded run: every drone's, bird's and
+#                                      recording camera's true pose, 25 Hz, in poses.jsonl of
+#                                      the newest run (swarm_backend/demo/poselog.py; record.sh
+#                                      starts it)
 #   ./mount-backend.sh mapsnap [args]  one picture of the running world from straight above, as
 #                                      the operator UI's background map (map_snapshot.py --help,
 #                                      default 800 m across, --half-size 600 for more). Restart `ui`.
@@ -397,6 +402,7 @@ case "$cmd" in
   ui)     run "python3 -m swarm_backend.nodes.operator_ui --config $CONFIG $*" ;;
   debugrec) run "python3 -m swarm_backend.ui.debug_video record $*" ;;
   camrec) run "python3 -m swarm_backend.ui.camera_video record $*" ;;
+  posesrec) run "python3 -m swarm_backend.demo.poselog $*" ;;
   mapsnap) run "python3 -m swarm_backend.map_snapshot $*" ;;
   demo)   run "ros2 run swarm_backend swarm_node --ros-args -p config_file:=$CONFIG -p num_drones:=${1:-0}" ;;
   legacy) run "ros2 run swarm_backend backend_node & ros2 run swarm_backend keyboard" ;;

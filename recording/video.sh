@@ -3,18 +3,15 @@
 # simulation time, so the clips line up frame by frame and can be cut and put together.
 # Full guide: recording/README.md. Run on the HOST from the repo root (Stellar or Mac).
 #
-#   1. Record (live run):  docker/start-stellar.sh --record          the run folder + Gazebo log
-#                          mount-backend.sh ui --record auto          UI states (ui.jsonl)
-#                          recording/video.sh screen                  film the UI window
-#                          mount-backend.sh debugrec / camrec         YOLO views / live cameras
-#                          then the scenario (scenarios/trial.sh 1, attacktest, ...)
-#   2. Pick a start:       recording/video.sh events                   sim times of what happened
-#   3. Cut on sim time:    recording/video.sh screen-cut --start S --duration D   (and debug, cam)
-#   4. Put together:       recording/video.sh compose ... or recording/video.sh final
-#   5. Compress:           recording/video.sh compress final_cut.mp4 final_cut_10mb.mp4 10
+#   1. Record:          recording/record.sh scenarios/trial.sh 1   (one command, see its --help)
+#   2. Look:            recording/video.sh moments                  takes, moments, facts
+#   3. Cut the film:    recording/video.sh final --preview          from recording/stories/default.yaml
+#                       recording/video.sh final                    the full film
+#   4. Compress:        recording/video.sh compress final_default.mp4 final_10mb.mp4 10
 #
 # Subcommands (RUN = a folder name in data/recordings/, default the newest):
 #   events [RUN]                         the UI's events with their sim times
+#   moments [RUN]                        the takes with their named moments and facts (takes.json)
 #   angles                               the replay camera angles (recording_config.json)
 #   replay -a ANGLE [--start S] [-p GAIN] [-v] [RUN]   open the Gazebo replay at one angle
 #   debug --id ID --start S [--duration D] [RUN]
@@ -23,8 +20,14 @@
 #   cam --angle A --start S [--duration D] [--plain] [RUN]
 #                                        a live camera (mount-backend.sh camrec) from sim time S with
 #                                        each drone labelled: RUN/cam_<A>_<S>.mp4 (--plain: no labels)
-#   final [--out F] [RUN]                the final cut: scenes from recording/final_cut.py (SCENES)
-#   screen [--region WxH+X+Y] [RUN]       during the run: film the UI's browser window (click it)
+#   map --start S --duration D [RUN]     the tactical map (top-down, from the poses) from sim
+#                                        time S: RUN/map_<S>.mp4 (swarm_backend/demo/map_video.py)
+#   final [--story NAME] [--preview] [--skip-missing] [--take N] [RUN]
+#                                        the film from recording/stories/NAME.yaml (default):
+#                                        RUN/final_NAME.mp4 (--preview: preview_NAME.mp4, 960x540,
+#                                        fast) and one clip per scene in RUN/scenes/NAME/
+#                                        (swarm_backend/demo/final.py)
+#   screen [--region WxH+X+Y | --fullscreen] [RUN]       during the run: film the UI's browser window (click it)
 #                                        into RUN/screen.mkv until Ctrl-C (recording/screen.py)
 #   screen-cut --start S --duration D [RUN]
 #                                        that film on sim time: RUN/screen_<S>.mp4
@@ -88,7 +91,7 @@ split_run() {  # sets RUN and ARGS from "$@"
   RUN=""; ARGS=()
   while [ $# -gt 0 ]; do
     case "$1" in
-      --plain|-v|--verbose) ARGS+=("$1"); shift ;;
+      --plain|--fullscreen|-v|--verbose) ARGS+=("$1"); shift ;;
       -*) ARGS+=("$1" "$2"); shift 2 ;;
       *) RUN="$1"; shift ;;
     esac
@@ -101,6 +104,12 @@ case "$cmd" in
     RUN=$(run_dir "$1")
     C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
     docker exec -w "$PKG" "$C" python3 -m swarm_backend.ui.replay "/workspace/$RUNS/$RUN/ui.jsonl"
+    ;;
+
+  moments)
+    RUN=$(run_dir "$1")
+    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
+    docker exec -w "$PKG" "$C" python3 -m swarm_backend.demo.takes "/workspace/$RUNS/$RUN"
     ;;
 
   angles)
@@ -179,10 +188,27 @@ CFG
     ;;
 
   final)
+    STORY="default"; FARGS=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --story) STORY="$2"; shift 2 ;;
+        --preview|--skip-missing|--stills|--burn-subtitles) FARGS+=("$1"); shift ;;
+        --take) FARGS+=("$1" "$2"); shift 2 ;;
+        -*) echo "Unknown flag for final: $1"; exit 1 ;;
+        *) RUN="$1"; shift ;;
+      esac
+    done
+    RUN=$(run_dir "${RUN:-}")
+    case "$STORY" in */*|*.yaml) SPATH="/workspace/$STORY" ;; *) SPATH="/workspace/recording/stories/$STORY.yaml" ;; esac
+    C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
+    docker exec -w "$PKG" "$C" python3 -m swarm_backend.demo.final "/workspace/$RUNS/$RUN" --story "$SPATH" "${FARGS[@]}"
+    ;;
+
+  map)
     split_run "$@"
     RUN=$(run_dir "$RUN")
     C=$(container); [ "$C" = "$TEMP" ] && trap stop_temp EXIT
-    docker exec "$C" python3 /workspace/recording/final_cut.py "/workspace/$RUNS/$RUN" "${ARGS[@]}"
+    docker exec -w "$PKG" "$C" python3 -m swarm_backend.demo.map_video "/workspace/$RUNS/$RUN" "${ARGS[@]}"
     ;;
 
   screen)

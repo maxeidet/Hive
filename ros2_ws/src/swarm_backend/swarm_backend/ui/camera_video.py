@@ -133,6 +133,7 @@ class Director:
         self.attacker: str | None = None
         self._switched_at = -1e9
         self._yaw: float | None = None  # a watch angle's last direction (from the drone to its target)
+        self._orbit_t0: float | None = None  # an orbit angle's first sim time
 
     def _attacker(self, tracker: Tracker, sim: float) -> str | None:
         target = tracker.pos.get(self.spec.get('look_at_model') or self.hostile)
@@ -153,6 +154,14 @@ class Director:
     def goal(self, tracker: Tracker, sim: float) -> tuple[Vec, Vec] | None:
         """(camera position, look-at point) this angle wants now, None if its models are missing."""
         s = self.spec
+        if 'orbit' in s:  # circles a point (e.g. the base): an overview, no drone needed
+            if self._orbit_t0 is None:
+                self._orbit_t0 = sim
+            a = 2 * math.pi * (sim - self._orbit_t0) / s.get('period_s', 60.0)
+            cx, cy = s['orbit'][:2]
+            r = s.get('radius', 200.0)
+            return (cx + r * math.cos(a), cy + r * math.sin(a), s.get('height', 70.0)), \
+                tuple(s['look_at_point'])
         if 'position' in s:
             aim = tracker.pos.get(s.get('track_model', ''), tuple(s['look_at_point']))
             return tuple(s['position']), aim
@@ -223,12 +232,13 @@ def load_config(path: Path) -> dict:
 class PoseFeed:
     """Gazebo's dynamic poses: the newest for the director, and a 25 Hz log for the overlay."""
 
-    def __init__(self, world: str, log_path: Path, keep):
+    def __init__(self, world: str, log_path: Path | None, keep):
+        """log_path None: no 25 Hz log (`camrec --no-pose-log`, when `posesrec` writes it)."""
         from swarm_backend.nodes.fake_detection import GazeboTruth
         self.lock = threading.Lock()
         self.latest: tuple[float, dict] | None = None
         self.keep = keep
-        self._log = open(log_path, 'a', buffering=1)
+        self._log = open(log_path, 'a', buffering=1) if log_path is not None else None
         self._last_logged = -1e9
         self.truth = GazeboTruth(world)
         self.truth.listeners.append(self._on_poses)
@@ -237,7 +247,7 @@ class PoseFeed:
         mine = {name: (p, q) for name, _, p, q in poses if self.keep(name)}
         with self.lock:
             self.latest = (sim, mine)
-        if sim - self._last_logged >= 1.0 / POSE_LOG_HZ - 1e-6:
+        if self._log is not None and sim - self._last_logged >= 1.0 / POSE_LOG_HZ - 1e-6:
             self._last_logged = sim
             self._log.write(json.dumps({'sim': round(sim, 3), 'poses': {
                 n: [round(v, 4) for v in (*p, *q)] for n, (p, q) in mine.items()}},
@@ -245,7 +255,8 @@ class PoseFeed:
 
     def close(self) -> None:
         self.truth.listeners.clear()
-        self._log.close()
+        if self._log is not None:
+            self._log.close()
 
 
 class Mover:
@@ -384,7 +395,7 @@ def record(args) -> int:
         spawn_camera(gazebo, node, names[a], topic,
                      camera_model(names[a], topic, width, height, hfov, rate))
     mover_proc = Mover(world)
-    feed = PoseFeed(world, folder / 'poses.jsonl',
+    feed = PoseFeed(world, None if args.no_pose_log else folder / 'poses.jsonl',
                     lambda n: n.startswith('x500') or n.startswith('rec_cam_'))
     videos = {}
     for a in angles:
@@ -436,7 +447,8 @@ def record(args) -> int:
         for video in videos.values():
             print(video.close(), flush=True)
         print(mover_proc.remove_and_close(list(names.values())), flush=True)
-        print(f'Poses in {folder / "poses.jsonl"}', flush=True)
+        if not args.no_pose_log:
+            print(f'Poses in {folder / "poses.jsonl"}', flush=True)
     # gz-transport's threads abort the interpreter's normal exit ("terminate called without
     # an active exception"); everything is written and closed by now.
     sys.stdout.flush()
@@ -645,6 +657,8 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument('--width', type=int)
     r.add_argument('--height', type=int)
     r.add_argument('--hfov', type=float, help='radians (default live_camera.hfov)')
+    r.add_argument('--no-pose-log', action='store_true',
+                   help='do not write poses.jsonl (posesrec writes it, recording/record.sh)')
     o = sub_p.add_parser('overlay')
     o.add_argument('run', type=Path)
     o.add_argument('--angle', required=True)
