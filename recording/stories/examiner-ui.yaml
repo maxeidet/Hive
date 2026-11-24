@@ -84,30 +84,36 @@ scenes:
 # --- 3. birds ------------------------------------------------------------------------------
 - card: 3. A hostile among birds
 
-- caption: Baseline - it misses (own camera left, from behind right)
+- caption: Baseline - the birds come in with the hostile (from behind its defender)
   take: birds-1-baseline/1
-  from: first_sighting - 3
+  from: release + 8
   to: first_sighting + 25
-  layout: side
-  show: [yolo, chase]
-  speed: 2
+  layout: full
+  show: [chase]
+  speed: 1.5
   insights: [seen_at, no_hit]
 
-- caption: Improved version - same birds, from behind (left) and wide (right)
+- caption: Baseline - its own camera swings with its hard turns, and it misses
+  take: birds-1-baseline/1
+  from: first_sighting - 3
+  to: first_sighting + 6
+  layout: full
+  show: [yolo]
+
+- caption: Improved version - same birds (wide shot)
   take: birds-1-ours/1
-  from: release
+  from: release + 8
   to: hit + 2
-  layout: side
-  show: [chase, wide]
-  speed: 1.5
+  layout: full
+  show: [wide]
   insights: [seen_at, time_to_hit]
 
-- caption: Improved version - own camera (left), birds in green (right)
+- caption: Improved version - its own camera locks on the drone, not the birds
   take: birds-1-ours/1
   from: first_sighting - 3
   to: hit + 1
-  layout: side
-  show: [yolo, wide]
+  layout: full
+  show: [yolo]
 
 # --- 4. two hostiles -----------------------------------------------------------------------
 - card: 4. Two hostiles at once
