@@ -136,9 +136,16 @@ scenes:
   layout: full
   show: ["yolo:3"]
 
+- caption: Second intercept - drone 1 goes for the other hostile (its own camera)
+  take: two-hostiles-1-ours/1
+  from: first_sighting_1 - 1
+  to: release + 20
+  layout: full
+  show: ["yolo:1"]
+
 - caption: Second intercept - behind drone 1 (left), own camera (right)
   take: two-hostiles-1-ours/1
-  from: hit_1 - 10
+  from: release + 20   # the chase camera is behind drone 1 from release + 19.6 s
   to: hit_1 + 2
   layout: side
   show: [chase, "yolo:1"]
