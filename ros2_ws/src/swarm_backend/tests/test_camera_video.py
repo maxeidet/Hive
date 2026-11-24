@@ -152,3 +152,26 @@ def test_orbit_goal_circles():
     a0, a1, a2 = (math.atan2(c[1], c[0]) for c, _ in goals)
     assert math.remainder(a1 - a0, 2 * math.pi) == pytest.approx(math.pi / 2)
     assert abs(math.remainder(a2 - a0, 2 * math.pi)) == pytest.approx(math.pi)
+
+
+# --- birds: green in the clips (Demo scenarios plan, Task 3) ---------------------------------
+
+def test_bird_label():
+    assert cv.label_lines('bird_3', None, 'x500_4') == (['bird'], 'bird')
+    assert cv.COLOURS['bird'] == (80, 200, 80)
+
+
+def test_birds_are_labelled_models():
+    assert cv.labelled_model('bird_1') and cv.labelled_model('x500_gimbal_2')
+    assert cv.labelled_model('flock_2', birds_prefix='flock_')
+    assert not cv.labelled_model('rec_cam_attacker_watch') and not cv.labelled_model('ground_plane')
+
+
+def test_overlay_labels_birds_green():
+    np = pytest.importorskip('numpy')
+    img = np.zeros((H, W, 3), np.uint8)
+    cam = (0.0, 0.0, 0.0)
+    cv.draw_overlay(img, (cam, look_at(cam, (20.0, 0.0, 0.0))), {'bird_1': (20.0, 0.0, 0.0)}, {},
+                    'x500_4', HFOV, 0.0, None)
+    centre = img[H // 2 - 120:H // 2 + 60, W // 2 - 120:W // 2 + 120].reshape(-1, 3).astype(int)
+    assert (np.abs(centre - np.array((80, 200, 80))).sum(axis=1) < 30).any()

@@ -510,8 +510,19 @@ def drone_id(model: str) -> int | None:
     return int(tail) if tail.isdigit() else None
 
 
-def label_lines(model: str, drone: dict | None, hostile: str) -> tuple[list[str], str]:
-    """The label's lines and its kind (hostile, engaged, defender, other)."""
+BIRDS_PREFIX = 'bird_'  # demo/runinfo.py BIRDS_PREFIX: Gazebo names of the scenarios' birds
+
+
+def labelled_model(name: str, birds_prefix: str = BIRDS_PREFIX) -> bool:
+    """Whether the overlay labels this model: the drones and the birds."""
+    return name.startswith('x500') or name.startswith(birds_prefix)
+
+
+def label_lines(model: str, drone: dict | None, hostile: str,
+                birds_prefix: str = BIRDS_PREFIX) -> tuple[list[str], str]:
+    """The label's lines and its kind (hostile, engaged, defender, bird, other)."""
+    if model.startswith(birds_prefix):  # before drone_id: bird_1 is not drone 1
+        return ['bird'], 'bird'
     i = drone_id(model)
     if model == hostile or (drone and drone.get('hostile')):
         return [f'D{i} hostile'], 'hostile'
@@ -532,7 +543,7 @@ def ascii_text(text: str) -> str:
 
 
 COLOURS = {'hostile': (60, 60, 255), 'engaged': (0, 165, 255), 'defender': (255, 200, 80),
-           'other': (200, 200, 200)}  # BGR
+           'other': (200, 200, 200), 'bird': (80, 200, 80)}  # BGR
 
 
 def draw_overlay(img, cam: tuple[Vec, Quat], models: dict[str, Vec], drones: dict[int, dict],
@@ -610,6 +621,9 @@ def overlay(args) -> int:
                             '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', str(out)],
                            stdin=subprocess.PIPE)
     events = ui.event_table() if ui else []
+    birds_prefix = BIRDS_PREFIX
+    if (folder / 'run.json').exists():
+        birds_prefix = json.loads((folder / 'run.json').read_text()).get('birds_prefix', BIRDS_PREFIX)
     frame_bytes = w * h * 3
     i = 0
     while True:
@@ -622,7 +636,7 @@ def overlay(args) -> int:
         if cam is not None:
             models = {}
             for name in rows[min(len(rows) - 1, max(0, _index(sims, sim)))]:
-                if name.startswith('x500'):
+                if labelled_model(name, birds_prefix):
                     p = pose_at(sims, rows, name, sim)
                     if p is not None:
                         models[name] = p[0]

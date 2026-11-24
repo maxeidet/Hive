@@ -134,3 +134,15 @@ def test_velocity_arrow(tmp_path):
     from swarm_backend.demo.map_video import FRIEND
     u, v = project(st, p[0] + 1.5 * vel['east'], p[1] + 1.5 * vel['north'])
     assert near_colour(render_frame(st, sim), u, v, FRIEND, r=4)
+
+
+def test_map_draws_birds_that_appear_later(tmp_path):
+    # Birds spawned mid-run (baseline_eval --birds) are in later pose rows only; green dots.
+    truth = make_run(tmp_path, takes=1, videos=False, birds_late=True)
+    st = map_state(tmp_path)
+    t = truth['release'][0] + 2.0
+    img = render_frame(st, t)
+    from swarm_backend.ui.camera_video import pose_at
+    p = pose_at(st.sims, st.rows, 'bird_7', t)[0]
+    u, v = project(st, p[0], p[1])
+    assert near_colour(img, u, v, (80, 200, 80))

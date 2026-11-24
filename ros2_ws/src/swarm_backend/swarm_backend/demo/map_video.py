@@ -15,7 +15,7 @@ import json
 import math
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
@@ -32,6 +32,7 @@ BG = (19, 17, 10)
 FRIEND = (255, 200, 92)
 HOSTILE = (93, 93, 255)
 GREY = (153, 148, 138)
+BIRD = (80, 200, 80)                  # birds: green, as in the camera clips
 GRID = (52, 46, 34)
 AREA = (154, 212, 95)
 TEXT = (235, 235, 235)
@@ -56,6 +57,7 @@ class MapState:
     grave: tuple[float, float]
     view: dict
     size: tuple[int, int]
+    bird_names: list[str] = field(default_factory=list)  # in any pose row (birds spawn mid-run)
 
 
 def map_state(folder: Path, cfg: dict | None = None, size: tuple[int, int] = (1920, 1080)) -> MapState:
@@ -69,7 +71,8 @@ def map_state(folder: Path, cfg: dict | None = None, size: tuple[int, int] = (19
     sims, rows = load_poses(folder / 'poses.jsonl')
     return MapState(sims, rows, ReplayUi(load_recording(folder / 'ui.jsonl')), info.defenders,
                     info.hostiles, info.birds_prefix, info.config, find_takes(folder),
-                    graveyard(), {**DEFAULTS, **cfg}, size)
+                    graveyard(), {**DEFAULTS, **cfg}, size,
+                    sorted({n for r in rows for n in r if n.startswith(info.birds_prefix)}))
 
 
 def _scale(st: MapState) -> float:
@@ -140,11 +143,10 @@ def render_frame(st: MapState, sim: float) -> np.ndarray:
             cv2.polylines(img, [np.array(pts, np.int32)], False, colour, line(2), cv2.LINE_AA)
 
     # birds
-    names = set().union(*[set(r) for r in st.rows[:1]]) if st.rows else set()
-    for name in sorted(n for n in names if n.startswith(st.birds_prefix)):
+    for name in st.bird_names:
         p = _pos(st, name, t)
         if p is not None:
-            cv2.circle(img, project(st, p[0], p[1]), line(3), GREY, -1, cv2.LINE_AA)
+            cv2.circle(img, project(st, p[0], p[1]), line(3), BIRD, -1, cv2.LINE_AA)
 
     # defenders with camera cones
     font = cv2.FONT_HERSHEY_SIMPLEX

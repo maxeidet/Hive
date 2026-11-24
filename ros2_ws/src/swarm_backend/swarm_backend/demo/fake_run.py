@@ -60,7 +60,7 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
              teleport: bool = True, videos: bool = True, cam_start_delay: float = 0.0,
              screen: bool = False, hit_event: bool = False, detect: bool = True,
              attackers: tuple[int, ...] = ATTACKERS, boxes: bool = True,
-             early_sighting: bool = False) -> dict:
+             early_sighting: bool = False, birds_late: bool = False) -> dict:
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     hit = list(hit) if hit is not None else [True] * takes
@@ -120,6 +120,8 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
             poses = {f'x500_gimbal_{i}': [*defender(i, sim), 0, 0, 0, 1] for i in SLOTS}
             poses['x500_4'] = [*hostile(sim), 0, 0, 0, 1]
             poses['bird_1'] = [*bird(sim), 0, 0, 0, 1]
+            if birds_late and sim >= plan[0]['release']:  # spawned with the release (--birds)
+                poses['bird_7'] = [60.0, 120.0 - 2.0 * (sim - plan[0]['release']), 35.0, 0, 0, 0, 1]
             poses['rec_cam_attacker_watch'] = [*CAM_POS, *CAM_Q]
             fh.write(json.dumps({'sim': sim, 'poses': poses}) + '\n')
 
