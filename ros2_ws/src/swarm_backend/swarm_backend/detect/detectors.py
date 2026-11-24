@@ -75,8 +75,8 @@ def yolo(args: argparse.Namespace) -> Detector:
     path = Path(args.weights) if args.weights else newest_weights()
     if path is None or not path.exists():
         raise NotImplementedError(
-            f'No YOLO weights at {path or MODELS / "*/*.onnx"}. Train and export one '
-            '(training/README.md), put the .onnx in models/<name>/ in the repo, or give '
+            f'No YOLO weights at {path or MODELS / "*.onnx"}. Train and export one '
+            '(training/README.md), put the .onnx in models/ in the repo, or give '
             '--weights. Use --detector baseline meanwhile.')
     try:
         model = YoloOnnx(path, args.imgsz)
@@ -103,7 +103,7 @@ def yolo(args: argparse.Namespace) -> Detector:
     return detect
 
 
-MODELS = Path(__file__).resolve().parents[5] / 'models'  # the repo's models/ (not in git)
+MODELS = Path(__file__).resolve().parents[5] / 'models'  # the repo's models/
 
 
 def newest_weights() -> Path | None:
@@ -129,7 +129,7 @@ def add_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument('--contrast', type=float, default=candidates.Settings.contrast,
                        help='grey levels darker than the sky around it (default %(default)s)')
     group = parser.add_argument_group('yolo detector')
-    group.add_argument('--weights', help='the .onnx file (default: the newest models/*/*.onnx)')
+    group.add_argument('--weights', help='the .onnx file (default: the newest .onnx in models/)')
     group.add_argument('--conf', type=float, default=0.25,
                        help='lowest confidence kept (default %(default)s)')
     group.add_argument('--imgsz', type=int,

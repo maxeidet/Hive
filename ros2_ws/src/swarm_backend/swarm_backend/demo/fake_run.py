@@ -59,7 +59,8 @@ def _lerp(a, b, k):
 def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
              teleport: bool = True, videos: bool = True, cam_start_delay: float = 0.0,
              screen: bool = False, hit_event: bool = False, detect: bool = True,
-             attackers: tuple[int, ...] = ATTACKERS, boxes: bool = True) -> dict:
+             attackers: tuple[int, ...] = ATTACKERS, boxes: bool = True,
+             early_sighting: bool = False) -> dict:
     folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
     hit = list(hit) if hit is not None else [True] * takes
@@ -136,6 +137,10 @@ def make_run(folder: Path, *, takes: int = 1, hit: list[bool] | None = None,
         a = p['attacker']
         if teleport or p is not plan[0]:
             event(p['place'] + 0.5, 'fleet', 'Drone 4 armed', 4)
+        if early_sighting:  # the hostile seen parked at its start, before the release
+            other = next(i for i in SLOTS if i != a)
+            event(p['place'] + 1.0, 'detect', f'Drone {other} sees the target', other, '2 m up')
+            event(p['place'] + 1.3, 'attack', f'Drone {other} searching → intercept', other, 'bad')
         event(p['sighting'], 'detect', f'Drone {a} sees the target', a, '50 m up')
         event(p['sighting'] + 0.3, 'attack', f'Drone {a} searching → intercept', a, 'bad')
         if p['hit'] is not None:

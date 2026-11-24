@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12 in the `hive-px4-vnc` container (PyYAML, OpenCV, numpy, ffmpeg are in the image), bash + tmux on the host, pytest.
 
-**Spec:** `hive-vault/Recording - smoother demo videos (design).md` (approved 23 Nov 2026). This plan is the design's step 1 ("Record and cut"). Steps 2-4 (shoot.sh, comparison, insights, extras) get their own plans. The design's "`record.sh` is a one-entry shoot" is met from the other side: step 2's `shoot.sh` calls `record.sh` once per entry (`--name`, `--keep-sim`), so both go through the same code.
+**Spec:** `hive-vault/recording/Recording - smoother demo videos (design).md` (approved 23 Nov 2026). This plan is the design's step 1 ("Record and cut"). Steps 2-4 (shoot.sh, comparison, insights, extras) get their own plans. The design's "`record.sh` is a one-entry shoot" is met from the other side: step 2's `shoot.sh` calls `record.sh` once per entry (`--name`, `--keep-sim`), so both go through the same code.
 
 ## Global Constraints
 
@@ -54,7 +54,7 @@
 | `docker/start-stellar.sh` | `RECORD_RUN` env: the run folder name to record into |
 | `ros2_ws/src/swarm_backend/mount-backend.sh` | `posesrec` subcommand; header lines |
 | `ros2_ws/src/swarm_backend/swarm_backend/ui/camera_video.py` | `record --no-pose-log` |
-| `recording/README.md`, `hive-vault/Recording demo videos.md`, `hive-vault/detection/Manual tests to do.md` | docs |
+| `recording/README.md`, `hive-vault/recording/Recording demo videos.md`, `hive-vault/detection/Manual tests to do.md` | docs |
 
 Run folder (unchanged where it exists, new files marked ★):
 
@@ -357,7 +357,7 @@ Behaviour, in this order (design section 1):
 **Files:**
 - Modify: `recording/README.md`. The quick start becomes `record.sh` → `video.sh moments` → `video.sh final --preview` → `final`. Add a story-file reference (keys, layouts, sources, moments), and remove the six-terminal section and `final_cut.py`. Keep the manual commands as "doing it by hand".
 - Modify: `recording/video.sh` header (subcommands `moments`, `map`, the new `final`) and `mount-backend.sh` header (`posesrec`).
-- Modify: `hive-vault/Recording demo videos.md` (how it works now, with a link to the design and this plan).
+- Modify: `hive-vault/recording/Recording demo videos.md` (how it works now, with a link to the design and this plan).
 - Modify: `hive-vault/detection/Manual tests to do.md`. Add **"record.sh and final on Stellar"**:
   1. `recording/record.sh --name demo-test scenarios/trial.sh 1`, then `recording/video.sh final --preview demo-test`, then the same with `--screen --watch`.
   2. **Pass:** it gets ready without any clicking, stops by itself, every health line is ✓, `moments` shows `release`, `first_sighting` and `hit` with plausible times, and in the preview the hit in `chase` and `yolo` happens at the map's hit tick.

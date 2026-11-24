@@ -104,9 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument('run', type=Path)
     w.add_argument('--config', type=Path, required=True)
     w.add_argument('--options', default='{}', help='JSON of record.sh options')
-    w.add_argument('command', nargs=argparse.REMAINDER, help='-- the scenario command')
+    # The scenario command comes after `--` and is split off by hand: an argparse.REMAINDER
+    # positional right after `run` swallows --config/--options as part of the command.
+    argv = list(sys.argv[1:] if argv is None else argv)
+    command = argv[argv.index('--') + 1:] if '--' in argv else []
+    if '--' in argv:
+        argv = argv[:argv.index('--')]
     args = p.parse_args(argv)
-    command = args.command[1:] if args.command[:1] == ['--'] else args.command
     info = write_run_info(args.run, args.config, command, json.loads(args.options))
     print(f'Wrote {args.run / FILE}: defenders {", ".join(info["defenders"])}, '
           f'hostiles {", ".join(info["hostiles"])}, setup {info["setup"]}')

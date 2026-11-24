@@ -37,7 +37,7 @@ def test_dry_run_screen_and_watch():
     assert parts(lines, 'START') == ['session', 'sim', 'runinfo', 'ui', 'poses', 'browser',
                                      'screen', 'yolo', 'cams', 'scenario']
     assert '--headless' not in command(lines, 'sim')
-    assert '--fullscreen' in command(lines, 'screen')
+    assert '--region ' in command(lines, 'screen')    # one monitor, not every screen
 
 
 def test_dry_run_options():
@@ -107,3 +107,19 @@ def test_idle_runs_sleep():
 def test_reused_run_does_not_check_gz():
     lines = plan('--reuse-sim', 'scenarios/trial.sh', '1')
     assert not any(line.startswith('CHECK gz') for line in lines)
+
+
+def test_ctrl_c_does_not_wait_for_landing_unless_sim_kept():
+    # The sim is shut down right after, so landing (minutes at the slow sim's pace) is skipped.
+    stop = next(line for line in plan('scenarios/trial.sh', '1') if line.startswith('STOP scenario:'))
+    assert 'no landing' in stop and '300' not in stop
+    kept = next(line for line in plan('--keep-sim', 'scenarios/trial.sh', '1')
+                if line.startswith('STOP scenario:'))
+    assert 'land' in kept and '300' in kept
+
+
+def test_quick_end_after_last_engagement_unless_sim_kept():
+    quick = [line for line in plan('scenarios/trial.sh', '1') if 'Defenders back to their slots' in line]
+    assert quick and 'no landing' in quick[0]
+    assert not [line for line in plan('--keep-sim', 'scenarios/trial.sh', '1')
+                if 'Defenders back to their slots' in line]

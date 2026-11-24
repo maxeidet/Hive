@@ -4,7 +4,7 @@ This folder turns a Hive scenario (e.g. `scenarios/trial.sh 1`) into a demo vide
 commands: **`record.sh`** records a run, **`video.sh final`** cuts it into a film from a
 **story file**. Every recording is put on Gazebo's **simulation time**, so all the pictures
 line up to the frame, and the story names **moments** (`first_sighting`, `hit`, ...) instead of
-times, so any run cuts itself. Design: `hive-vault/Recording - smoother demo videos (design).md`.
+times, so any run cuts itself. Design: `hive-vault/recording/Recording - smoother demo videos (design).md`.
 
 What a run records (`record.sh` starts all of it):
 
@@ -16,7 +16,7 @@ What a run records (`record.sh` starts all of it):
 | Poses | every drone's, bird's and camera's true pose, 25 Hz | `mount-backend.sh posesrec` | `poses.jsonl` |
 | YOLO views | each defender's camera with the boxes and tracks drawn | `mount-backend.sh debugrec` | `debug_d<ID>.mkv` |
 | Live cameras | third-person views from invisible cameras that follow the action | `mount-backend.sh camrec` | `cam_<angle>.mkv` |
-| UI film (`--screen`, optional) | the operator UI, filmed from the screen | `video.sh screen --fullscreen` | `screen.mkv` |
+| UI film (`--screen`, optional) | the operator UI, filmed from the screen | `video.sh screen --region <leftmost monitor>` | `screen.mkv` |
 
 The **tactical map** (`map`) is drawn afterwards from the poses and UI states, so it needs no
 recorder and is always there. **`data/` is not in git and not backed up: copy what you keep
@@ -48,11 +48,16 @@ each only when the one before is ready, then flies the scenario, stops everythin
 checks the run folder (✓ / ✗ per file). It prints the run's takes and `Ready to cut: ...`.
 
 - Watch what is happening: `tmux attach -t hive-rec` (one window per part; detach with
-  `Ctrl-b d`). Add `--watch` to see Gazebo's window too.
-- `--screen` also films the operator UI (opens your browser in kiosk mode, films the whole
-  screen: leave the computer alone while it runs).
-- `--name head-on` names the folder; `--cameras attacker_watch` (one camera: the sim slows down
-  less), `--no-cameras`, `--no-yolo`; `--export /media/usb` copies the run off the machine.
+  `Ctrl-b d`). `--watch` shows Gazebo's window too, but costs a lot: with the window open
+  the cameras are not rendered on the GPU and the sim ran at 0.17x (24 Nov; headless 0.67x),
+  slow enough that the scenario counted the defenders as lost. Watch the UI instead
+  (http://localhost:8090).
+- `--screen` also films the operator UI: it opens your browser in kiosk mode on the leftmost
+  monitor and films only that monitor, so a terminal on another monitor stays usable. Leave
+  that monitor alone while it runs.
+- `--name head-on` names the folder. One live camera by default, the chase camera
+  (`attacker_watch`): every camera slows the sim. `--cameras attacker_watch,arc_side` adds the wide
+  shot, `--no-cameras`, `--no-yolo`; `--export /media/usb` copies the run off the machine.
 - `--dry-run` prints every step it would take. Ctrl-C stops everything in order.
 - Any scenario works: `recording/record.sh ./mount-backend.sh attacktest --runs 3`.
 
@@ -108,7 +113,10 @@ scenes:
 
 **Sources**: `map` (tactical map), `ui` (screen film, only with `--screen`), `yolo` (the
 attacker's YOLO view), `yolo:<id>` (a fixed defender's), `chase` (`cam_attacker_watch`), `wide`
-(`cam_arc_side`), `cam:<angle>` (any other recorded camera).
+(`cam_arc_side`), `cam:<angle>` (any other recorded camera). **Alternatives**: `ui|map` shows the first
+one the run recorded that the scene does not show yet, so a story uses the UI film when the run has
+one (`--screen`) and the wide shot when it was recorded, and still cuts without them (the map, or a
+graph: `"wide|map|plot:range"`). Quote an entry with a `:` in it.
 
 **Facts** (in `takes.json`, on the end card): hit, attacker, range at first sighting, release to
 sighting, sighting to hit, closest pass, setup, the share of the engagement the chase camera kept

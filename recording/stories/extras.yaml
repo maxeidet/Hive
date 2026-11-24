@@ -1,0 +1,58 @@
+# The default story plus the extras (zoom on the YOLO box, a graph, insights everywhere they fit):
+# a test of steps 3-4 of the recording design on one run.
+#   recording/video.sh final --story extras --stills --burn-subtitles [RUN]
+title: Hive - a drone swarm that defends its base
+subtitle: TDDE19, group 3
+take: best
+end_card: results
+
+scenes:
+- caption: Defenders arm and take off
+  from: takeoff - 2
+  to: takeoff + 12
+  layout: side
+  show: [chase, "ui|wide|map"]
+
+- caption: Patrol - the hostile approaches (8x speed)
+  from: takeoff + 12
+  to: first_sighting - 5
+  layout: full
+  show: [ui|map]
+  speed: 8
+
+- caption: Drone {attacker} detects the hostile and intercepts
+  from: first_sighting - 5
+  to: hit
+  layout: grid
+  show: [chase, yolo, ui|map, "wide|map|plot:range"]
+  insights: true
+
+- caption: What drone {attacker} saw - the first locked box
+  from: first_sighting - 1
+  to: first_sighting + 3
+  layout: zoom
+  show: [yolo]
+  zoom: 3
+  freeze: 1.5
+  insights: [seen_at]
+
+- caption: Closing in - the distance to the hostile
+  from: first_sighting
+  to: hit + 1
+  layout: side
+  show: [chase, "plot:range"]
+  insights: [time_to_hit, closest]
+
+- caption: The hit - replay at half speed
+  from: hit - 2.5
+  to: hit + 0.2
+  layout: side
+  show: [chase, yolo]
+  speed: 0.5
+  insights: [time_to_hit, closest]
+
+- caption: Aftermath - the defenders return
+  from: hit
+  to: hit + 12
+  layout: side
+  show: [chase, "ui|wide|map"]

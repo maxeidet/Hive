@@ -95,3 +95,49 @@ def test_best_take(tmp_path):
     assert pick_take('1', takes).number == 1
     with pytest.raises(StoryError, match='take 5'):
         pick_take('5', takes)
+
+
+# --- ui|map: the UI film when the run has one, else the fallback ---------------------------------
+
+def test_alternatives_pick_ui_when_filmed(tmp_path):
+    p = write(tmp_path, 'scenes:\n- caption: X\n  from: first_sighting\n  to: hit\n  layout: side\n'
+                        '  show: [wide, ui|map]\n')
+    make_run(tmp_path / 'run', screen=True)
+    resolved, problems = resolve(load_story(p), find_takes(tmp_path / 'run'))
+    assert not problems
+    assert resolved[0].scene.show == ['wide', 'ui'] and resolved[0].sources['ui'] == 'screen'
+
+
+def test_alternatives_fall_back_without_ui(tmp_path):
+    p = write(tmp_path, 'scenes:\n- caption: X\n  from: first_sighting\n  to: hit\n  layout: side\n'
+                        '  show: [wide, ui|chase]\n')
+    make_run(tmp_path / 'run', screen=False)
+    resolved, problems = resolve(load_story(p), find_takes(tmp_path / 'run'))
+    assert not problems
+    assert resolved[0].scene.show == ['wide', 'chase']
+    assert resolved[0].sources == {'wide': 'cam_arc_side', 'chase': 'cam_attacker_watch'}
+
+
+def test_alternatives_none_recorded_names_the_last(tmp_path):
+    # Nothing recorded: the last alternative is kept, so the build reports what is missing.
+    p = write(tmp_path, 'scenes:\n- caption: X\n  from: first_sighting\n  to: hit\n  layout: full\n'
+                        '  show: [ui|cam:nowhere]\n')
+    make_run(tmp_path / 'run', screen=False)
+    resolved, _ = resolve(load_story(p), find_takes(tmp_path / 'run'))
+    assert resolved[0].scene.show == ['cam:nowhere']
+
+
+def test_alternatives_checked_when_loading(tmp_path):
+    p = write(tmp_path, 'scenes:\n- caption: X\n  from: hit\n  to: hit + 1\n  layout: full\n  show: [ui|mapp]\n')
+    with pytest.raises(StoryError, match='mapp'):
+        load_story(p)
+
+
+def test_alternatives_skip_a_source_already_shown(tmp_path):
+    # No UI film and no wide shot: the map fills slot 3, so slot 4 takes the graph, not the map again.
+    p = write(tmp_path, 'scenes:\n- caption: X\n  from: first_sighting\n  to: hit\n  layout: grid\n'
+                        '  show: [chase, yolo, ui|map, "wide|map|plot:range"]\n')
+    make_run(tmp_path / 'run', screen=False)
+    (tmp_path / 'run' / 'cam_arc_side.mkv').unlink()
+    resolved, _ = resolve(load_story(p), find_takes(tmp_path / 'run'))
+    assert resolved[0].scene.show == ['chase', 'yolo', 'map', 'plot:range']

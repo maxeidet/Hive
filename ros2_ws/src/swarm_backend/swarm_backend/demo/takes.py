@@ -304,10 +304,12 @@ def find_takes(folder: Path) -> list[Take]:
         down = [s for s in landed if start <= s < end] or landed[-1:]
         if down:
             m['landed'] = down[-1]
-        seen = _first(events, SIGHTING, start, end, among=defenders)
+        # From the release: before it the hostile stands at its start point, where a defender
+        # may already see it (and be sent at it), but that is not the engagement.
+        seen = _first(events, SIGHTING, rel, end, among=defenders)
         if seen:
             m['first_sighting'] = seen[0]
-        icpt = _first(events, INTERCEPT, start, end, among=defenders)
+        icpt = _first(events, INTERCEPT, rel, end, among=defenders)
         if icpt:
             m['intercept'] = icpt[0]
         attacker = (icpt or seen or (None, None))[1]

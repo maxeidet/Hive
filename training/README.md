@@ -56,14 +56,14 @@ It runs Ultralytics' Docker image with the GPU and writes to `training/runs/`. S
 
 ## 3. Use the weights
 
-Put the files in `models/<name>/` in the repo (e.g. `models/yolo26n-test/best.onnx`; `models/` is not in git). Then, in `ros2_ws/src/swarm_backend/`:
+Put the `.onnx` file in `models/` in the repo (e.g. `models/yolo26n-test.onnx`; subfolders work too). Then, in `ros2_ws/src/swarm_backend/`:
 
 ```bash
 ./mount-backend.sh predict yolo                 # on the saved images in data/Manualimages
 ./mount-backend.sh detect 2 --detector yolo     # live on drone 2's camera
 ```
 
-Both pick the newest `models/*/*.onnx`; `--weights /workspace/models/<name>/best.onnx` picks one, `--conf` sets the lowest confidence (default 0.25), `--yolo-birds` also returns birds. The model runs on the CPU through `swarm_backend/detect/yolo_onnx.py`: ONNX Runtime if it is installed, else OpenCV (4.6 in the container, which may be too old for YOLO26; `opset=12` above helps, and adding `onnxruntime` to the container is the fix if not).
+Both pick the newest `.onnx` in `models/`; `--weights /workspace/models/yolo26n-test.onnx` picks one, `--conf` sets the lowest confidence (default 0.25), `--yolo-birds` also returns birds. The model runs on the CPU through `swarm_backend/detect/yolo_onnx.py`: ONNX Runtime if it is installed, else OpenCV (4.6 in the container, which may be too old for YOLO26; `opset=12` above helps, and adding `onnxruntime` to the container is the fix if not).
 
 ## Notes
 

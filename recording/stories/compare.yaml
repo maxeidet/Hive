@@ -11,7 +11,7 @@ scenes:
   from: takeoff - 2
   to: takeoff + 12
   layout: side
-  show: [wide, map]
+  show: [chase, "ui|wide|map"]    # the UI when filmed (record.sh --screen), else the wide shot or the map
 
 - card: Same run, two systems
 
@@ -20,7 +20,7 @@ scenes:
   from: release + 5
   to: release + 25
   layout: compare
-  show: [map]
+  show: [ui|map]
   insights: [seen_at, time_to_hit, no_hit]
 
 - caption: Both runs on one map

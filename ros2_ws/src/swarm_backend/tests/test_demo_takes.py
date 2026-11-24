@@ -130,3 +130,13 @@ def test_miss_taken_out_is_not_a_hit(tmp_path):
     takes = find_takes(tmp_path)
     assert [t.facts['hit'] for t in takes] == [True, False]
     assert 'hit' not in takes[1].moments
+
+
+def test_sighting_before_the_release_is_not_the_engagement(tmp_path):
+    # A defender sees the hostile parked at its start point and is sent at it (demo-ui3,
+    # 24 Nov): the engagement's sighting, intercept and attacker are those after the release.
+    truth = make_run(tmp_path, videos=False, early_sighting=True)
+    t = find_takes(tmp_path)[0]
+    assert t.moments['first_sighting'] == pytest.approx(truth['sighting'][0], abs=0.1)
+    assert t.moments['intercept'] > t.moments['release']
+    assert t.attacker == truth['attacker'][0]

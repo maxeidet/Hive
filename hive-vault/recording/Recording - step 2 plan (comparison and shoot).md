@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12 in the `hive-px4-vnc` container (PyYAML, OpenCV, numpy, ffmpeg, matplotlib), bash + tmux on the host, pytest.
 
-**Spec:** `hive-vault/Recording - smoother demo videos (design).md`, sections 2, 4 and 7 (step 2 in "Order of the work"). **Builds on step 1** (`hive-vault/Recording - step 1 plan (record and cut).md`, built 23 Nov, uncommitted until Oskar commits). Its interfaces are used as they are in the code: `demo.runinfo.write_run_info / read_run_info / RunInfo`, `demo.takes.find_takes / Take / FACTS / source_ranges`, `demo.story.load_story / resolve / Resolved / pick_take / StoryError`, `demo.final.build / cut_source / scene_clip / card_clip / end_card_lines`, `demo.fake_run.make_run`, and `recording/record.sh`.
+**Spec:** `hive-vault/recording/Recording - smoother demo videos (design).md`, sections 2, 4 and 7 (step 2 in "Order of the work"). **Builds on step 1** (`hive-vault/recording/Recording - step 1 plan (record and cut).md`, built 23 Nov, uncommitted until Oskar commits). Its interfaces are used as they are in the code: `demo.runinfo.write_run_info / read_run_info / RunInfo`, `demo.takes.find_takes / Take / FACTS / source_ranges`, `demo.story.load_story / resolve / Resolved / pick_take / StoryError`, `demo.final.build / cut_source / scene_clip / card_clip / end_card_lines`, `demo.fake_run.make_run`, and `recording/record.sh`.
 
 **Written before step 1 was tested on Stellar** (Oskar's choice, 23 Nov). Before starting, read the "record.sh and final on Stellar" result in `hive-vault/detection/Manual tests to do.md`. If it changed any step-1 interface, follow the code, not this plan, and ledger a ruling.
 
@@ -201,7 +201,7 @@ Behaviour of `shoot.sh`, in a temporary container (as `video.sh`'s `container`, 
 
 ### Task 7: Docs and the manual test
 
-**Files:** `recording/README.md` (a "Many runs: shoot.sh" section, the compare layout and `take:` names in the story reference, the ranking, and the `gz/` note from Task 3), `hive-vault/Recording demo videos.md` (step 2 done), and `hive-vault/detection/Manual tests to do.md`.
+**Files:** `recording/README.md` (a "Many runs: shoot.sh" section, the compare layout and `take:` names in the story reference, the ranking, and the `gz/` note from Task 3), `hive-vault/recording/Recording demo videos.md` (step 2 done), and `hive-vault/detection/Manual tests to do.md`.
 
 - [ ] **Step 1:** Write the docs.
 - [ ] **Step 2:** Add the manual test **"shoot.sh with a compare pair on Stellar"**:

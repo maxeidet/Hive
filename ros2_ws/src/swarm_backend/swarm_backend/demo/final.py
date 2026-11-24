@@ -20,7 +20,8 @@ import sys
 from pathlib import Path
 
 from swarm_backend.demo.map_video import write_ghost, write_map
-from swarm_backend.demo.story import Resolved, Scene, StoryError, load_story, resolve
+from swarm_backend.demo.story import (Resolved, Scene, StoryError, load_story, recorded_file,
+                                      resolve)
 from swarm_backend.demo.takes import Take, save_takes, shoot_takes
 from swarm_backend.scenarios.common import PKG, REPO
 
@@ -81,7 +82,7 @@ def needed_cuts(resolved: list[Resolved]) -> dict[tuple, tuple[float, float]]:
 
 
 def source_file(folder: Path, key: str) -> Path:
-    return folder / ('poses.jsonl' if key == 'map' or key.startswith('plot_') else f'{key}.mkv')
+    return recorded_file(folder, key)
 
 
 def cut_source(folder: Path, key: str, start: float, end: float, preview: bool) -> Path:

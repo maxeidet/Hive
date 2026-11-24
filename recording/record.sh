@@ -12,9 +12,11 @@
 # Options:
 #   --name NAME          run folder data/recordings/NAME (default: the date and time)
 #   --screen             also film the operator UI: opens this computer's browser in kiosk
-#                        mode on http://localhost:8090 and films the whole screen
-#   --watch              show Gazebo's window (default headless: faster, nothing else on screen)
-#   --cameras A,B        live camera angles (default attacker_watch,arc_side), --no-cameras
+#                        mode on http://localhost:8090 on the leftmost monitor, films that one
+#   --watch              show Gazebo's window (default headless). Slow: the cameras then
+#                        render without the GPU (0.17x against 0.67x on 24 Nov)
+#   --cameras A,B        live camera angles (default attacker_watch: the chase camera; add
+#                        arc_side for the wide shot), --no-cameras
 #   --no-yolo            do not record the defenders' YOLO views
 #   --export DIR         copy the run (without gz/ and cache/) to DIR/NAME/ at the end
 #   --keep-sim           leave the sim and the tmux session running at the end (shoot.sh)
@@ -40,7 +42,7 @@ CONTAINER="px4-gazebo-vnc"
 CONFIG="${SWARM_CONFIG:-$PKG/scenarios/surveillance.yaml}"
 
 NAME="$(date +%Y%m%d-%H%M%S)"
-SCREEN=0; WATCH=0; YOLO=1; CAMERAS="attacker_watch,arc_side"; EXPORT=""; KEEP_SIM=0; DRY=0; REUSE=0; PAIR=""
+SCREEN=0; WATCH=0; YOLO=1; CAMERAS="attacker_watch"; EXPORT=""; KEEP_SIM=0; DRY=0; REUSE=0; PAIR=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
@@ -130,7 +132,11 @@ container_gone() { ! docker inspect "$CONTAINER" >/dev/null 2>&1; }
 stop_part() {
   local part="$1" how wait=30
   case "$part" in
-    scenario) how="Ctrl-C, wait up to 300 s for the defenders to land"; wait=300 ;;
+    # The defenders land only when the sim is kept for the next run (--keep-sim). Otherwise
+    # the sim is shut down right after, and landing at the slow sim's pace took minutes.
+    scenario)
+      if [ "$KEEP_SIM" = 1 ]; then how="Ctrl-C, wait up to 300 s for the defenders to land"; wait=300
+      else how="Ctrl-C, wait up to 20 s (no landing: the sim is shut down next)"; wait=20; fi ;;
     sim) how="type shutdown at pxh>, wait up to 120 s for the container to go, then docker rm -f" ;;
     session) how="tmux kill-session -t $SESSION" ;;
     browser) how="close the browser window" ;;
@@ -286,15 +292,28 @@ if [ "$SCREEN" = 1 ]; then
   # A browser of its own (new instance, fresh profile): an open Firefox would otherwise take
   # the URL in a normal tab and the command would end at once.
   PROFILE="$LOGS/browser-profile"
+  # The leftmost monitor (xrandr: "0: +*DP-0 2560/597x1440/336+0+0 DP-0"): the kiosk opens
+  # there and only that monitor is filmed, so a terminal on another monitor stays free.
+  MONITOR=$(xrandr --listmonitors 2>/dev/null | awk 'NR > 1 { split($3, a, /[\/x+]/);
+    print a[5], a[1] "x" a[3] "+" a[5] "+" a[6] }' | sort -n | head -1 | cut -d' ' -f2)
+  [ "$DRY" = 1 ] && MONITOR="${MONITOR:-2560x1440+0+0}"
+  [ -n "$MONITOR" ] || fail "--screen: xrandr lists no monitor"
+  MON_X=${MONITOR#*+}; MON_Y=${MON_X#*+}; MON_X=${MON_X%%+*}
   case "$BROWSER" in
+    # Firefox has no window-position flag: its profile's xulstore.json places the window,
+    # and --kiosk then fills the monitor the window is on.
     firefox) BROWSER_CMD="firefox --new-instance --profile $PROFILE --kiosk http://localhost:8090" ;;
-    *) BROWSER_CMD="$BROWSER --user-data-dir=$PROFILE --kiosk --no-first-run http://localhost:8090" ;;
+    *) BROWSER_CMD="$BROWSER --user-data-dir=$PROFILE --window-position=$MON_X,$MON_Y --kiosk --no-first-run http://localhost:8090" ;;
   esac
-  [ "$DRY" = 1 ] || mkdir -p "$PROFILE"
+  if [ "$DRY" = 0 ]; then
+    mkdir -p "$PROFILE"
+    printf '{"chrome://browser/content/browser.xhtml": {"main-window": {"screenX": "%s", "screenY": "%s", "width": "1280", "height": "800", "sizemode": "normal"}}}\n' \
+      $((MON_X + 100)) $((MON_Y + 100)) > "$PROFILE/xulstore.json"
+  fi
   start_part browser "$BROWSER_CMD"
   if [ "$DRY" = 1 ]; then echo "WAIT browser: 5 s, still running"
   else sleep 5; ended browser && fail "the browser closed (log: $(log_of browser))"; fi
-  start_part screen "recording/video.sh screen --fullscreen $NAME"
+  start_part screen "recording/video.sh screen --region $MONITOR $NAME"
   wait_cmd screen "screen.mkv growing" 30 file_grows screen.mkv
 fi
 
@@ -307,19 +326,39 @@ if [ -n "$ANGLES" ]; then
   wait_log cams 'first image at sim time' 180 "$(echo $ANGLES | wc -w)"
 fi
 
+# Quick end: the surveillance scenarios log LAST_LINE once their last engagement is over
+# (stop_and_land), then fly the defenders home and land them: minutes at the slow sim's pace,
+# for nothing when the sim is shut down next. So after AFTER_S more sim seconds (the story's
+# aftermath) the run stops there. Not with --keep-sim: the next run needs them landed.
+LAST_LINE='Defenders back to their slots'
+AFTER_S=15
+sim_now() { tail -n 1 "$REPO/$RUN/ui.jsonl" 2>/dev/null | grep -o '"sim": *[0-9.]*' | grep -o '[0-9.]*$'; }
+
 start_part scenario "cd $SB && SWARM_CONFIG=$CONFIG $SCENARIO_CMD"
 if [ "$DRY" = 1 ]; then
   echo "WAIT scenario: until it ends; every 5 s check that every part still runs"
+  [ "$KEEP_SIM" = 1 ] || echo "WAIT scenario: or ${AFTER_S} sim s after '$LAST_LINE' (its last engagement), then stop: no landing"
 else
   say "Flying: $SCENARIO (log: $(log_of scenario))"
+  LAST_AT=""
   while ! ended scenario; do
     for p in "${STARTED[@]}"; do
       [ "$p" = scenario ] || [ "$p" = session ] && continue
       ended "$p" && fail "$p stopped during the run (log: $(log_of "$p"))"
     done
+    if [ "$KEEP_SIM" = 0 ]; then
+      if [ -z "$LAST_AT" ] && grep -aq "$LAST_LINE" "$(log_of scenario)"; then
+        LAST_AT=$(sim_now); LAST_AT=${LAST_AT:-0}
+        say "Last engagement over (sim ${LAST_AT} s): ${AFTER_S} sim s more for the aftermath, then stop"
+      fi
+      if [ -n "$LAST_AT" ] && awk -v n="$(sim_now)" -v t="$LAST_AT" -v a="$AFTER_S" 'BEGIN { exit !(n >= t + a) }'; then
+        say "Done: stopping without landing (the sim is shut down next)"
+        break
+      fi
+    fi
     sleep 5
   done
-  say "The scenario ended: $(tail -n 1 "$(log_of scenario)")"
+  ended scenario && say "The scenario ended: $(tail -n 1 "$(log_of scenario)")"
 fi
 
 stop_all

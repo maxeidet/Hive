@@ -107,6 +107,28 @@ def source_key(role: str, attacker: int | None) -> str:
     return f'debug_d{arg}' if kind == 'yolo' else f'cam_{arg}'
 
 
+def recorded_file(folder: Path, key: str) -> Path:
+    """The file a source key is made from (the map and the graphs: the poses)."""
+    return folder / ('poses.jsonl' if key == 'map' or key.startswith('plot_') else f'{key}.mkv')
+
+
+def choose(role: str, t: Take, used: tuple[str, ...] = ()) -> str:
+    """`ui|map`: the first alternative this take's run recorded and the scene does not show
+    yet (`used`), else the last (so the build names what is missing)."""
+    options = role.split('|')
+    for a in options:
+        if a not in used and recorded_file(t.folder, source_key(a, t.attacker)).exists():
+            return a
+    return options[-1]
+
+
+def _chosen(s: Scene, t: Take, **changes) -> Scene:
+    show: list[str] = []
+    for r in s.show:
+        show.append(choose(r, t, tuple(show)))
+    return Scene(**{**s.__dict__, **changes, 'show': show})
+
+
 def _check_role(role: str) -> bool:
     if role in SOURCES:
         return True
@@ -144,7 +166,7 @@ def _scene(i: int, d, path: Path) -> Scene:
         raise StoryError(f'{where}: a ghost scene shows [map]')
     if layout == 'zoom' and not str(show[0]).startswith('yolo'):
         raise StoryError(f'{where}: a zoom scene shows [yolo] or [yolo:<id>]')
-    bad = [r for r in show if not _check_role(str(r))]
+    bad = [a for r in show for a in str(r).split('|') if not _check_role(a)]
     if bad:
         raise StoryError(f'{where}: unknown source(s) {", ".join(map(str, bad))}; use '
                          f'{", ".join(SOURCES)}, yolo:<id> or cam:<angle>')
@@ -282,9 +304,9 @@ def resolve(story: Story, takes: list[Take], take: str | None = None
                 problems.append(f'{label}: ends ({end:.1f}) before it starts ({start:.1f})')
                 continue
             shift = base.moments['release'] - ours.moments['release']
-            scene = Scene(**{**s.__dict__, 'caption': caption})
             for t, a, b, side in ((ours, start, end, 'ours'), (base, start + shift, end + shift, 'baseline')):
-                out.append(Resolved(scene, t, a, b, {r: source_key(r, t.attacker) for r in s.show}, side))
+                scene = _chosen(s, t, caption=caption)
+                out.append(Resolved(scene, t, a, b, {r: source_key(r, t.attacker) for r in scene.show}, side))
             continue
         try:
             t = pick_take(take or s.take or story.take, takes)
@@ -302,7 +324,7 @@ def resolve(story: Story, takes: list[Take], take: str | None = None
         if end <= start:
             problems.append(f'{label}: ends ({end:.1f}) before it starts ({start:.1f})')
             continue
-        scene = Scene(**{**s.__dict__, 'caption': caption})
+        scene = _chosen(s, t, caption=caption)
         out.append(Resolved(scene, t, start, end,
-                            {r: source_key(r, t.attacker) for r in s.show}))
+                            {r: source_key(r, t.attacker) for r in scene.show}))
     return out, problems

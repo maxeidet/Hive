@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12 in the container (OpenCV, numpy, ffmpeg), pytest.
 
-**Spec:** `hive-vault/Recording - smoother demo videos (design).md`, sections 7 (ghost), 8 (map) and 9 (insights). **Builds on steps 1 and 2**: `demo.map_video.MapState / map_state / render_frame / project / write_map`, `demo.takes.Take` (with `folder`, `name`) / `FACTS` / `shoot_takes`, `demo.story` (`compare`, `pick_take`, `Resolved`), `demo.final` (`scene_clip`, `compare_clip`, `cut_source`), and `demo.fake_run.make_run`. **Written before steps 1 and 2 were tested on Stellar** (Oskar, 23 Nov). Where the built code differs from what's named here, follow the code and ledger a ruling.
+**Spec:** `hive-vault/recording/Recording - smoother demo videos (design).md`, sections 7 (ghost), 8 (map) and 9 (insights). **Builds on steps 1 and 2**: `demo.map_video.MapState / map_state / render_frame / project / write_map`, `demo.takes.Take` (with `folder`, `name`) / `FACTS` / `shoot_takes`, `demo.story` (`compare`, `pick_take`, `Resolved`), `demo.final` (`scene_clip`, `compare_clip`, `cut_source`), and `demo.fake_run.make_run`. **Written before steps 1 and 2 were tested on Stellar** (Oskar, 23 Nov). Where the built code differs from what's named here, follow the code and ledger a ruling.
 
 ## Global Constraints
 
@@ -134,7 +134,7 @@
 
 ### Task 5: Stories, docs and the manual test
 
-**Files:** `recording/stories/default.yaml` (`insights: true` on the detection and hit scenes), `recording/stories/compare.yaml` (a ghost scene after the side-by-side, insights on), `recording/README.md` (map legend, `ghost`, `insights`), `hive-vault/Recording demo videos.md`, and `hive-vault/detection/Manual tests to do.md`.
+**Files:** `recording/stories/default.yaml` (`insights: true` on the detection and hit scenes), `recording/stories/compare.yaml` (a ghost scene after the side-by-side, insights on), `recording/README.md` (map legend, `ghost`, `insights`), `hive-vault/recording/Recording demo videos.md`, and `hive-vault/detection/Manual tests to do.md`.
 
 - [ ] **Step 1:** Write the stories and docs.
 - [ ] **Step 2:** Add the manual test **"Map details and insights on a real shoot"**: `recording/video.sh final --story compare --preview <shoot>` on a step-2 shoot.

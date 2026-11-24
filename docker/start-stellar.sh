@@ -174,6 +174,13 @@ fi
 
 if [ "$USE_GPU" = "1" ]; then
   GPU_ARGS=(--device nvidia.com/gpu=all)
+  # Headless, Gazebo renders the cameras through EGL (--headless-rendering, below): offer
+  # only NVIDIA's EGL so it cannot end up on Mesa's software device (llvmpipe, ~7 CPU cores;
+  # check ~/.gz/rendering/ogre2.log in the container: GL_VENDOR should be NVIDIA).
+  # Only headless: the GUI modes draw through X instead.
+  if [ "$GUI_MODE" = "headless" ]; then
+    GPU_ARGS+=(-e __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json)
+  fi
 fi
 
 if ! docker run -d --rm --name px4-gazebo-vnc \
@@ -216,6 +223,10 @@ echo "Starting PX4 + Gazebo (model: ${MODEL}, world: ${WORLD}). Ctrl+C or 'shutd
 HEADLESS_ENV=""
 if [ "$GUI_MODE" = "headless" ]; then
   HEADLESS_ENV="HEADLESS=1 "
+  # Without --headless-rendering the server renders the cameras through GLX on the
+  # container's Xvfb, which is software only (llvmpipe). PX4's px4-rc.gzsim appends this
+  # variable unquoted to `gz sim`, so it also carries the flag.
+  HEADLESS_ENV+="PX4_GZ_SIM_RENDER_ENGINE='ogre2 --headless-rendering' "
 fi
 
 # --record: add LogRecord to the container's copy of the world (after the repo world is

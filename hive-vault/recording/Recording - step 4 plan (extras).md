@@ -17,7 +17,7 @@
 
 **Tech Stack:** Python 3.12 in the container (OpenCV, numpy, matplotlib, Pillow, ffmpeg), bash, pytest.
 
-**Spec:** `hive-vault/Recording - smoother demo videos (design).md`, sections 5 (`zoom`), 10 (graphs, orbit, subtitles, stills and GIFs) and step 4 of "Order of the work". **Builds on steps 1 to 3** (`demo.final`, `demo.story`, `demo.takes`, `demo.map_video`, `demo.insights`, `demo.fake_run`, `recording/record.sh`, `recording/shoot.sh`, `ui/camera_video.py`). **Written before any of them was tested on Stellar** (Oskar, 23 Nov). Where the built code differs, follow the code and ledger a ruling. The five tasks are independent; do them in any order.
+**Spec:** `hive-vault/recording/Recording - smoother demo videos (design).md`, sections 5 (`zoom`), 10 (graphs, orbit, subtitles, stills and GIFs) and step 4 of "Order of the work". **Builds on steps 1 to 3** (`demo.final`, `demo.story`, `demo.takes`, `demo.map_video`, `demo.insights`, `demo.fake_run`, `recording/record.sh`, `recording/shoot.sh`, `ui/camera_video.py`). **Written before any of them was tested on Stellar** (Oskar, 23 Nov). Where the built code differs, follow the code and ledger a ruling. The five tasks are independent; do them in any order.
 
 ## Global Constraints
 
@@ -165,7 +165,7 @@
 **Files:**
 - `recording/README.md`: the zoom layout, graphs, the orbit and idle entries, subtitles, stills and GIFs.
 - `recording/stories/default.yaml`: a zoom scene at the detection with `freeze: 1.5`, and a graph next to the chase camera in the intercept.
-- `hive-vault/Recording demo videos.md`: all four steps done.
+- `hive-vault/recording/Recording demo videos.md`: all four steps done.
 - `hive-vault/detection/Manual tests to do.md`.
 
 - [ ] **Step 1:** Write the docs and stories.

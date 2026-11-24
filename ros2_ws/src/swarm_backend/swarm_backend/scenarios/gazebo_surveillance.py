@@ -39,6 +39,7 @@ from swarm_backend.nodes.base_station_node import BaseStationNode
 from swarm_backend.nodes.fake_detection import FakeDetectionNode, GazeboTruth
 from swarm_backend.nodes.hivemind_node import Hivemind
 from swarm_backend.nodes.patrol_node import PatrolNode
+from swarm_backend.px4.observer import DroneObserver
 from swarm_backend.px4.px4_drone import PX4Drone
 from swarm_backend.runner import LAND_TIMEOUT_S, wait_until
 from swarm_backend.save_images import drone_names
@@ -216,8 +217,13 @@ class GazeboSurveillance(SurveillanceWorld):
         # /hive/friendlies, and every real detector (detect/live.py) marks a track that
         # points at one of them as a friend, so it is never locked or reported. Only
         # surveillance.drone_ids: the hostile drone (attack.target_id) is never on it.
+        # Every other drone in the config (drone 0, which runs the container and stands in
+        # the base) is ours too: without it, a defender that sees it reports a target.
+        bystanders = [DroneObserver(node, d) for d in swarm_config.drones
+                      if d.id not in self.ids and d.id != self.hostile_id]
+        self.friendly_ids = sorted(list(self.ids) + [b.id for b in bystanders])
         self.hivemind = (None if fake else
-                         Hivemind(node, [p.drone for p in self.patrols.values()]))
+                         Hivemind(node, [p.drone for p in self.patrols.values()] + bystanders))
         self.detect_procs: list[subprocess.Popen] = []
         self._offsets = {d: 0 for d in self.ids}
 
@@ -370,7 +376,7 @@ class GazeboSurveillance(SurveillanceWorld):
         self.log.info(f'Real detectors ({self.options.tracker}'
                       + (f' {" ".join(self.options.detect_args)}' if self.options.detect_args else '')
                       + f') started for drones {list(self.ids)}, logs '
-                      f'/tmp/detect_<id>.log; friendly drones {list(self.ids)} ignored'
+                      f'/tmp/detect_<id>.log; friendly drones {self.friendly_ids} ignored'
                       + (', own airframe ignored' if self.swarm_config.detect.body_mask
                          else ''))
 
@@ -420,10 +426,13 @@ class GazeboSurveillance(SurveillanceWorld):
                 f'No data from PX4 for drones {self.defenders.not_connected()}. Start them with '
                 '`./mount-backend.sh spawn` (SWARM_CONFIG = scenarios/surveillance.yaml)') from None
         wait_until(self.defenders.ready, CONNECT_TIMEOUT_S, "the defenders' pre-flight checks")
-        self.start_detectors()
         self.log.info(f'Taking off: defenders {list(self.ids)} to {s.altitude} m')
         self.defenders.takeoff(s.altitude)
         wait_until(self.defenders.all_reached, SETUP_TIMEOUT_S, f'{s.altitude} m')
+        # Not on the ground: from there the cameras see the base's trees and tents and the
+        # other defenders a few metres away, and reported them as targets inside the base.
+        # The flight out to the slots gives the detectors time to start before the release.
+        self.start_detectors()
         for i, p in self.patrols.items():
             self.log.info(f'Drone {i} to its slot at {p.patrol.slot_angle:+.0f} deg on the arc')
             p.patrol.start()

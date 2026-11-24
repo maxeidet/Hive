@@ -36,3 +36,13 @@ def test_round_trip(tmp_path):
     assert info.birds_prefix == 'bird_'
     assert info.options == {'screen': False}
     assert info.config['surveillance']['arc_radius'] == 150.0
+
+
+def test_cli_as_record_sh_calls_it(tmp_path):
+    # record.sh: write RUN --config CFG --options JSON -- CMD...; the options come after RUN.
+    from swarm_backend.demo.runinfo import main
+    assert main(['write', str(tmp_path), '--config', str(SURV), '--options', '{"yolo": 1}',
+                 '--', 'scenarios/trial.sh', '1', '--setup', 'baseline']) == 0
+    info = read_run_info(tmp_path)
+    assert info.options == {'yolo': 1}
+    assert info.setup == 'baseline'
