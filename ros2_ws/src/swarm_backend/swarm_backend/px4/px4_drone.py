@@ -72,6 +72,8 @@ class PX4Drone(Drone):
         super().__init__(config.id, home=config.spawn_ned)
         self.config = config
         self.nav_state: int | None = None
+        self.clock = None  # () -> the receiver's time (the hivemind's Gazebo clock), if set
+        self.arrived = None  # self.clock() when the latest odometry arrived
 
         self._node = node
         self._log = node.get_logger().get_child(f'drone{config.id}')
@@ -126,6 +128,7 @@ class PX4Drone(Drone):
         started (same instance, so the same topics) at `home`, world NED on the ground."""
         self.home = home
         self.position = self.velocity = self.attitude = self.stamp = None
+        self.arrived = None  # self.clock() when the latest odometry arrived
         self.connected = self.preflight_ok = self.armed = self.offboard = self.landing = False
         self.target = None
         self.gimbal = None
@@ -209,6 +212,8 @@ class PX4Drone(Drone):
             self._log.warning(f'PX4 clock jumped {stamp - self.stamp:+.1f} s between two '
                               'odometry messages (time sync?)', throttle_duration_sec=5.0)
         self.stamp = stamp
+        if self.clock is not None:
+            self.arrived = self.clock()
         if self._tracking:
             self._setpoint = ('position', tuple(local), None)
 

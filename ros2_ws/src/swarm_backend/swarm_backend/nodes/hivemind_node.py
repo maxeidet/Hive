@@ -5,8 +5,9 @@ locks onto one of our own (swarm/friendlies.py).
 
 Listens (never commands) to each friendly PX4's odometry and publishes all of them on
 /hive/friendlies (std_msgs/String, JSON: position and velocity, world NED) at --rate Hz,
-parked drones too. Stamped with Gazebo's simulation time, the clock the camera images
-carry, so a detector can predict each friendly to the time of its image; without Gazebo
+parked drones too. Each drone is stamped with Gazebo's simulation time when its odometry
+arrived (the clock the camera images carry), so a detector can predict each friendly to
+the time of its image; the message itself with the time it is sent. Without Gazebo
 (no /clock) the node's own ROS clock is used. --ids: the friendly drones, required: a
 config usually lists the hostile drones too (scenario2.yaml does), and a hostile listed
 here would never be attacked.
@@ -27,7 +28,8 @@ from swarm_backend.px4.observer import DroneObserver
 
 class Hivemind:
 
-    def __init__(self, node: Node, observers: list[DroneObserver], rate_hz: float = RATE_HZ):
+    def __init__(self, node: Node, observers: list, rate_hz: float = RATE_HZ):
+        """observers: DroneObserver or PX4Drone (.id, .position, .velocity, .clock, .arrived)."""
         self.node = node
         self.observers = observers
         self._pub = node.create_publisher(String, TOPIC, 10)
@@ -41,6 +43,8 @@ class Hivemind:
             self._gz.subscribe(Clock, '/clock', self._on_clock)
         except ImportError:
             pass  # no Gazebo: the ROS clock
+        for o in observers:  # each position is stamped with when it arrived (friendlies.py)
+            o.clock = self.now
         node.create_timer(1.0 / rate_hz, self._publish)
 
     def _on_clock(self, msg) -> None:
@@ -54,7 +58,8 @@ class Hivemind:
         return self.node.get_clock().now().nanoseconds * 1e-9
 
     def _publish(self) -> None:
-        friendlies = [Friendly(o.id, o.position, o.velocity or (0.0, 0.0, 0.0))
+        friendlies = [Friendly(o.id, o.position, o.velocity or (0.0, 0.0, 0.0),
+                               getattr(o, 'arrived', None))
                       for o in self.observers if o.position is not None]
         if friendlies:
             self._pub.publish(String(data=encode(self.now(), friendlies)))

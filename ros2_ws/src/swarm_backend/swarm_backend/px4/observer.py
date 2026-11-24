@@ -21,6 +21,8 @@ class DroneObserver:
         self.position = None  # world NED, metres
         self.velocity = None
         self.stamp = None  # PX4 clock, seconds (simulation time in SITL)
+        self.clock = None  # () -> the receiver's time (the hivemind's Gazebo clock), if set
+        self.arrived = None  # self.clock() when the latest odometry arrived
         node.create_subscription(
             VehicleOdometry, PX4Topics(config.namespace).vehicle_odometry, self._on_odometry,
             PX4_OUT_QOS)
@@ -33,3 +35,5 @@ class DroneObserver:
         self.position = (local[0] + hx, local[1] + hy, local[2] + hz)
         self.velocity = tuple(float(v) for v in msg.velocity)
         self.stamp = msg.timestamp * 1e-6
+        if self.clock is not None:
+            self.arrived = self.clock()

@@ -11,7 +11,7 @@ agreed with the attack node (vault: detection/Baseline attack work plan):
                                     to the drone (its camera), world NED, metres: direction
                                     from the pixel and PX4's camera orientation, times the
                                     distance from the box size (baseline: a 0.5 m drone, longer side;
-                                    others: 0.8 m / sqrt(w*h), see camera.box_scale)
+                                    others: 0.48 m / sqrt(w*h), see camera.box_scale)
 
 stamped with the image's time, frame_id = the drone's Gazebo name. Nothing is published
 while there is no confirmed target. The angles are corrected for the camera's roll, which
@@ -47,10 +47,12 @@ calls a drone is drawn and tracked like a drone; nothing here can tell it apart.
 
 Friendly drones: the hivemind (nodes/hivemind_node.py) broadcasts where all our drones
 are on /hive/friendlies. A track whose box points at one of them, with a box-size distance
-that roughly fits, is marked friendly for the rest of its life (swarm/friendlies.py): it
-is drawn blue ("friend 0 T5"), the lock never picks it, and a lock on a track that turns
-out to be friendly is released at once. Without the hivemind nothing is marked;
---no-friendlies turns it off.
+that roughly fits, for a few images in a row, is marked friendly until it stops fitting
+for a few images in a row (swarm/friendlies.py, FriendlyMarks): it is drawn blue
+("friend 0 T5"), the lock never picks it, and a lock on a track that turns out to be
+friendly is released at once. The camera's own position is the hivemind's, moved on to
+the image's time with PX4's odometry (own_position), so the drone's own speed does not
+shift it. Without the hivemind nothing is marked; --no-friendlies turns it off.
 """
 import argparse
 import math
@@ -75,10 +77,10 @@ from swarm_backend.detect.detectors import Detection, Detector, draw
 from swarm_backend.detect.kalman import Noise, rotation_homography
 from swarm_backend.detect.tracking import Confirmer, Track, angle_between
 from swarm_backend.swarm.friendlies import TOPIC as FRIENDLIES_TOPIC
-from swarm_backend.swarm.friendlies import FriendlyBook, friendly_for
+from swarm_backend.swarm.friendlies import FriendlyBook, FriendlyMarks, friendly_for
 from swarm_backend.swarm.friendlies import decode as decode_friendlies
 from swarm_backend.sim.sensor_view import (
-    bridge_config, find_drone, find_sensors, gz_topics, start_bridge)
+    bridge_config, find_drone, find_sensors, gz_topics, start_bridge, stop_bridge)
 
 CANDIDATE = (255, 220, 0)
 CONFIRMED = (255, 0, 0)
@@ -394,7 +396,8 @@ class LiveDetector:
                  direction_confirmer: Confirmer | None = None,
                  tracker: ByteTracker | None = None,
                  detector_name: str = 'baseline', lock: TargetLock | None = None,
-                 body_mask: bool = False, friendlies: bool = True):
+                 body_mask: bool = False, friendlies: bool = True,
+                 truth_log: Path | None = None):
         from geometry_msgs.msg import PointStamped, Vector3Stamped
         from rclpy.qos import qos_profile_sensor_data
         from sensor_msgs.msg import Image
@@ -426,11 +429,16 @@ class LiveDetector:
         self.lock = lock  # stay on one drone (TargetLock), or None: best score every image
         self.drone_id = drone_id
         self.friend_book = FriendlyBook()  # the hivemind's latest positions
-        self.friendly: dict[int, int] = {}  # track id -> friendly drone id, for its life
+        self.friend_marks = FriendlyMarks()
+        self.friendly: dict[int, int] = {}  # track id -> friendly drone id (friend_marks)
         if friendlies:
             from std_msgs.msg import String
             node.create_subscription(String, FRIENDLIES_TOPIC, self._on_friendlies, 10)
         self._last_axes: Axes | None = None  # the camera's orientation in the last image
+        self.truth_log = None  # estimates against Gazebo's truth, per image (truth_log.py)
+        if truth_log is not None:
+            from swarm_backend.detect.truth_log import TruthLogger
+            self.truth_log = TruthLogger(truth_log, drone.world, drone_id, self.camera.frame)
         self.horizon = horizon
         self.on_result = on_result
         self.save = save
@@ -475,9 +483,11 @@ class LiveDetector:
                                     f'detect_bridge_{self.drone_id}')
 
     def close(self) -> None:
+        if self.truth_log is not None:
+            self.truth_log.close()
         if self._bridge is not None:
-            self._bridge.terminate()
-            self._bridge.wait()
+            stop_bridge(self._bridge)
+            self._bridge = None
 
     def _on_friendlies(self, msg) -> None:
         try:
@@ -485,26 +495,56 @@ class LiveDetector:
         except (ValueError, KeyError, TypeError):
             pass  # a malformed message: keep the last good one
 
+    def own_position(self, stamp: float):
+        """Where this drone was when the image was taken (world NED): its position in the
+        hivemind's broadcast, moved on by what PX4's odometry says it flew since then;
+        predicted with its velocity without PX4. None when the broadcast has no fresh one."""
+        entry = self.friend_book.get(self.drone_id)
+        if entry is None or self.drone_id not in self.friend_book.ages(stamp):
+            return None
+        since, me = entry
+        px4 = getattr(self, 'px4', None)
+        moved = None if px4 is None else px4.moved(since, stamp)
+        if moved is None:
+            moved = tuple(v * (stamp - since) for v in me.velocity)
+        return tuple(p + m for p, m in zip(me.position, moved))
+
     def _mark_friendlies(self, tracks, camera: CameraModel, axes, stamp: float) -> None:
         """Mark the tracks that are one of our own drones (see the module docstring)."""
         live = {t.id for t in tracks}
-        self.friendly = {i: f for i, f in self.friendly.items() if i in live}
+        self.friendly = self.friend_marks.prune(live)
         if axes is None:
             return
         positions = self.friend_book.at(stamp)
-        me = positions.pop(self.drone_id, None)
+        positions.pop(self.drone_id, None)
+        me = self.own_position(stamp)
         if me is None or not positions:
             return  # where we are, or anyone else is, is not known
-        age = self.friend_book.age(stamp)
+        ages = self.friend_book.ages(stamp)
+        fits = {}
         for t in tracks:
-            if t.id in self.friendly or t.detection is None:
-                continue
+            if t.detection is None:
+                continue  # unseen in this image: it stays what it was
             d = t.detection
             direction = camera.direction(d.u, d.v, *axes)
             box_range = camera.range_from_detection(self.detector_name, d.width, d.height)
-            friend = friendly_for(direction, box_range, me, positions, age)
-            if friend is not None:
-                self.friendly[t.id] = friend
+            fits[t.id] = friendly_for(direction, box_range, me, positions, ages)
+        self.friendly = self.friend_marks.update(fits, live)
+
+    def _log_truth(self, tracks, camera: CameraModel, axes, stamp: float) -> None:
+        """One line of --truth-log; a failure is reported once and never stops detecting."""
+        try:
+            friends = self.friend_book.at(stamp)
+            friends.pop(self.drone_id, None)
+            entry = self.friend_book.get(self.drone_id)
+            self.truth_log.write(stamp, tracks, camera, axes, self.detector_name,
+                                 self.own_position(stamp),
+                                 None if entry is None else entry[1].velocity,
+                                 friends, self.friend_book.ages(stamp), dict(self.friendly))
+        except Exception as e:  # noqa: BLE001 (a log must not stop the detector)
+            if not getattr(self, '_truth_failed', False):
+                print(f'--truth-log: {type(e).__name__}: {e}', flush=True)
+                self._truth_failed = True
 
     def _on_image(self, msg) -> None:
         with self._lock:
@@ -554,12 +594,15 @@ class LiveDetector:
                 self._matching = matching
                 if self.lock is not None:
                     self.lock.reset()  # the other confirmer numbers its tracks itself
+                self.friend_marks.clear()
                 self.friendly = {}
             if axes is None:
                 tracks = self.confirmer.update([(b.u, b.v) for b in boxes], boxes)
             else:
                 tracks = self.world_confirmer.update(directions(boxes, camera, axes), boxes)
         self._mark_friendlies(tracks, camera, axes, stamp)
+        if self.truth_log is not None:
+            self._log_truth(tracks, camera, axes, stamp)
         all_tracks, tracks = tracks, [t for t in tracks if t.id not in self.friendly]
         released = None
         if self.lock is not None and self.lock.locked_id in self.friendly:
@@ -685,6 +728,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--record', type=Path, default=None,
                         help='append one JSON line per processed image to this file (boxes, '
                              'confirmed tracks; used by the baseline evaluation)')
+    parser.add_argument('--truth-log', type=Path, default=None,
+                        help='append one JSON line per image to this file: the box distance, '
+                             'direction, own position and the friendly check against '
+                             "Gazebo's truth (truth_log.py; summary: python3 -m "
+                             'swarm_backend.detect.truth_log FILE)')
     parser.add_argument('--lock', action='store_true',
                         help='stay on one drone (TargetLock): publish only the locked one, also '
                              'when another scores higher; a new track where it should be takes '
@@ -764,7 +812,8 @@ def main(argv: list[str] | None = None) -> int:
                             lock=TargetLock(args.lock_gate_deg, timeout=args.lock_timeout)
                             if args.lock else None,
                             body_mask=args.body_mask,
-                            friendlies=not args.no_friendlies)
+                            friendlies=not args.no_friendlies,
+                            truth_log=args.truth_log)
     except RuntimeError as e:
         print(e)
         return 1
@@ -783,6 +832,8 @@ def main(argv: list[str] | None = None) -> int:
               'if it is closed, the detector starts its own')
     if args.save:
         print(f'  saving images to {args.save}')
+    if args.truth_log:
+        print(f'  truth log: {args.truth_log}')
     print('Running. Ctrl-C to stop.')
     try:
         rclpy.spin(node)

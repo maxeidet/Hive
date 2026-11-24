@@ -105,6 +105,42 @@ class AttitudeHistory:
         return self._quats[j] if abs(self._times[j] - t) <= tolerance else None
 
 
+class PositionHistory:
+    """Recent positions (time, PX4 local NED), to look one up for any moment: linear
+    between the two reports around it, or the nearest within `tolerance` seconds."""
+
+    def __init__(self, size: int = 500):
+        self.size = size
+        self._times: list[float] = []
+        self._points: list[Vector3] = []
+
+    def add(self, t: float, p: Vector3) -> None:
+        if self._times and t <= self._times[-1]:
+            if t < self._times[-1] - 1.0:  # far back in time: the simulation was restarted
+                self._times.clear()
+                self._points.clear()
+            else:
+                return
+        self._times.append(t)
+        self._points.append(tuple(p))
+        if len(self._times) > self.size:
+            del self._times[0], self._points[0]
+
+    def at(self, t: float, tolerance: float = 0.5) -> Vector3 | None:
+        if not self._times:
+            return None
+        i = bisect.bisect_left(self._times, t)
+        if 0 < i < len(self._times):
+            t0, t1 = self._times[i - 1], self._times[i]
+            if t1 - t0 <= 2 * tolerance:
+                k = (t - t0) / (t1 - t0)
+                return tuple(a + k * (b - a) for a, b in zip(self._points[i - 1],
+                                                            self._points[i]))
+        j = min((k for k in (i - 1, i) if 0 <= k < len(self._times)),
+                key=lambda k: abs(self._times[k] - t))
+        return self._points[j] if abs(self._times[j] - t) <= tolerance else None
+
+
 class ClockOffset:
     """PX4 time minus camera (Gazebo) time, learned from pairs (PX4 stamp, Gazebo time when
     the message arrived). A message arrives after it was stamped, so each pair is at most

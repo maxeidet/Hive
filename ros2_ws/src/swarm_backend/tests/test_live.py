@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from swarm_backend.detect.detectors import Detection
 from swarm_backend.detect.live import TargetLock, best_target, offset_topic
 from swarm_backend.detect.tracking import Track
@@ -106,7 +108,7 @@ def test_topic_names_follow_the_drones_namespace():
 def test_a_gimbal_turn_keeps_the_track_when_matching_by_world_direction():
     import math
 
-    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
     from swarm_backend.detect.live import directions, world_confirmer
     from swarm_backend.detect.orientation import camera_axes
 
@@ -184,7 +186,7 @@ def test_bytetrack_with_yolo_lowers_its_confidence_to_low():
 
 def test_live_bytetrack_follows_a_target_while_the_gimbal_turns():
     from swarm_backend.detect.bytetrack import ByteTracker, Settings
-    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
     from swarm_backend.detect.fake_detections import camera_axes
     from swarm_backend.detect.kalman import rotation_homography, warp
     from swarm_backend.detect.live import LiveDetector
@@ -236,13 +238,15 @@ def test_birds_are_kept_out_of_tracking_and_drawn_green():
 
 def test_a_track_on_a_friendly_drone_is_marked_and_kept_from_the_lock():
     """The hivemind says drone 0 is parked on the base, below the defender (drone 1): the
-    box that points at it is friendly for its whole life, the other one is not."""
+    box that points at it is friendly after CONFIRM_FRAMES images, and stays friendly while
+    unseen; the other one is not."""
     import numpy as np
 
-    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
     from swarm_backend.detect.live import FRIEND, LiveDetector, Result, annotate
     from swarm_backend.detect.tracking import Track
-    from swarm_backend.swarm.friendlies import Friendly, FriendlyBook
+    from swarm_backend.swarm.friendlies import (CONFIRM_FRAMES, Friendly, FriendlyBook,
+                                               FriendlyMarks)
 
     camera = CameraModel()
     # Camera 30 m up, looking north and 45 deg down: drone 0 at 30 m north on the ground
@@ -252,16 +256,19 @@ def test_a_track_on_a_friendly_drone_is_marked_and_kept_from_the_lock():
     me, parked = (0.0, 0.0, -30.0), (30.0, 0.0, 0.0)
     live = LiveDetector.__new__(LiveDetector)
     live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}
+    live.friend_marks, live.px4 = FriendlyMarks(), None
     live.friend_book = FriendlyBook()
     live.friend_book.update(5.0, [Friendly(0, parked, (0.0, 0.0, 0.0)),
                                   Friendly(1, me, (0.0, 0.0, 0.0))])
-    width = round(camera.f * 0.8 / math.dist(me, parked))  # a drone's box at that distance
+    width = round(camera.f * BOX_SIZE_M / math.dist(me, parked))  # a drone's box at that distance
     on_friend = Track(1, (camera.cx, camera.height / 2))
     on_friend.detection = Detection(round(camera.cx - width / 2),
                                     round(camera.height / 2 - width / 2), width, width, 0.9)
     elsewhere = Track(2, (200.0, 100.0))
     elsewhere.detection = Detection(196, 96, 8, 8, 0.5)
-    live._mark_friendlies([on_friend, elsewhere], camera, axes, 5.1)
+    for i in range(CONFIRM_FRAMES):
+        assert live.friendly == {}  # not yet: one image could be wrong
+        live._mark_friendlies([on_friend, elsewhere], camera, axes, 5.05 + 0.01 * i)
     assert live.friendly == {1: 0}
     on_friend.detection = None  # unseen for a while: still friendly
     live._mark_friendlies([on_friend, elsewhere], camera, axes, 5.2)
@@ -277,16 +284,77 @@ def test_a_track_on_a_friendly_drone_is_marked_and_kept_from_the_lock():
 
 
 def test_without_the_hivemind_nothing_is_friendly():
-    from swarm_backend.detect.camera import CameraModel
+    from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
     from swarm_backend.detect.live import LiveDetector
     from swarm_backend.detect.tracking import Track
-    from swarm_backend.swarm.friendlies import FriendlyBook
+    from swarm_backend.swarm.friendlies import FriendlyBook, FriendlyMarks
 
     live = LiveDetector.__new__(LiveDetector)
     live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}
+    live.friend_marks, live.px4 = FriendlyMarks(), None
     live.friend_book = FriendlyBook()
     track = Track(1, (640.0, 360.0))
     track.detection = Detection(636, 356, 8, 8, 0.9)
     live._mark_friendlies([track], CameraModel(), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
                                                   (0.0, 0.0, 1.0)), 1.0)
+    assert live.friendly == {}
+
+
+def test_the_own_position_is_moved_to_the_image_time_with_px4():
+    """The defender flies 15 m/s north; the broadcast has its position 0.1 s before the
+    image. Predicting with velocity gets 1.5 m; PX4's odometry says it moved 1.2 m (it
+    braked), and that is what counts. Without PX4 the velocity does."""
+    from swarm_backend.detect.live import LiveDetector
+    from swarm_backend.swarm.friendlies import Friendly, FriendlyBook
+
+    class Px4:
+        def moved(self, since, until):
+            assert (since, until) == (10.0, 10.1)
+            return (1.2, 0.0, 0.0)
+
+    live = LiveDetector.__new__(LiveDetector)
+    live.drone_id = 1
+    live.friend_book = FriendlyBook()
+    live.friend_book.update(10.05, [Friendly(1, (0.0, 0.0, -30.0), (15.0, 0.0, 0.0), 10.0)])
+    live.px4 = Px4()
+    assert live.own_position(10.1) == pytest.approx((1.2, 0.0, -30.0))
+    live.px4 = None
+    assert live.own_position(10.1) == pytest.approx((1.5, 0.0, -30.0))
+    assert live.own_position(20.0) is None  # too old
+
+
+def test_a_hostile_that_inherits_a_friendly_track_is_released():
+    """ByteTrack hands drone 0's track id to a hostile elsewhere: after RELEASE_FRAMES
+    images that fit no friendly it is not friendly any more, and the lock may take it."""
+    from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
+    from swarm_backend.detect.live import LiveDetector
+    from swarm_backend.detect.tracking import Track
+    from swarm_backend.swarm.friendlies import (CONFIRM_FRAMES, RELEASE_FRAMES, Friendly,
+                                               FriendlyBook, FriendlyMarks)
+
+    camera = CameraModel()
+    s = math.sqrt(0.5)
+    axes = ((s, 0.0, s), (0.0, 1.0, 0.0), (-s, 0.0, s))
+    me, parked = (0.0, 0.0, -30.0), (30.0, 0.0, 0.0)
+    live = LiveDetector.__new__(LiveDetector)
+    live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}
+    live.friend_marks, live.px4 = FriendlyMarks(), None
+    live.friend_book = FriendlyBook()
+    live.friend_book.update(5.0, [Friendly(0, parked, (0.0, 0.0, 0.0)),
+                                  Friendly(1, me, (0.0, 0.0, 0.0))])
+    width = round(camera.f * BOX_SIZE_M / math.dist(me, parked))
+    track = Track(1, (camera.cx, camera.height / 2))
+    track.detection = Detection(round(camera.cx - width / 2),
+                                round(camera.height / 2 - width / 2), width, width, 0.9)
+    t = 5.0
+    for _ in range(CONFIRM_FRAMES):
+        t += 0.05
+        live._mark_friendlies([track], camera, axes, t)
+    assert live.friendly == {1: 0}
+    track.detection = Detection(196, 96, 8, 8, 0.9)  # now on a hostile up in the corner
+    for _ in range(RELEASE_FRAMES - 1):
+        t += 0.05
+        live._mark_friendlies([track], camera, axes, t)
+        assert live.friendly == {1: 0}
+    live._mark_friendlies([track], camera, axes, t + 0.05)
     assert live.friendly == {}

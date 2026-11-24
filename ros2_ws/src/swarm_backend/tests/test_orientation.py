@@ -89,3 +89,18 @@ def test_axes_error():
     forward, roll_error = axes_error_deg(a, b)
     assert forward == pytest.approx(2, abs=0.01)
     assert roll_error == pytest.approx(5, abs=0.01)
+
+
+def test_the_position_history_interpolates_and_restarts():
+    from swarm_backend.detect.orientation import PositionHistory
+    h = PositionHistory()
+    assert h.at(1.0) is None
+    h.add(1.0, (0.0, 0.0, -30.0))
+    h.add(1.1, (1.5, 0.0, -30.0))
+    assert h.at(1.04) == pytest.approx((0.6, 0.0, -30.0))
+    assert h.at(1.3) == (1.5, 0.0, -30.0)  # after the last, within the tolerance
+    assert h.at(2.0) is None
+    h.add(1.05, (9.0, 9.0, 9.0))  # out of order: ignored
+    assert h.at(1.05) == pytest.approx((0.75, 0.0, -30.0))
+    h.add(0.0, (0.0, 0.0, 0.0))  # the simulation restarted
+    assert h.at(1.0) is None and h.at(0.0) == (0.0, 0.0, 0.0)
