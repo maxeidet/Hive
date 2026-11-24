@@ -73,7 +73,7 @@ from swarm_backend.intercept import arc_eval
 from swarm_backend.intercept.metrics import Outcome, RunMetrics, score_run, summarize
 from swarm_backend.intercept.paths import INBOUND_PATHS, inbound
 from swarm_backend.scenarios import common
-from swarm_backend.scenarios.surveillance import Options, SurveillanceWorld
+from swarm_backend.scenarios.surveillance import Leg, Options, SurveillanceWorld
 
 DEFAULT_OUT = common.REPO / 'data' / 'baseline_eval'
 DEFAULT_SIM_OUT = common.REPO / 'data' / 'baseline_eval_sim'
@@ -134,6 +134,9 @@ def summary_text(out: Path, config, where: str = 'Baseline on the arc',
         parts.append(summarize_detect(detect, config_arc,
                                       f'{where}: detector, patrol sweep, '
                                       f'{config.surveillance.arc_radius:.0f} m arc'))
+    two = load_runs(out / 'intercept_2.jsonl')
+    if two:
+        parts.append(two_summary(two))
     return '\n\n'.join(parts) if parts else f'No saved runs in {out}'
 
 
@@ -261,6 +264,70 @@ def jobs(args, config, out_file: Path) -> list:
             for s in seeds if args.rerun or s not in done]
 
 
+def jobs_two(args, config, out_file: Path) -> list:
+    """--hostiles 2: per aspect, speed and seed, a pair of scenarios: the first hostile in
+    the leftmost defender's sector, the second in the rightmost's (arc_eval.sector_bearing_deg,
+    the same seed)."""
+    aspects = args.aspects or config.intercept.eval_aspects
+    speeds = args.speeds or config.intercept.eval_speeds
+    seeds = args.seeds if args.seeds is not None else range(config.intercept.eval_runs)
+    altitudes = hostile_altitudes(args, config) or [None]
+    last = len(config.surveillance.drone_ids) - 1
+    done = {(r['aspect_deg'], r['speed'], r['seed']) for r in load_runs(out_file)
+            if r.get('path', 'straight') == args.path}
+    todo = []
+    for h in altitudes:
+        for a in aspects:
+            for v in speeds:
+                for s in seeds:
+                    if not args.rerun and (a, v, s) in done:
+                        continue
+                    pair = [arc_eval.make_intercept_scenario(a, v, s, config.intercept,
+                                                             config.surveillance, altitude=h,
+                                                             sector=k)[0] for k in (0, last)]
+                    todo.append(pair)
+    return todo
+
+
+def _bearing(scenario, config) -> float:
+    bx, by, _ = scenario.base
+    sx, sy, _ = scenario.target_start
+    return round(math.degrees(math.atan2(sy - by, sx - bx))
+                 - config.surveillance.threat_heading_deg, 2)
+
+
+def run_two(world: SurveillanceWorld, config, pair, way=None) -> dict:
+    """One run with two hostiles at once: the results row's own fields."""
+    legs = [Leg(hid, sc.target_start, sc.target_goal, sc.speed,
+                path=None if way is None else way(sc.target_start, sc.target_goal))
+            for hid, sc in zip(world.hostile_ids, pair)]
+    flight = world.fly_many(legs, timeout=config.intercept.eval_timeout)
+    hostiles = [{'id': r.hostile_id, 'hit': r.killer is not None, 'killer': r.killer,
+                 'hit_time_s': None if r.hit_time is None else round(r.hit_time, 2),
+                 'closest_m': round(r.closest, 2), 'start_bearing_deg': _bearing(sc, config)}
+                for r, sc in zip(flight.results, pair)]
+    hits = sum(h['hit'] for h in hostiles)
+    return {'aspect_deg': pair[0].aspect_deg, 'speed': pair[0].speed, 'seed': pair[0].seed,
+            'hostile_altitude': -pair[0].target_start[2], 'hostiles': hostiles,
+            'outcome': f'hits {hits}/{len(hostiles)}'}
+
+
+def two_summary(rows: list[dict]) -> str:
+    """--hostiles 2 runs: one line each, and how many hostiles were hit."""
+    lines, hit, total = ['Two hostiles at once:'], 0, 0
+    for r in rows:
+        hs = r['hostiles']
+        hit += sum(h['hit'] for h in hs)
+        total += len(hs)
+        killers = [h['killer'] for h in hs if h['hit']]
+        times = ' / '.join(f"{h['hit_time_s']:.1f} s" if h['hit'] else 'missed' for h in hs)
+        lines.append(f"  seed {r['seed']}: {r['outcome']}"
+                     + (f", drones {' and '.join(map(str, killers))}" if killers else '')
+                     + f', {times}')
+    lines.append(f'  hostiles hit {hit}/{total}')
+    return '\n'.join(lines)
+
+
 def hostile_altitudes(args, config) -> list[float] | None:
     """--altitudes, then --altitude-offsets from the defenders' altitude; None: the drawn."""
     altitudes = list(args.altitudes or [])
@@ -314,6 +381,9 @@ def parser() -> argparse.ArgumentParser:
                    help='weave/zigzag: metres to either side of the straight line')
     p.add_argument('--path-wavelength', type=float, default=60.0,
                    help='weave/zigzag: metres along the line for one full swing')
+    p.add_argument('--hostiles', type=int, choices=(1, 2), default=1,
+                   help='2: two hostiles at once, from the outer defenders\' sectors (needs '
+                        'scenarios/surveillance2.yaml); results in intercept_2.jsonl')
     p.add_argument('--birds', type=int, default=0, metavar='N',
                    help='N birds fly in around the hostile each run (Gazebo only: the fast '
                         'simulation has no camera images); saves to its own default folder')
@@ -339,6 +409,8 @@ def main(argv: list[str] | None = None) -> int:
             args.out = args.out.with_name(f'{args.out.name}_{args.path}')
         if args.birds > 0:
             args.out = args.out.with_name(f'{args.out.name}_birds')
+        if args.hostiles == 2:
+            args.out = args.out.with_name(f'{args.out.name}_2hostiles')
     where = ((tag or 'Baseline') + ' on the arc' + (' (fast simulation)' if args.sim else ''))
     attack = 'MPC' if args.guidance == 'mpc' else 'pure pursuit'
     way = None
@@ -354,8 +426,12 @@ def main(argv: list[str] | None = None) -> int:
         print(summary_text(args.out, config, where, attack))
         return 0
 
-    out_file = args.out / f'{args.mode}.jsonl'
-    todo = jobs(args, config, out_file)
+    if args.hostiles == 2 and args.mode == 'intercept' and config.attack.second_target_id is None:
+        raise SystemExit('--hostiles 2 needs a config with attack.second_target_id: '
+                         '--config scenarios/surveillance2.yaml (SWARM_CONFIG for trial.sh)')
+    two = args.hostiles == 2 and args.mode == 'intercept'
+    out_file = args.out / ('intercept_2.jsonl' if two else f'{args.mode}.jsonl')
+    todo = jobs_two(args, config, out_file) if two else jobs(args, config, out_file)
     if not todo:
         print(f'Every requested run is already in {out_file} (--rerun flies them again).')
         print(summary_text(args.out, config, where, attack))
@@ -397,6 +473,19 @@ def main(argv: list[str] | None = None) -> int:
                 world.birds = args.birds
                 world.bird_seed = seed if args.bird_seed is None else args.bird_seed
                 common_fields.update(birds=args.birds, bird_seed=world.bird_seed)
+            if two:
+                world.log.info(f'Run {k + 1}/{len(todo)}: two hostiles, seed {job[0].seed}, '
+                               f'bearings {_bearing(job[0], config):+.0f} and '
+                               f'{_bearing(job[1], config):+.0f} deg')
+                row = run_two(world, flown, job, way)
+                world.log.info(f"  {row['outcome']}: " + ', '.join(
+                    f"hostile {h['id']} " + (f"hit by drone {h['killer']}" if h['hit'] else
+                                             f"missed, closest {h['closest_m']:.1f} m")
+                    for h in row['hostiles']))
+                out_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(out_file, 'a') as f:
+                    f.write(json.dumps({**row, **common_fields}) + '\n')
+                continue
             if args.mode == 'intercept':
                 scenario, designated = job
                 world.log.info(f'Run {k + 1}/{len(todo)}: aspect {scenario.aspect_deg:.0f} deg, '

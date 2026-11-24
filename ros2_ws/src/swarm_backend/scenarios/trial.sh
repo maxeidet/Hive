@@ -15,6 +15,8 @@
 #   scenarios/trial.sh 3 --path zigzag       straight legs with sharp turns
 #   scenarios/trial.sh 3 --path weave --path-amplitude 5 --path-wavelength 40
 #   scenarios/trial.sh 3 --birds 8          8 birds fly in around drone 4 (Gazebo only)
+#   SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance2.yaml \
+#     scenarios/trial.sh 1 --hostiles 2      two hostiles at once (drones 4 and 5)
 #   scenarios/trial.sh 3 --sim               the fast simulation, no Gazebo
 #
 # Run it in tmux: 3 runs in Gazebo take about 10 minutes. Ctrl-C lands the defenders; the

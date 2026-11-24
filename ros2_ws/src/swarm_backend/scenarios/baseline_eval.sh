@@ -15,7 +15,13 @@
 #   docker exec px4-gazebo-vnc pkill -INT -f swarm_backend.scenarios
 set -e
 
-export SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml
+# A surveillance config given in SWARM_CONFIG is kept (surveillance2.yaml: two hostiles at
+# once, --hostiles 2); any other (e.g. config/swarm.yaml from another terminal) is replaced.
+case "${SWARM_CONFIG:-}" in
+  */scenarios/surveillance*.yaml) ;;
+  *) SWARM_CONFIG=/workspace/ros2_ws/src/swarm_backend/scenarios/surveillance.yaml ;;
+esac
+export SWARM_CONFIG
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 case "${1:-}" in

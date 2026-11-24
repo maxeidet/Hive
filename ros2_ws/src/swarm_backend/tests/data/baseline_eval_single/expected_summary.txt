@@ -1,0 +1,11 @@
+Baseline on the arc: pure pursuit, detector, base station: 2 runs
+aspect speed runs   hit  succ  lock   t_hit [s]  t_lock [s] base@hit min base min miss  outcomes
+------------------------------------------------------------------------------------------------
+     0   4.0    2   100   100     0    4.4+-0.0           -    183.1    183.1      1.2  hit=2
+rates in %; t_hit, t_lock from first detection (mean +- sd); base@hit, min base, min miss in m (median)
+
+  2 runs; a defender was sent in 2; outcomes: hit 2, reached base 0, lost 0, timeout 0
+
+  altitude runs hits detected detect 3-D [m] horizontal  height
+  (first detection by any defender: true distance to the hostile, median)
+      40 m    2    2    2/2             50.8       50.8     0.0
