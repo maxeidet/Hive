@@ -14,11 +14,13 @@ from dataclasses import dataclass
 GIMBAL_HFOV = 2.0
 GIMBAL_SIZE = (1280, 720)
 TARGET_SIZE_M = 0.5  # x500 frame across, what range_from_width assumes (true sizes, simulated frames)
-# What a detector's box sees: distance * sqrt(width * height) / f, fitted on gendata (training/
-# fit_range.py, fit b06-b13, tested b14 b15; same for drones and birds, which fit 0.81 m each):
-# median distance error 39 % against 59 % for 0.5 m on the longer side. Thin parts (arms, wings)
-# vanish with distance, so the box sees more than the 0.5 m frame.
-BOX_SIZE_M = 0.8
+# What a detector's box sees: distance * sqrt(width * height) / f. Fitted on YOLO's boxes of
+# the hostile in Gazebo against the truth (detect/truth_log.py; 24 Nov, three straight runs,
+# hostile 10 m below, level and 10 m above, 497 boxes): 0.48 m, median distance error 12 %
+# under 80 m (it was 0.8 m, fitted on gendata with training/fit_range.py, which in these runs
+# made every distance 55-110 % too long). Past about 80 m the boxes are a few pixels and
+# any size is off by 25-40 %.
+BOX_SIZE_M = 0.48
 
 Vector3 = tuple[float, float, float]
 

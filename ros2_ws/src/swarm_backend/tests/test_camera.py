@@ -2,7 +2,8 @@ import math
 
 import pytest
 
-from swarm_backend.detect.camera import CameraModel, angle_deg, camera_roll, level_axes, true_offset
+from swarm_backend.detect.camera import (BOX_SIZE_M, CameraModel, angle_deg, camera_roll, level_axes,
+                                         true_offset)
 
 CAMERA = CameraModel(hfov=2.0, width=1280, height=720)
 NORTH, EAST, DOWN = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
@@ -14,10 +15,10 @@ def test_focal_length_matches_the_report():
 
 
 def test_non_baseline_detectors_use_the_geometric_mean_side():
-    assert CAMERA.range_from_detection('yolo', 20, 20) == pytest.approx(CAMERA.f * 0.8 / 20)
+    assert CAMERA.range_from_detection('yolo', 20, 20) == pytest.approx(CAMERA.f * BOX_SIZE_M / 20)
     assert CAMERA.range_from_detection('yolo', 40, 10) == pytest.approx(
         CAMERA.range_from_detection('yolo', 20, 20))
-    assert CAMERA.range_from_detection('yolo', 0, 0) == pytest.approx(CAMERA.f * 0.8)  # no division by zero
+    assert CAMERA.range_from_detection('yolo', 0, 0) == pytest.approx(CAMERA.f * BOX_SIZE_M)  # no division by zero
 
 
 def test_baseline_keeps_the_old_rule():
