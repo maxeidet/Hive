@@ -199,3 +199,9 @@ def test_target_watch_looks_at_the_nearest_hostile():
     cam, q = d.step(t, 0.0, 0.0)
     u, v, _ = project(cam, q, (0.0, 250.0, 40.0), HFOV, W, H)
     assert u == pytest.approx(W / 2) and v == pytest.approx(H / 2)
+
+
+def test_base_drone_labelled_base_only():
+    # Drone 0 stands in the base all run: "base", not "D0 base" and its status (landed).
+    assert cv.label_lines('x500_0', {'id': 0, 'status': 'landed', 'hostile': False}, 'x500_4') == \
+        (['base'], 'other')

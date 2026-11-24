@@ -542,6 +542,8 @@ def label_lines(model: str, drone: dict | None, hostile: str,
     if model.startswith(birds_prefix):  # before drone_id: bird_1 is not drone 1
         return ['bird'], 'bird'
     i = drone_id(model)
+    if i == 0:  # drone 0 stands in the base all run (its PX4 runs the container)
+        return ['base'], 'other'
     if model == hostile or (drone and drone.get('hostile')):
         return [f'D{i} hostile'], 'hostile'
     if drone is None:

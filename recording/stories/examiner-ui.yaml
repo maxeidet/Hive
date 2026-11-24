@@ -1,0 +1,134 @@
+# The examiner demo with the operator UI and camera views only (no tactical map), from the
+# examiner shoot (recording/shoots/examiner.yaml, recorded with --screen). Each scenario: the
+# baseline first, then ours (same seed), then ours through its own camera, zoomed on the box.
+#   recording/video.sh final --story examiner-ui --preview examiner     then without --preview
+title: Hive - a drone swarm that defends its base
+subtitle: TDDE19, group 3 - our system against the baseline
+take: best
+end_card: compare
+evidence: data/baseline_eval
+
+scenes:
+- caption: The base
+  take: overview-1/overview
+  from: start + 2
+  to: start + 14
+  layout: full
+  show: [cam:base_orbit]
+  speed: 1.5
+
+- caption: The defenders take off and fly out to their places on the arc
+  take: birds-1-ours/1
+  from: takeoff - 1
+  to: takeoff + 47
+  layout: side
+  show: [ui, wide]
+  speed: 3
+
+# --- 1. head-on ----------------------------------------------------------------------------
+- card: 1. One hostile, head-on
+
+- caption: Baseline
+  take: head-on-1-baseline/1
+  from: release
+  to: hit + 2
+  layout: full
+  show: [ui]
+  speed: 2
+  insights: [seen_at, time_to_hit]
+
+- caption: Ours - same flight
+  take: head-on-1-ours/1
+  from: release
+  to: hit + 2
+  layout: full
+  show: [ui]
+  speed: 1.5
+  insights: [seen_at, time_to_hit]
+
+- caption: Ours - through the defender's camera, zoomed on the detection
+  take: head-on-1-ours/1
+  from: first_sighting - 1
+  to: first_sighting + 3
+  layout: zoom
+  show: [yolo]
+  zoom: 3
+  freeze: 1.5
+
+# --- 2. zigzag -----------------------------------------------------------------------------
+- card: 2. A zigzagging hostile
+
+- caption: Baseline - it never catches it
+  take: zigzag-1-baseline/1
+  from: release
+  to: release + 40
+  layout: full
+  show: [ui]
+  speed: 2.5
+  insights: [seen_at, no_hit]
+
+- caption: Ours - same flight
+  take: zigzag-1-ours/1
+  from: release
+  to: hit + 2
+  layout: full
+  show: [ui]
+  speed: 1.5
+  insights: [seen_at, time_to_hit]
+
+- caption: Ours - the intercept from the chase camera
+  take: zigzag-1-ours/1
+  from: first_sighting - 2
+  to: hit + 1
+  layout: full
+  show: [chase]
+
+# --- 3. birds ------------------------------------------------------------------------------
+- card: 3. A hostile among birds
+
+- caption: Baseline
+  take: birds-1-baseline/1
+  from: release
+  to: hit + 2
+  layout: full
+  show: [ui]
+  speed: 2
+  insights: [seen_at, time_to_hit]
+
+- caption: Ours - same flight, same birds
+  take: birds-1-ours/1
+  from: release
+  to: hit + 2
+  layout: side
+  show: [ui, wide]
+  speed: 1.5
+  insights: [seen_at, time_to_hit]
+
+- caption: Ours - through the defender's camera, the drone and not the birds
+  take: birds-1-ours/1
+  from: first_sighting - 1
+  to: first_sighting + 3
+  layout: zoom
+  show: [yolo]
+  zoom: 3
+  freeze: 1.5
+
+# --- 4. two hostiles -----------------------------------------------------------------------
+- card: 4. Two hostiles at once
+
+- caption: Baseline - one of two hit
+  take: two-hostiles-1-baseline/1
+  from: release
+  to: release + 60
+  layout: full
+  show: [ui]
+  speed: 3
+  insights: [seen_at]
+
+- caption: Ours - two defenders, one at each hostile
+  take: two-hostiles-1-ours/1
+  from: first_sighting - 3
+  to: hit + 2
+  layout: side
+  show: [chase, wide]
+  speed: 1.5
