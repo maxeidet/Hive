@@ -121,25 +121,24 @@ scenes:
   speed: 3
   insights: [seen_at]
 
-- caption: Improved version - one defender at each hostile, drone 3 first
+- caption: Improved version - one defender at each hostile (wide shot)
   take: two-hostiles-1-ours/1
   from: first_sighting - 3
-  to: hit_2 + 2
-  layout: side
-  show: [chase, wide]
-  speed: 1.5
-
-- caption: Improved version - the second intercept, from behind drone 1
-  take: two-hostiles-1-ours/1
-  from: hit_2 + 2
-  to: hit_1 + 2
+  to: hit + 2
   layout: full
-  show: [chase]
+  show: [wide]
   speed: 1.5
 
-- caption: Improved version - second intercept, drone 1's own camera
+- caption: First intercept - drone 3's own camera
+  take: two-hostiles-1-ours/1
+  from: hit_2 - 8
+  to: hit_2 + 1
+  layout: full
+  show: ["yolo:3"]
+
+- caption: Second intercept - behind drone 1 (left), own camera (right)
   take: two-hostiles-1-ours/1
   from: hit_1 - 10
-  to: hit_1 + 1
-  layout: full
-  show: ["yolo:1"]
+  to: hit_1 + 2
+  layout: side
+  show: [chase, "yolo:1"]
