@@ -74,31 +74,31 @@ scenes:
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - through the attacking defender's own camera
+- caption: Ours - the defender's own camera (left) and from behind it (right)
   take: zigzag-1-ours/1
   from: first_sighting - 3
   to: hit + 1
-  layout: full
-  show: [yolo]
+  layout: side
+  show: [yolo, chase]
 
 # --- 3. birds ------------------------------------------------------------------------------
 - card: 3. A hostile among birds
 
-- caption: Baseline
+- caption: Baseline - its defender's own camera (left) and from behind it (right)
   take: birds-1-baseline/1
-  from: release
-  to: hit + 2
-  layout: full
-  show: [ui]
-  speed: 2
+  from: first_sighting - 3
+  to: hit + 1
+  layout: side
+  show: [yolo, chase]
+  speed: 1.5
   insights: [seen_at, time_to_hit]
 
-- caption: Ours - same flight, same birds
+- caption: Ours - same flight, same birds - from behind the defender (left), the wide shot (right)
   take: birds-1-ours/1
   from: release
   to: hit + 2
   layout: side
-  show: [ui, wide]
+  show: [chase, wide]
   speed: 1.5
   insights: [seen_at, time_to_hit]
 
