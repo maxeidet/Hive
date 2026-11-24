@@ -215,7 +215,6 @@ class GazeboSurveillance(SurveillanceWorld):
         # Everything is timed on Gazebo's simulation clock: steady however slowly Gazebo
         # runs, unlike PX4's time stamps, which jump when its time sync adjusts.
         self.truth = GazeboTruth(self.world)
-        self.truth.listeners.append(self._on_truth)
 
         self.patrols = {i: PatrolNode(node, self.swarm_config, i, clock=self.clock,
                                       guidance=options.guidance)
@@ -230,6 +229,7 @@ class GazeboSurveillance(SurveillanceWorld):
         # The single-hostile code's names for the first one (attack.target_id)
         first = self._h[self.hostile_id]
         self.hostile, self.hostile_manager, self.px4 = first.drone, first.manager, first.px4
+        self.truth.listeners.append(self._on_truth)  # once the hostiles above exist
         self.station: BaseStationNode | None = None  # once Gazebo's clock runs
         fake = options.detector != 'real'
         self.fakes = [
