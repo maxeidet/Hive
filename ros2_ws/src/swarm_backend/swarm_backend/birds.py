@@ -80,13 +80,14 @@ def bird_sdf(name: str, kind: Kind, label: int | None = None, dynamic: bool = Fa
     plugin = '' if label is None else (
         '\n    <plugin filename="gz-sim-label-system" name="gz::sim::systems::Label">'
         f'<label>{label}</label></plugin>')
+    static = 'false' if dynamic else 'true'
+    moving = ('\n      <kinematic>true</kinematic>\n      <gravity>false</gravity>'
+              if dynamic else '')
     return f'''<?xml version="1.0"?>
 <sdf version="1.9">
   <model name="{name}">
-    <static>{'false' if dynamic else 'true'}</static>{plugin}
-    <link name="body">{'''
-      <kinematic>true</kinematic>
-      <gravity>false</gravity>''' if dynamic else ''}
+    <static>{static}</static>{plugin}
+    <link name="body">{moving}
       <visual name="visual">
         <pose>0 0 0 {kind.roll} 0 {kind.yaw}</pose>
         <geometry>
