@@ -87,12 +87,27 @@ class SimSurveillance(SurveillanceWorld):
             detector = FakeDetector(replace(a, seed=a.seed + i), self.camera)
             self.patrols[i] = SimDefender(drone, inbox, patrol, detector)
         self.station = Dispatcher(self.surv, lambda level, text: getattr(self.log, level)(text))
-        self.hostile = SimDrone(self.hostile_id, swarm_config.drone(self.hostile_id).spawn_ned)
-        self.hostile.connected = self.hostile.preflight_ok = True
-        self.hostile_present = False
+        self._hostiles = {}
+        for h in self.hostile_ids:
+            drone = SimDrone(h, swarm_config.drone(h).spawn_ned)
+            drone.connected = drone.preflight_ok = True
+            self._hostiles[h] = drone
+        self.hostile = self._hostiles[self.hostile_id]
+        self._present = {h: False for h in self.hostile_ids}
         self._records = {self.index[i]: [] for i in self.ids}
         self._next_status = 0.0
         self._next_tick = 0.0
+
+    @property
+    def hostile_present(self) -> bool:
+        return self._present[self.hostile_id]
+
+    @hostile_present.setter
+    def hostile_present(self, value: bool) -> None:
+        self._present[self.hostile_id] = value
+
+    def hostile_drone(self, hostile_id: int):
+        return self._hostiles[hostile_id]
 
     def _attack_maker(self, drone, inbox):
         def make(guard):
@@ -129,6 +144,8 @@ class SimSurveillance(SurveillanceWorld):
         now = self.time
         if self.flight is not None:
             self.flight.step()
+        for f in self.flights:
+            f.step()
         for i, d in self.patrols.items():
             self._look(i, d, now)
         for i, d in self.patrols.items():
@@ -157,12 +174,18 @@ class SimSurveillance(SurveillanceWorld):
         for d in self.patrols.values():
             d.drone.advance(STEP_S)
             d.drone.stamp = self.time
-        if self.hostile_present:
-            self.hostile.advance(STEP_S)
-        self.hostile.stamp = self.time
-        self.observe_truth(self.time, {i: d.drone.position for i, d in self.patrols.items()},
-                           self._hostile_position(),
-                           lambda: {i: self.camera_pose(d.drone) for i, d in self.patrols.items()})
+        for h, drone in self._hostiles.items():
+            if self._present[h]:
+                drone.advance(STEP_S)
+            drone.stamp = self.time
+        bodies = {i: d.drone.position for i, d in self.patrols.items()}
+        if self._multi_judges is not None:
+            self.observe_truth_many(self.time, bodies, {
+                h: drone.position if self._present[h] else None
+                for h, drone in self._hostiles.items()})
+        else:
+            self.observe_truth(self.time, bodies, self._hostile_position(),
+                               lambda: {i: self.camera_pose(d.drone) for i, d in self.patrols.items()})
 
     def _deliver(self, orders) -> None:
         for order in orders:
@@ -184,11 +207,16 @@ class SimSurveillance(SurveillanceWorld):
     def _hostile_position(self):
         return self.hostile.position if self.hostile_present else None
 
+    def _nearest_hostile(self, at):
+        """What a camera can see: the nearest hostile there is (the fake detector knows one)."""
+        there = [drone.position for h, drone in self._hostiles.items() if self._present[h]]
+        return min(there, key=lambda p: math.dist(p, at)) if there else None
+
     def _look(self, drone_id: int, d: SimDefender, now: float) -> None:
         detector = d.detector
         if detector.wants_image(now):
             camera = self.camera_pose(d.drone)
-            hostile = self._hostile_position()
+            hostile = self._nearest_hostile(d.drone.position)
             detector.observe(now, camera, hostile)
             if self.options.record:
                 self._records[self.index[drone_id]].append(
@@ -217,17 +245,19 @@ class SimSurveillance(SurveillanceWorld):
 
     # --- the hostile drone -----------------------------------------------------
 
-    def place_hostile(self, start, goal, speed) -> None:
-        h = self.hostile
+    def place_hostile(self, start, goal, speed, hostile_id=None) -> None:
+        hid = self.hostile_id if hostile_id is None else hostile_id
+        h = self._hostiles[hid]
         h.position, h.velocity, h.target = tuple(start), (0.0, 0.0, 0.0), tuple(start)
         h.max_speed = speed + HOSTILE_SPEED_MARGIN
         h.armed = h.offboard = True
         h.set_position(*start, yaw=math.atan2(goal[1] - start[1], goal[0] - start[0]))
-        self.hostile_present = True
+        self._present[hid] = True
 
-    def remove_hostile(self) -> None:
-        self.hostile_present = False
-        self.hostile.armed = self.hostile.offboard = False
+    def remove_hostile(self, hostile_id=None) -> None:
+        hid = self.hostile_id if hostile_id is None else hostile_id
+        self._present[hid] = False
+        self._hostiles[hid].armed = self._hostiles[hid].offboard = False
 
     def report_kill(self, drone_id: int) -> None:
         self._deliver(self.station.on_event(EventMsg(drone_id, 'kill'), self.time))
@@ -257,4 +287,5 @@ class SimSurveillance(SurveillanceWorld):
             self.flight = None
         for d in self.patrols.values():
             d.patrol.stop()
-        self.remove_hostile()
+        for h in self.hostile_ids:
+            self.remove_hostile(h)

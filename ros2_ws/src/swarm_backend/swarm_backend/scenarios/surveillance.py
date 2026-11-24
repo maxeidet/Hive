@@ -93,6 +93,34 @@ class Flight:
         return None if h is None else h - self.t0
 
 
+@dataclass
+class Leg:
+    """One hostile's flight in a run with several (fly_many), world NED."""
+    hostile_id: int
+    start: Vector3
+    goal: Vector3
+    speed: float
+    path: list | None = None  # an open polyline from start to goal (paths.inbound); None: straight
+
+
+@dataclass
+class HostileResult:
+    hostile_id: int
+    killer: int | None  # the defender that hit it
+    hit_time: float | None  # seconds since the release
+    closest: float  # metres, the nearest any defender came
+    closest_by: int | None
+
+
+@dataclass
+class MultiFlight:
+    """What happened in a run with several hostiles (fly_many)."""
+    t0: float
+    t_end: float
+    results: list  # [HostileResult], in the legs' order
+    engaged: dict = field(default_factory=dict)  # hostile id -> (t, defender) first sent at it
+
+
 class SurveillanceWorld:
     """The backend-independent part. A backend sets `patrols` (id -> anything with
     `.patrol`, a PatrolAction, and `.drone`), `station` (with `.station`, the BaseStation,
@@ -127,6 +155,9 @@ class SurveillanceWorld:
         self._hostile_truth: Vector3 | None = None
         self._sightings: list[tuple[float, int]] = []
         self._lock = threading.Lock()
+        self.flights: list[HostileFlight] = []  # fly_many: one per hostile, stepped like `flight`
+        self._multi_judges: dict | None = None  # fly_many: hostile id -> {defender: ClosestApproach}
+        self._multi_truth: dict = {}  # fly_many: hostile id -> true position (None when gone)
         self.birds = 0  # birds flying in with each hostile (baseline_eval --birds; Gazebo only)
         self.bird_seed: int | None = None
 
@@ -158,12 +189,20 @@ class SurveillanceWorld:
         """The defenders in the air and on patrol."""
         raise NotImplementedError
 
-    def place_hostile(self, start: Vector3, goal: Vector3, speed: float) -> None:
-        """The hostile drone hovering at `start`, facing `goal`, ready to fly at `speed`."""
+    def place_hostile(self, start: Vector3, goal: Vector3, speed: float,
+                      hostile_id: int | None = None) -> None:
+        """The hostile drone (`hostile_id`, default target_id) hovering at `start`, facing
+        `goal`, ready to fly at `speed`."""
         raise NotImplementedError
 
-    def remove_hostile(self) -> None:
+    def remove_hostile(self, hostile_id: int | None = None) -> None:
         """Shot down, or out of the way: no defender can see it any more."""
+        raise NotImplementedError
+
+    def hostile_drone(self, hostile_id: int):
+        """The Drone that flies hostile `hostile_id` (HostileFlight steers it)."""
+        if hostile_id == self.hostile_id:
+            return self.hostile
         raise NotImplementedError
 
     def report_kill(self, drone_id: int) -> None:
@@ -252,6 +291,107 @@ class SurveillanceWorld:
         elif stamp - self._last_truth < TRUTH_PERIOD_S:
             return
         self._log_truth(log, stamp, bodies, hostile, cameras)
+
+    def observe_truth_many(self, stamp: float, bodies: dict, hostiles: dict) -> None:
+        """fly_many's referee: the true positions at `stamp`, the hostiles by id (None when
+        gone). Each (defender, hostile) has its own ClosestApproach."""
+        self._hostile_truth = hostiles.get(self.hostile_id)
+        self._multi_truth = dict(hostiles)
+        judges = self._multi_judges
+        if judges is None:
+            return
+        for h, per_defender in judges.items():
+            position = hostiles.get(h)
+            if position is None:
+                continue
+            for i, judge in per_defender.items():
+                if bodies.get(i) is not None:
+                    judge.update(bodies[i], position, stamp)
+
+    def fly_many(self, legs: list, timeout: float = math.inf) -> MultiFlight:
+        """One run with several hostiles released together (Leg each). A hit takes out that
+        hostile only (and tells the base station); the run ends when every hostile is down,
+        every track is flown, or at `timeout` (seconds since the release)."""
+        self.read_records()
+        for leg in legs:
+            points = [tuple(leg.start), tuple(leg.goal)] if leg.path is None else \
+                [tuple(x) for x in leg.path]
+            self.place_hostile(leg.start, points[1], leg.speed, hostile_id=leg.hostile_id)
+        self.wait_patrol()
+        self.wait_sim(SETTLE_S)
+        alive = self.alive()
+        ids = [leg.hostile_id for leg in legs]
+        judges = {h: {d: ClosestApproach(self.options.hit_radius) for d in alive} for h in ids}
+        tracks, track_time = {}, {}
+        for leg in legs:
+            points = [tuple(leg.start), tuple(leg.goal)] if leg.path is None else \
+                [tuple(x) for x in leg.path]
+            tracks[leg.hostile_id] = Track(points, leg.speed)
+            track_time[leg.hostile_id] = polyline_length(points) / leg.speed
+        flights = {h: HostileFlight(self.hostile_drone(h), tracks[h], self.clock) for h in ids}
+        down: dict[int, tuple[float, int]] = {}
+        engaged: dict[int, tuple[float, int]] = {}
+        modes = {d: self.patrols[d].patrol.mode for d in alive}
+        self._multi_judges, self.flights = judges, list(flights.values())
+        t0 = t_end = self.clock()
+        try:
+            self.start_extras(legs[0].start, legs[0].goal, legs[0].speed)
+            for f in flights.values():
+                f.start()
+            t0 = self.clock()
+            while True:
+                now = self.clock()
+                t = now - t0
+                for d in alive:
+                    mode = self.patrols[d].patrol.mode
+                    if mode is not modes[d]:
+                        modes[d] = mode
+                        if mode is Mode.ENGAGE:
+                            here = self.patrols[d].drone.position
+                            left = [(math.dist(here, p), h) for h, p in self._multi_truth.items()
+                                    if p is not None and h not in down and h not in engaged]
+                            if left:
+                                engaged[min(left)[1]] = (t, d)
+                            self.log.info(f'  t={t:6.1f} s drone {d} ENGAGE')
+                for h in ids:
+                    if h in down:
+                        continue
+                    hits = [(j.hit_time, d) for d, j in judges[h].items() if j.hit]
+                    if hits:
+                        when, killer = min(hits)
+                        down[h] = (when - t0, killer)
+                        flights[h].stop()
+                        self.remove_hostile(h)
+                        self.log.info(f'  t={t:6.1f} s drone {killer} hit hostile {h}')
+                        self.report_kill(killer)
+                if len(down) == len(ids):
+                    break
+                if t >= timeout or all(t >= track_time[h] for h in ids if h not in down):
+                    break
+                self.pause()
+        finally:
+            t_end = self.clock()
+            self.stop_extras()
+            for f in flights.values():
+                f.stop()
+            self.flights, self._multi_judges = [], None
+            for h in ids:
+                if h not in down:
+                    self.remove_hostile(h)
+        results = []
+        for h in ids:
+            best = min(judges[h].items(), key=lambda kv: kv[1].closest, default=(None, None))
+            killer_t = down.get(h)
+            results.append(HostileResult(
+                h, killer_t[1] if killer_t else None, killer_t[0] if killer_t else None,
+                best[1].closest if best[1] is not None else math.inf, best[0]))
+        try:
+            self.wait_patrol()
+        except TimeoutError as e:
+            self.log.warning(str(e))
+        self.after_run()
+        self.read_records()
+        return MultiFlight(t0, t_end, results, engaged)
 
     def _log_truth(self, log: list, stamp: float, bodies: dict, hostile, cameras) -> None:
         self._last_truth = stamp

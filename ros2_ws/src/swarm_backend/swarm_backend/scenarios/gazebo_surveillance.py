@@ -62,6 +62,21 @@ PLACE_ATTEMPTS = 3
 # Where a shot-down hostile drone goes (Gazebo ENU x, y): on the ground at the far corner of
 # the 1000 x 1000 m ground plane, far outside the forest and every camera's range.
 GRAVEYARD_ENU = (450.0, -450.0)
+# A second hostile's spot (fly_many): 20 m away, inside the films' graveyard radius
+# (demo/takes.py GRAVEYARD_M, camera_video.Tracker), so they treat it the same.
+GRAVEYARD2_ENU = (450.0, -430.0)
+
+
+@dataclasses.dataclass
+class _Hostile:
+    """One hostile drone: its Gazebo model, PX4 process, ROS drone and graveyard spot."""
+    id: int
+    name: str
+    drone: object  # PX4Drone
+    manager: object  # SwarmManager of it alone
+    px4: object  # Px4Process
+    graveyard: tuple
+    pose: tuple | None = None  # (xyz ENU, quaternion) from Gazebo
 POLL_S = 0.05
 HOSTILE_SPEED_MARGIN = 3.0  # m/s above the track speed for the hostile's PX4 limit
 PX4_MIN_SPEED_LIMIT = 12.0  # PX4's default MPC_XY_VEL_MAX
@@ -70,12 +85,14 @@ PX4_MIN_SPEED_LIMIT = 12.0  # PX4's default MPC_XY_VEL_MAX
 # --- Gazebo and PX4 processes (this runs in the container) -------------------------
 
 def find_scene(defender_ids, hostile_id) -> tuple[str, dict[int, str], dict[int, str]]:
+    """`hostile_id`: one id or a tuple of them."""
     """(world, model names by drone id, camera link by defender) from Gazebo, or a
     RuntimeError saying what to start."""
     gz_topics = subprocess.run(
         ['gz', 'topic', '-l'], capture_output=True, text=True, check=True).stdout.split()
     world, names = drone_names(gz_topics)
-    missing = [i for i in (*defender_ids, hostile_id) if i not in names]
+    hostile_ids = hostile_id if isinstance(hostile_id, tuple) else (hostile_id,)
+    missing = [i for i in (*defender_ids, *hostile_ids) if i not in names]
     if missing:
         raise RuntimeError(
             f'Drone(s) {missing} are not in Gazebo. Start the surveillance scenario with\n'
@@ -194,22 +211,25 @@ class GazeboSurveillance(SurveillanceWorld):
                                'Use a separate hostile drone (drone 4 in '
                                'scenarios/surveillance.yaml)')
 
-        self.world, self.names, self.cameras = find_scene(self.ids, self.hostile_id)
-        self.px4 = Px4Process(self.hostile_id)
+        self.world, self.names, self.cameras = find_scene(self.ids, self.hostile_ids)
         # Everything is timed on Gazebo's simulation clock: steady however slowly Gazebo
         # runs, unlike PX4's time stamps, which jump when its time sync adjusts.
         self.truth = GazeboTruth(self.world)
         self.truth.listeners.append(self._on_truth)
-        self._hostile_pose = None  # (xyz ENU, quaternion) of the hostile model, from Gazebo
 
         self.patrols = {i: PatrolNode(node, self.swarm_config, i, clock=self.clock,
                                       guidance=options.guidance)
                         for i in self.ids}
         self.defenders = SwarmManager(Swarm([p.drone for p in self.patrols.values()]),
                                       TOLERANCE_M)
-        self.hostile = PX4Drone(node, swarm_config.drone(self.hostile_id),
-                                rate_hz=swarm_config.rate_hz)
-        self.hostile_manager = SwarmManager(Swarm([self.hostile]), TOLERANCE_M)
+        self._h: dict[int, _Hostile] = {}
+        for k, h in enumerate(self.hostile_ids):
+            drone = PX4Drone(node, swarm_config.drone(h), rate_hz=swarm_config.rate_hz)
+            self._h[h] = _Hostile(h, self.names[h], drone, SwarmManager(Swarm([drone]), TOLERANCE_M),
+                                  Px4Process(h), GRAVEYARD_ENU if k == 0 else GRAVEYARD2_ENU)
+        # The single-hostile code's names for the first one (attack.target_id)
+        first = self._h[self.hostile_id]
+        self.hostile, self.hostile_manager, self.px4 = first.drone, first.manager, first.px4
         self.station: BaseStationNode | None = None  # once Gazebo's clock runs
         fake = options.detector != 'real'
         self.fakes = [
@@ -223,7 +243,7 @@ class GazeboSurveillance(SurveillanceWorld):
         # Every other drone in the config (drone 0, which runs the container and stands in
         # the base) is ours too: without it, a defender that sees it reports a target.
         bystanders = [DroneObserver(node, d) for d in swarm_config.drones
-                      if d.id not in self.ids and d.id != self.hostile_id]
+                      if d.id not in self.ids and d.id not in self.hostile_ids]
         self.friendly_ids = sorted(list(self.ids) + [b.id for b in bystanders])
         self.hivemind = (None if fake else
                          Hivemind(node, [p.drone for p in self.patrols.values()] + bystanders))
@@ -239,16 +259,32 @@ class GazeboSurveillance(SurveillanceWorld):
     def _on_timer(self) -> None:
         if self.flight is not None:
             self.flight.step()
+        for f in self.flights:
+            f.step()
 
     def _on_truth(self, stamp: float, poses) -> None:
-        name = self.names[self.hostile_id]
-        model = next((p for p in poses if p[0] == name), None)
-        if model is not None:
-            self._hostile_pose = (model[2], model[3])
+        for h in self._h.values():
+            model = next((p for p in poses if p[0] == h.name), None)
+            if model is not None:
+                h.pose = (model[2], model[3])
         bodies = {i: ground_truth.body_position(poses, self.names[i]) for i in self.ids}
+        if self._multi_judges is not None:
+            self.observe_truth_many(stamp, bodies, {
+                h.id: ground_truth.body_position(poses, h.name) for h in self._h.values()})
+            return
         hostile = ground_truth.body_position(poses, self.names[self.hostile_id])
         self.observe_truth(stamp, bodies, hostile, lambda: {
             i: ground_truth.camera_pose(poses, self.names[i], self.cameras[i]) for i in self.ids})
+
+    @property
+    def _hostile_pose(self):
+        return self._h[self.hostile_id].pose
+
+    def _hostile(self, hostile_id: int | None) -> _Hostile:
+        return self._h[self.hostile_id if hostile_id is None else hostile_id]
+
+    def hostile_drone(self, hostile_id: int):
+        return self._h[hostile_id].drone
 
     def _on_sighting(self, msg) -> None:
         now = self.clock()
@@ -266,73 +302,77 @@ class GazeboSurveillance(SurveillanceWorld):
     def pause(self) -> None:
         time.sleep(POLL_S)
 
-    def move_hostile(self, east: float, north: float) -> None:
-        name = self.names[self.hostile_id]
-        if not set_model_pose(self.world, name, east, north):
-            self.log.warning(f'Gazebo did not confirm moving {name}')
+    def move_hostile(self, east: float, north: float, hostile_id: int | None = None) -> None:
+        h = self._hostile(hostile_id)
+        if not set_model_pose(self.world, h.name, east, north):
+            self.log.warning(f'Gazebo did not confirm moving {h.name}')
 
-    def remove_hostile(self) -> None:
+    def remove_hostile(self, hostile_id: int | None = None) -> None:
         """Shot down (or out of the way for the next run): the model moved to the
         graveyard, far outside the battle, then its PX4 stopped. In that order: stopping PX4
         takes seconds, and a hostile drone falling with its motors off is a target the
         other defenders chase down into the trees."""
-        self.move_hostile(*GRAVEYARD_ENU)
-        self.stop_hostile_px4()
+        h = self._hostile(hostile_id)
+        self.move_hostile(*h.graveyard, hostile_id=h.id)
+        self.stop_hostile_px4(h.id)
 
-    def stop_hostile_px4(self) -> None:
+    def stop_hostile_px4(self, hostile_id: int | None = None) -> None:
         """Its PX4 stopped and its motors with it (stop_motors)."""
-        self.px4.stop()
-        name = self.names[self.hostile_id]
-        if not stop_motors(name):
-            self.log.warning(f'Could not stop the motors of {name}')
+        h = self._hostile(hostile_id)
+        h.px4.stop()
+        if not stop_motors(h.name):
+            self.log.warning(f'Could not stop the motors of {h.name}')
 
-    def set_hostile_down(self, east: float, north: float) -> None:
+    def set_hostile_down(self, east: float, north: float, hostile_id: int | None = None) -> None:
         """The hostile model upright and still on the ground at (east, north), Gazebo ENU,
         its PX4 stopped. Moved again if it does not stand (up to PLACE_ATTEMPTS times)."""
+        h = self._hostile(hostile_id)
         for attempt in range(1, PLACE_ATTEMPTS + 1):
-            self.move_hostile(east, north)
+            self.move_hostile(east, north, hostile_id=h.id)
             self.wait_sim(SETTLE_ON_GROUND_S / 2)
-            before = self._hostile_pose
+            before = h.pose
             self.wait_sim(SETTLE_ON_GROUND_S / 2)
-            after = self._hostile_pose
+            after = h.pose
             if before is None or after is None:
                 return  # no poses: nothing to check
             tilt, moved = tilt_deg(after[1]), math.dist(before[0], after[0])
             if tilt <= UPRIGHT_MAX_TILT_DEG and moved <= STILL_M:
                 return
-            self.log.warning(f'Hostile drone not standing after the move (tilt {tilt:.0f} deg, '
-                             f'moved {moved:.2f} m), attempt {attempt}/{PLACE_ATTEMPTS}')
-            stop_motors(self.names[self.hostile_id])
-        raise RuntimeError(f'The hostile drone does not stand still at E {east:+.0f} '
+            self.log.warning(f'Hostile drone {h.id} not standing after the move (tilt {tilt:.0f} '
+                             f'deg, moved {moved:.2f} m), attempt {attempt}/{PLACE_ATTEMPTS}')
+            stop_motors(h.name)
+        raise RuntimeError(f'The hostile drone {h.id} does not stand still at E {east:+.0f} '
                            f'N {north:+.0f} m (see Gazebo)')
 
-    def respawn_hostile(self, north: float, east: float) -> None:
+    def respawn_hostile(self, north: float, east: float, hostile_id: int | None = None) -> None:
         """A fresh hostile drone on the ground at (north, east), connected and ready: the
         same Gazebo model, moved there, with a new PX4 attached to it."""
-        self.stop_hostile_px4()
+        h = self._hostile(hostile_id)
+        self.stop_hostile_px4(h.id)
         time.sleep(1.0)  # its last messages
-        self.log.info(f'Starting hostile drone {self.hostile_id} at N {north:+.0f} E {east:+.0f} m')
-        self.set_hostile_down(east, north)
-        self.hostile.reset((north, east, 0.0))
-        self.px4.start(self.names[self.hostile_id])
-        log = f'/tmp/px4_{self.hostile_id}.log'
-        wait_until(self.hostile_manager.connected, RESPAWN_TIMEOUT_S,
-                   f'the hostile drone to connect (see {log})')
-        wait_until(self.hostile_manager.ready, RESPAWN_TIMEOUT_S,
-                   f"the hostile drone's pre-flight checks (see {log})")
+        self.log.info(f'Starting hostile drone {h.id} at N {north:+.0f} E {east:+.0f} m')
+        self.set_hostile_down(east, north, hostile_id=h.id)
+        h.drone.reset((north, east, 0.0))
+        h.px4.start(h.name)
+        log = f'/tmp/px4_{h.id}.log'
+        wait_until(h.manager.connected, RESPAWN_TIMEOUT_S,
+                   f'the hostile drone {h.id} to connect (see {log})')
+        wait_until(h.manager.ready, RESPAWN_TIMEOUT_S,
+                   f"the hostile drone {h.id}'s pre-flight checks (see {log})")
 
-    def place_hostile(self, start, goal, speed) -> None:
-        self.respawn_hostile(start[0], start[1])
+    def place_hostile(self, start, goal, speed, hostile_id: int | None = None) -> None:
+        h = self._hostile(hostile_id)
+        self.respawn_hostile(start[0], start[1], hostile_id=h.id)
         self.set_hostile_param('MPC_XY_VEL_MAX', max(PX4_MIN_SPEED_LIMIT,
-                                                     speed + HOSTILE_SPEED_MARGIN))
-        altitude = self.hostile.home[2] - start[2]
-        self.log.info(f'Hostile taking off to {altitude:.0f} m')
-        self.hostile_manager.takeoff(altitude)
-        wait_until(self.hostile_manager.all_reached, SETUP_TIMEOUT_S, 'the hostile drone to climb')
+                                                     speed + HOSTILE_SPEED_MARGIN), hostile_id=h.id)
+        altitude = h.drone.home[2] - start[2]
+        self.log.info(f'Hostile {h.id} taking off to {altitude:.0f} m')
+        h.manager.takeoff(altitude)
+        wait_until(h.manager.all_reached, SETUP_TIMEOUT_S, f'the hostile drone {h.id} to climb')
         yaw = math.atan2(goal[1] - start[1], goal[0] - start[0])
-        self.hostile.set_position(*start, yaw=yaw)
-        wait_until(lambda: self.hostile.reached(TOLERANCE_M), SETUP_TIMEOUT_S,
-                   'the hostile drone at its start point')
+        h.drone.set_position(*start, yaw=yaw)
+        wait_until(lambda: h.drone.reached(TOLERANCE_M), SETUP_TIMEOUT_S,
+                   f'the hostile drone {h.id} at its start point')
 
     BIRDS_LOG = '/tmp/surveillance_birds.log'
 
@@ -357,13 +397,14 @@ class GazeboSurveillance(SurveillanceWorld):
     def report_kill(self, drone_id: int) -> None:
         self._events.publish(String(data=msgs.encode_event(msgs.EventMsg(drone_id, 'kill'))))
 
-    def set_hostile_param(self, name: str, value: float) -> None:
-        """Set a PX4 parameter on the hostile drone (e.g. its speed limit)."""
+    def set_hostile_param(self, name: str, value: float, hostile_id: int | None = None) -> None:
+        """Set a PX4 parameter on a hostile drone (e.g. its speed limit)."""
+        hid = self._hostile(hostile_id).id
         result = subprocess.run(['/opt/px4-gazebo/bin/px4-param', '--instance',
-                                 str(self.hostile_id), 'set', name, str(value)],
+                                 str(hid), 'set', name, str(value)],
                                 capture_output=True, text=True)
         if result.returncode != 0:
-            self.log.warning(f'Could not set {name} on drone {self.hostile_id}: '
+            self.log.warning(f'Could not set {name} on drone {hid}: '
                              f'{(result.stdout + result.stderr).strip()}')
 
     # --- detectors --------------------------------------------------------------
@@ -490,16 +531,17 @@ class GazeboSurveillance(SurveillanceWorld):
             wait_until(self.defenders.all_landed, max(LAND_TIMEOUT_S, SETUP_TIMEOUT_S),
                        'the defenders to land and disarm')
             self.log.info('Landed')
-        # The hostile drone back where the config (and mount-backend.sh) expects it.
-        hx, hy, _ = self.swarm_config.drone(self.hostile_id).spawn_ned
-        self.log.info(f'Starting drone {self.hostile_id} again at its spawn point')
-        self.stop_hostile_px4()
-        try:
-            self.set_hostile_down(hy, hx)
-        except (RuntimeError, TimeoutError) as e:
-            self.log.warning(str(e))
-        self.hostile.reset((hx, hy, 0.0))
-        self.px4.start(self.names[self.hostile_id])
+        # The hostile drones back where the config (and mount-backend.sh) expects them.
+        for h in self._h.values():
+            hx, hy, _ = self.swarm_config.drone(h.id).spawn_ned
+            self.log.info(f'Starting drone {h.id} again at its spawn point')
+            self.stop_hostile_px4(h.id)
+            try:
+                self.set_hostile_down(hy, hx, hostile_id=h.id)
+            except (RuntimeError, TimeoutError) as e:
+                self.log.warning(str(e))
+            h.drone.reset((hx, hy, 0.0))
+            h.px4.start(h.name)
 
 
 def ros_world(name: str, swarm_config, options):
