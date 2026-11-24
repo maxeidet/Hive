@@ -95,6 +95,10 @@
 #                                      private DAEP forks in ros2_ws/src, built once with
 #                                      colcon build --packages-up-to daep (launch/
 #                                      daep_exploration.launch.py, e.g. explore 13.5,-14 7 alt:=4 z_max:=5)
+#   ./mount-backend.sh explorenode [args]  waits for areas to map on /explore/command (e.g. from
+#                                      the operator UI's Map area tab) and explores each with DAEP
+#                                      like `explore`; status on /explore/status
+#                                      (swarm_backend/explore/explore_node.py --help)
 #   ./mount-backend.sh scanmap [args]  draw the scanned 3D map from above as the operator UI's
 #                                      background map (ui/static/map.png + map.json). Default
 #                                      data/map.bt; --watch 10 redraws the running map every 10 s
@@ -407,6 +411,8 @@ case "$cmd" in
   maptest) run "python3 $PKG/tests/mapping_test.py --config $CONFIG $*" ;;
   scanmap) run "python3 -m swarm_backend.octomap_snapshot $*" ;;
   explore) explore "$@" ;;
+  explorenode) run "ros2 pkg prefix daep >/dev/null 2>&1 || { echo 'DAEP is not built. Clone the daep and daep_msgs forks into ros2_ws/src, then: colcon build --packages-up-to daep'; exit 1; }
+  python3 -m swarm_backend.explore.explore_node $*" ;;
   predict) run "python3 -m swarm_backend.detect.predict $*" ;;
   snap)
     id=2

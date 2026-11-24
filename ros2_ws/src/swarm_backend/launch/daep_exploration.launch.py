@@ -30,13 +30,15 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-def box_around(center: str, radius: float, z_min: float, z_max: float) -> dict:
-    """DAEP's boundary parameters for a square box around `center` ("x,y")."""
+def box_around(center: str, radius: str, z_min: float, z_max: float) -> dict:
+    """DAEP's boundary parameters for a box around `center` ("x,y"): `radius` is half the
+    side ("r", a square) or half the sides along x and y ("rx,ry")."""
     x, y = (float(v) for v in center.split(','))
-    if radius <= 0 or z_max <= z_min:
+    rx, ry = (float(v) for v in (radius.split(',') * 2)[:2])
+    if min(rx, ry) <= 0 or z_max <= z_min:
         raise ValueError(f'Bad box: radius {radius}, z {z_min}..{z_max}')
-    return {'boundary/min': [x - radius, y - radius, z_min],
-            'boundary/max': [x + radius, y + radius, z_max]}
+    return {'boundary/min': [x - rx, y - ry, z_min],
+            'boundary/max': [x + rx, y + ry, z_max]}
 
 
 def nodes(context):
@@ -46,7 +48,7 @@ def nodes(context):
     param_file = [config, '/', arg('param_file')]
     octomap = [('octomap', f'/{map_ns}/octomap_full')]
     center = arg('center').strip()
-    box = box_around(center, float(arg('radius')), float(arg('z_min')),
+    box = box_around(center, arg('radius'), float(arg('z_min')),
                      float(arg('z_max'))) if center else {}
     # DAEP counts what a viewpoint would see out to aep/gain/r_max; give it the range the map
     # is built with, so it neither over- nor underrates far viewpoints.
@@ -89,7 +91,8 @@ def generate_launch_description():
                               description='take-off altitude in metres, where DAEP starts'),
         DeclareLaunchArgument('center', default_value='',
                               description='x,y (ENU) of the area to explore; empty = the yaml box'),
-        DeclareLaunchArgument('radius', default_value='6.0', description='half the box side, metres'),
+        DeclareLaunchArgument('radius', default_value='6.0',
+                              description='half the box side, metres: r, or rx,ry for a rectangle'),
         DeclareLaunchArgument('z_min', default_value='0.5', description='box bottom, metres up'),
         DeclareLaunchArgument('z_max', default_value='3.0', description='box top, metres up'),
         DeclareLaunchArgument('param_file', default_value='px4_exploration.yaml'),

@@ -32,6 +32,7 @@ setup(
             'patrol_node = swarm_backend.nodes.patrol_node:main',
             'daep_bridge = swarm_backend.explore.daep_bridge:main',
             'save_map = swarm_backend.explore.save_map:main',
+            'explore_node = swarm_backend.explore.explore_node:main',
             'operator_ui = swarm_backend.nodes.operator_ui:main',
             'hivemind_node = swarm_backend.nodes.hivemind_node:main',
         ],
