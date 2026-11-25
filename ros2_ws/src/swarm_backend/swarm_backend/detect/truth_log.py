@@ -260,26 +260,39 @@ def load(path: Path) -> list[dict]:
 
 class TruthLogger:
     """The ROS/Gazebo side: Gazebo's poses at each image's time, written with frame_record.
-    Drone names are looked up again every NAMES_EVERY_S, for drones spawned later."""
+    Drone names are looked up again every NAMES_EVERY_S, for drones spawned later, on a
+    thread of their own: `gz topic -l` takes about 2 s, and in the image loop it froze the
+    detector (and its debug image in RViz) for that long every time."""
 
     NAMES_EVERY_S = 5.0
 
     def __init__(self, path: Path, world: str, drone_id: int, camera_link: str):
+        import threading
         from swarm_backend.datagen.save_images import PoseHistory
         path.parent.mkdir(parents=True, exist_ok=True)
         self._file = open(path, 'a', buffering=1)
         self._poses = PoseHistory(world)
         self.drone_id, self.link = drone_id, camera_link
         self._names: dict[int, str] = {}
-        self._names_at = -math.inf
+        self._stop = threading.Event()
+        self._refresh_names()  # once before the first image, so it has names
+        threading.Thread(target=self._keep_names, daemon=True).start()
+
+    def _refresh_names(self) -> None:
+        import subprocess
+        from swarm_backend.datagen.save_images import drone_names
+        from swarm_backend.sim.sensor_view import gz_topics
+        try:
+            _, names = drone_names(gz_topics())
+        except (OSError, subprocess.SubprocessError):
+            return  # Gazebo restarting: keep the names we have
+        self._names = names  # one assignment: write() on the other thread sees old or new
+
+    def _keep_names(self) -> None:
+        while not self._stop.wait(self.NAMES_EVERY_S):
+            self._refresh_names()
 
     def _drone_names(self, now: float) -> dict[int, str]:
-        import time
-        if time.monotonic() - self._names_at > self.NAMES_EVERY_S:
-            from swarm_backend.datagen.save_images import drone_names
-            from swarm_backend.sim.sensor_view import gz_topics
-            _, self._names = drone_names(gz_topics())
-            self._names_at = time.monotonic()
         return self._names
 
     def write(self, stamp: float, tracks, camera, axes, detector_name: str,
@@ -301,6 +314,7 @@ class TruthLogger:
         self._file.write(json.dumps(rec) + '\n')
 
     def close(self) -> None:
+        self._stop.set()
         self._file.close()
 
 
