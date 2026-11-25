@@ -321,6 +321,12 @@ def parser() -> argparse.ArgumentParser:
                         'swarm_backend.detect.truth_log FILE)')
     p.add_argument('--detect-rate', type=float, default=DEFAULT_DETECT_RATE,
                    help='images per second for each detector')
+    p.add_argument('--detector', choices=('real', 'fake', 'fake-realistic'), default='real',
+                   help='Gazebo: real (the camera detector, detect/live.py, with --setup\'s '
+                        'tracker), fake (true positions, what the gimbal camera sees: no '
+                        'distance or direction error) or fake-realistic (fake with the real '
+                        "detector's delay, noise and blind zone). The fake ones have no "
+                        'tracker and no image records, and save to their own default folder')
     p.add_argument('--path', choices=INBOUND_PATHS, default='straight',
                    help='how the hostile drone flies in: straight (the report\'s), weave (a '
                         'sine side to side) or zigzag (straight legs, sharp turns); not '
@@ -343,7 +349,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.sim and (args.one_run or args.restart_on_crash):
         p.error('--one-run and --restart-on-crash are for Gazebo, not --sim')
     common.resolve_setup(args)
-    tag = common.setup_tag(args, real_detector=not args.sim)
+    if args.sim and args.detector != 'real':
+        p.error('--detector is for Gazebo; --sim always uses its own stand-in detector')
+    fake = args.detector != 'real'
+    tag = common.setup_tag(args, real_detector=not args.sim and not fake)
+    if fake:
+        tag = '_'.join(t for t in (args.detector, tag) if t)
     if args.out is None:
         # never mixed with the report's runs: another setup or path gets its own folder
         args.out = common.with_tag(DEFAULT_SIM_OUT if args.sim else DEFAULT_OUT, tag)
@@ -375,10 +386,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f'{len(todo)} {args.mode} runs to fly; results go to {out_file}', flush=True)
 
     flown = eval_config(config, args.mode)
-    options = Options(detector='real', hit_radius=config.intercept.hit_radius,
+    # The fake detectors write no image records: reading /tmp/detect_<id>.jsonl would
+    # pick up an earlier real run's. Nor a truth log (that is the real detector's).
+    options = Options(detector=args.detector, hit_radius=config.intercept.hit_radius,
                       max_speed=config.intercept.interceptor_max_speed,
-                      detect_rate=args.detect_rate, record=True,
-                      truth_log=str(args.out / 'truth') if args.truth_log else None,
+                      detect_rate=args.detect_rate, record=not fake,
+                      truth_log=str(args.out / 'truth') if args.truth_log and not fake else None,
                       **common.setup_options(args))
     print(f'Setup: {options.setup}', flush=True)
 
@@ -392,8 +405,8 @@ def main(argv: list[str] | None = None) -> int:
             common_fields = {
                 'time': datetime.datetime.now().isoformat(timespec='seconds'),
                 'backend': world.backend,
-                'detector': ('real (detect/live.py)' if world.backend == 'gazebo'
-                             else world.detector),
+                'detector': (('real (detect/live.py)' if not fake else args.detector)
+                             if world.backend == 'gazebo' else world.detector),
                 'defenders': len(world.alive()), 'arc_radius': config.surveillance.arc_radius,
                 'path': args.path, 'defender_altitude': config.surveillance.altitude,
                 'setup': options.setup}
