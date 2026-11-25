@@ -55,7 +55,7 @@ attack:
   target_id: 4              # the hostile drone (never 0, see the top)
   guard_altitude: 30.0      # not used by the patrol (it guards its slot); must be >= min_altitude
   search_pitch_deg: 10.0
-  max_speed: 5.0
+  max_speed: 6.0            # m/s, our defenders' attack (= intercept.interceptor_max_speed)
   min_altitude: 25.0        # m; hive_base's trees are up to 20 m, so no attack command
                             # may take a defender lower (it chased targets into them at 5 m)
 
@@ -90,9 +90,14 @@ surveillance:
 # 100 m, interceptor 12 m/s); only what the real detector in Gazebo needs differs, and the
 # hostile drone flies at the defenders' altitude (surveillance.altitude, 40 m) instead of a
 # random 20-120 m. min = max keeps every seed's other draws as they were.
+# Speeds (25 Nov): the hostile drone always flies at 4 m/s, and our defenders attack at
+# 6 m/s instead of 12, so they can turn with a weaving target (tightest turn at 4 m/s^2:
+# 9 m instead of 36 m). Not the report's values.
 intercept:
   hostile_altitude_min: 40.0  # = surveillance.altitude
   hostile_altitude_max: 40.0
+  interceptor_max_speed: 6.0  # m/s: our defenders (baseline_eval, the schedules)
+  eval_speeds: [4.0]          # m/s: the hostile drone, when --speeds is not given
 
 detect:
   match_radius_px: 25.0     # a confirmed track counts as the hostile within this of where the

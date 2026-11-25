@@ -164,7 +164,7 @@ def parser() -> argparse.ArgumentParser:
                    help='metres from the base where the hostile drone starts')
     p.add_argument('--height', type=float, default=DEFAULT_HEIGHT_M,
                    help='metres the hostile drone flies above the defenders')
-    p.add_argument('--speed', type=float, default=1.0, help='hostile speed, m/s')
+    p.add_argument('--speed', type=float, default=4.0, help='hostile speed, m/s')
     p.add_argument('--hit-radius', type=float, default=1.5, help='metres')
     p.add_argument('--fake-detector', action='store_true',
                    help="fake detectors from the true poses instead of the camera detector")
