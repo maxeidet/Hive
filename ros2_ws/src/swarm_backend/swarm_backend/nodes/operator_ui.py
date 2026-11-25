@@ -7,17 +7,12 @@ search area on /base/search_area for whoever plans the search (std_msgs/String, 
 the fields of ui.model.SearchArea, latched: a node that starts later still gets the last
 one).
 
-It also streams each drone's camera, the detector's image with its boxes (the one RViz
-shows), at /camera/<id>.mjpg; see ui/camera.py. A drone has a picture only while its
-detector runs.
-
     python3 -m swarm_backend.nodes.operator_ui --config <swarm.yaml> [--port 8090]
 
 Open http://localhost:8090 on the host (the container publishes the port).
 """
 import argparse
 import json
-import re
 import subprocess
 import sys
 import threading
@@ -37,8 +32,6 @@ ATTACK_STATE_FRESH_S = 3.0  # the attack node repeats its state every second
 STALE_S = 2.0  # no PX4 message for this long: status 'no link' (as STALE_S in index.html)
 EVENT_RATE_HZ = 5.0  # how often the event log compares the drones with how they were
 WORLDS_DIR = Path('/opt/px4-gazebo/share/gz/worlds')  # where the start scripts put the worlds
-CAMERA_MAX_FPS = 30.0  # a camera stream sends at most this many images a second (the
-                       # gimbal camera's rate; the detector publishes up to its --rate)
 WORLD_POLL_S = 5.0  # how often to check which world runs (it changes on mount-backend.sh restart)
 
 
@@ -187,8 +180,6 @@ class OperatorUi:
         self._log = node.get_logger()
         self.events = EventLog()
         self.started = time.monotonic()
-        from swarm_backend.ui.camera import CameraFeeds
-        self.cameras = CameraFeeds(node, [d.id for d in drones])
         self.world = None  # the running Gazebo world's name, once known
         self.world_latlon = None  # (lat, lon) of its (0, 0), from its SDF
         self._publish_area()
@@ -227,8 +218,6 @@ class OperatorUi:
         views = [m.view(now) for m in self.monitors]
         for view in views:
             view['hostile'] = view['id'] == self.hostile_id
-            age = self.cameras.age_s(view['id'], now)
-            view['camera_age_s'] = None if age is None else round(age, 2)
         return views
 
     def _update_events(self) -> None:
@@ -273,15 +262,8 @@ def events_after(path: str) -> int:
         return 0
 
 
-def camera_request(path: str) -> tuple[int, str] | None:
-    """(drone id, 'mjpg' | 'jpg') of /camera/<id>.mjpg or /camera/<id>.jpg, else None."""
-    match = re.fullmatch(r'/camera/(\d+)\.(mjpg|jpg)', path.split('?')[0])
-    return None if match is None else (int(match[1]), match[2])
-
-
 def make_handler(ui):
-    """`ui`: anything with state(events_after) and set_search_area(data), like OperatorUi,
-    and optionally `cameras` (ui.camera.CameraFeeds)."""
+    """`ui`: anything with state(events_after) and set_search_area(data), like OperatorUi."""
 
     class Handler(BaseHTTPRequestHandler):
 
@@ -292,8 +274,6 @@ def make_handler(ui):
                 self._send(200, (STATIC_DIR / 'map.png').read_bytes(), 'image/png')
             elif self.path.split('?')[0] == '/api/state':
                 self._json(200, ui.state(events_after(self.path)))
-            elif camera_request(self.path) is not None:
-                self._camera(*camera_request(self.path))
             else:
                 self._json(404, {'error': 'not found'})
 
@@ -311,45 +291,6 @@ def make_handler(ui):
                 self._json(400, {'error': str(e)})
                 return
             self._json(200, area.to_dict())
-
-        def _camera(self, drone_id: int, kind: str) -> None:
-            cameras = getattr(ui, 'cameras', None)
-            feed = None if cameras is None else cameras.watch(drone_id)
-            if feed is None:
-                self._json(404, {'error': f'no drone {drone_id}'})
-                return
-            if kind == 'jpg':
-                frame = feed.frame()
-                if frame is None:
-                    self._json(404, {'error': f'no image from drone {drone_id} yet'})
-                else:
-                    self._send(200, frame[1], 'image/jpeg')
-                return
-            # multipart/x-mixed-replace: an <img> shows each part as it comes. Each image is
-            # sent once; the stream ends when the page closes it (the write fails).
-            self.send_response(200)
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
-            self.send_header('Cache-Control', 'no-store')
-            self.end_headers()
-            seq, sent = None, 0.0
-            try:
-                while True:
-                    cameras.watch(drone_id)  # keeps the subscription while the stream is open
-                    # Each new image goes out as soon as it arrives; only a feed faster than
-                    # CAMERA_MAX_FPS waits, and then only for the rest of the interval.
-                    frame = feed.frame()
-                    if frame is None or frame[0] == seq:
-                        feed.wait(feed.seq if frame is None else seq, timeout=1.0)
-                        continue
-                    time.sleep(max(0.0, sent + 1.0 / CAMERA_MAX_FPS - time.monotonic()))
-                    seq, body = feed.frame()  # the newest, if one came during the wait
-                    self.wfile.write(b'--frame\r\nContent-Type: image/jpeg\r\n'
-                                     b'Content-Length: %d\r\n\r\n' % len(body)
-                                     + body + b'\r\n')
-                    self.wfile.flush()
-                    sent = time.monotonic()
-            except (BrokenPipeError, ConnectionResetError, ValueError):
-                pass
 
         def _json(self, code: int, body) -> None:
             self._send(code, json.dumps(body).encode(), 'application/json')
