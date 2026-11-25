@@ -50,7 +50,9 @@ are on /hive/friendlies. A track whose box points at one of them, with a box-siz
 that roughly fits, for a few images in a row, is marked friendly until it stops fitting
 for a few images in a row (swarm/friendlies.py, FriendlyMarks): it is drawn blue
 ("friend 0 T5"), the lock never picks it, and a lock on a track that turns out to be
-friendly is released at once. The camera's own position is the hivemind's, moved on to
+friendly is released at once. A track that fits a friendly but is not marked yet is no
+target either. The check measures a box's distance with our drones' size
+(camera.FRIENDLY_BOX_SIZE_M), not the hostile's. The camera's own position is the hivemind's, moved on to
 the image's time with PX4's odometry (own_position), so the drone's own speed does not
 shift it. Without the hivemind nothing is marked; --no-friendlies turns it off.
 """
@@ -431,6 +433,10 @@ class LiveDetector:
         self.friend_book = FriendlyBook()  # the hivemind's latest positions
         self.friend_marks = FriendlyMarks()
         self.friendly: dict[int, int] = {}  # track id -> friendly drone id (friend_marks)
+        # Tracks that fit a friendly in this image but are not marked yet (FriendlyMarks
+        # wants CONFIRM_FRAMES in a row): never a target meanwhile, or a patrol that may
+        # start turns on its neighbour in the images before the mark.
+        self.suspect: dict[int, int] = {}
         if friendlies:
             from std_msgs.msg import String
             node.create_subscription(String, FRIENDLIES_TOPIC, self._on_friendlies, 10)
@@ -513,6 +519,7 @@ class LiveDetector:
         """Mark the tracks that are one of our own drones (see the module docstring)."""
         live = {t.id for t in tracks}
         self.friendly = self.friend_marks.prune(live)
+        self.suspect = {}
         if axes is None:
             return
         positions = self.friend_book.at(stamp)
@@ -527,9 +534,12 @@ class LiveDetector:
                 continue  # unseen in this image: it stays what it was
             d = t.detection
             direction = camera.direction(d.u, d.v, *axes)
-            box_range = camera.range_from_detection(self.detector_name, d.width, d.height)
+            # Measured as one of ours: they are bigger than the hostile (camera.py)
+            box_range = camera.friendly_range(self.detector_name, d.width, d.height)
             fits[t.id] = friendly_for(direction, box_range, me, positions, ages)
         self.friendly = self.friend_marks.update(fits, live)
+        self.suspect = {i: f for i, f in fits.items()
+                        if f is not None and i not in self.friendly}
 
     def _log_truth(self, tracks, camera: CameraModel, axes, stamp: float) -> None:
         """One line of --truth-log; a failure is reported once and never stops detecting."""
@@ -603,7 +613,8 @@ class LiveDetector:
         self._mark_friendlies(tracks, camera, axes, stamp)
         if self.truth_log is not None:
             self._log_truth(tracks, camera, axes, stamp)
-        all_tracks, tracks = tracks, [t for t in tracks if t.id not in self.friendly]
+        all_tracks, tracks = tracks, [t for t in tracks
+                                      if t.id not in self.friendly and t.id not in self.suspect]
         released = None
         if self.lock is not None and self.lock.locked_id in self.friendly:
             released = (f'T{self.lock.locked_id} released: it is friendly drone '

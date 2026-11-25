@@ -21,6 +21,11 @@ TARGET_SIZE_M = 0.5  # x500 frame across, what range_from_width assumes (true si
 # made every distance 55-110 % too long). Past about 80 m the boxes are a few pixels and
 # any size is off by 25-40 %.
 BOX_SIZE_M = 0.48
+# The same for our own drones (x500_gimbal), which only the friendly check measures: their
+# boxes cover more, 0.77 m at 20-40 m and 0.8 m at 60-90 m (truth logs of a straight run, 25
+# Nov, 768 boxes). With BOX_SIZE_M a neighbour on the arc (~77 m) came out 45-60 % too near,
+# failed the check's range test, and was attacked.
+FRIENDLY_BOX_SIZE_M = 0.8
 
 Vector3 = tuple[float, float, float]
 
@@ -65,6 +70,12 @@ class CameraModel:
     def range_from_detection(self, detector: str, width: float, height: float) -> float:
         px, size = self.box_scale(detector, width, height)
         return self.range_from_width(px, size)
+
+    def friendly_range(self, detector: str, width: float, height: float) -> float:
+        """The distance a box would be at if it were one of our own drones: as
+        range_from_detection, with FRIENDLY_BOX_SIZE_M (the baseline keeps its rule)."""
+        px, size = self.box_scale(detector, width, height)
+        return self.range_from_width(px, size if detector == 'baseline' else FRIENDLY_BOX_SIZE_M)
 
     def width_at(self, distance: float, size: float = TARGET_SIZE_M) -> float:
         """Pixels across of an object `size` metres across at `distance` metres."""

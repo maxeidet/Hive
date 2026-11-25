@@ -123,6 +123,7 @@ def frame_record(stamp: float, tracks, camera, axes, detector_name: str,
                        ambiguous=sum(c[1] <= angle + AMBIGUOUS_DEG for c in candidates) > 1)
         if axes is not None and own_estimate is not None and friends:
             direction = camera.direction(d.u, d.v, *axes)
+            friend_range = camera.friendly_range(detector_name, d.width, d.height)  # as live.py
             checks = {}
             for fid, p in sorted(friends.items()):
                 to = tuple(a - b for a, b in zip(p, own_estimate))
@@ -134,8 +135,8 @@ def frame_record(stamp: float, tracks, camera, axes, detector_name: str,
                     'angle_deg': round(_angle_deg(direction, to), 2),
                     'gate_deg': round(gate_deg(dist, age), 2),
                     'distance': round(dist, 2),
-                    'range_fits': dist / RANGE_FACTOR <= box_range <= dist * RANGE_FACTOR,
-                    'fits': friendly_for(direction, box_range, own_estimate, {fid: p},
+                    'range_fits': dist / RANGE_FACTOR <= friend_range <= dist * RANGE_FACTOR,
+                    'fits': friendly_for(direction, friend_range, own_estimate, {fid: p},
                                          {fid: age}) == fid}
             row['friend_check'] = checks
         rows.append(row)

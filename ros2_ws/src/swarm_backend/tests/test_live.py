@@ -283,6 +283,39 @@ def test_a_track_on_a_friendly_drone_is_marked_and_kept_from_the_lock():
     assert (out[300 - 6, 600:610] == FRIEND).all()  # drawn blue, not red
 
 
+def test_a_neighbour_on_the_arc_is_measured_as_a_friendly_and_held_back_until_marked():
+    """Drone 2 hovers 77 m east, level with the camera: its box is the size of one of our
+    drones there (FRIENDLY_BOX_SIZE_M), which with the hostile's size (BOX_SIZE_M) reads
+    about 40% too near; measured as a friendly it fits. In the images before the mark it is
+    a suspect: in no target's way, and never a target itself."""
+    from swarm_backend.detect.camera import BOX_SIZE_M, FRIENDLY_BOX_SIZE_M, CameraModel
+    from swarm_backend.detect.live import LiveDetector
+    from swarm_backend.detect.tracking import Track
+    from swarm_backend.swarm.friendlies import (CONFIRM_FRAMES, RANGE_FACTOR, Friendly,
+                                               FriendlyBook, FriendlyMarks)
+
+    camera = CameraModel()
+    axes = ((0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 0.0, 1.0))  # looking east, level
+    me, neighbour = (0.0, 0.0, -40.0), (0.0, 77.0, -40.0)
+    live = LiveDetector.__new__(LiveDetector)
+    live.drone_id, live.detector_name, live.friendly, live.suspect = 1, 'yolo', {}, {}
+    live.friend_marks, live.px4 = FriendlyMarks(), None
+    live.friend_book = FriendlyBook()
+    live.friend_book.update(5.0, [Friendly(1, me, (0.0, 0.0, 0.0)),
+                                  Friendly(2, neighbour, (0.0, 0.0, 0.0))])
+    width = camera.f * FRIENDLY_BOX_SIZE_M / 77.0
+    track = Track(7, (camera.cx, camera.cy))
+    track.detection = Detection(camera.cx - width / 2, camera.cy - width / 2, width, width, 0.9)
+    hostile_size = camera.range_from_detection('yolo', width, width)
+    assert hostile_size == pytest.approx(77.0 * BOX_SIZE_M / FRIENDLY_BOX_SIZE_M)
+    assert hostile_size < 77.0 / RANGE_FACTOR * 1.3  # the old check's margin was nearly gone
+    for i in range(CONFIRM_FRAMES - 1):
+        live._mark_friendlies([track], camera, axes, 5.05 + 0.01 * i)
+        assert live.friendly == {} and live.suspect == {7: 2}  # fits, not marked yet
+    live._mark_friendlies([track], camera, axes, 5.1)
+    assert live.friendly == {7: 2} and live.suspect == {}
+
+
 def test_without_the_hivemind_nothing_is_friendly():
     from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
     from swarm_backend.detect.live import LiveDetector
@@ -293,11 +326,12 @@ def test_without_the_hivemind_nothing_is_friendly():
     live.drone_id, live.detector_name, live.friendly = 1, 'yolo', {}
     live.friend_marks, live.px4 = FriendlyMarks(), None
     live.friend_book = FriendlyBook()
+    live.suspect = {1: 0}  # left from an earlier image
     track = Track(1, (640.0, 360.0))
     track.detection = Detection(636, 356, 8, 8, 0.9)
     live._mark_friendlies([track], CameraModel(), ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
                                                   (0.0, 0.0, 1.0)), 1.0)
-    assert live.friendly == {}
+    assert live.friendly == {} and live.suspect == {}
 
 
 def test_the_own_position_is_moved_to_the_image_time_with_px4():

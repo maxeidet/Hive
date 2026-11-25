@@ -23,6 +23,13 @@ def test_non_baseline_detectors_use_the_geometric_mean_side():
 
 def test_baseline_keeps_the_old_rule():
     assert CAMERA.range_from_detection('baseline', 40, 10) == pytest.approx(CAMERA.range_from_width(40))
+    assert CAMERA.friendly_range('baseline', 40, 10) == pytest.approx(CAMERA.range_from_width(40))
+
+
+def test_friendly_range_uses_our_drones_size():
+    from swarm_backend.detect.camera import FRIENDLY_BOX_SIZE_M
+    assert CAMERA.friendly_range('yolo', 40, 10) == pytest.approx(
+        CAMERA.f * FRIENDLY_BOX_SIZE_M / 20)
 
 
 def test_image_centre_looks_along_forward():

@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from swarm_backend.detect.camera import BOX_SIZE_M, CameraModel
+from swarm_backend.detect.camera import BOX_SIZE_M, FRIENDLY_BOX_SIZE_M, CameraModel
 from swarm_backend.detect.detectors import Detection
 from swarm_backend.detect.tracking import Track
 from swarm_backend.detect.truth_log import frame_record, load, main, summary
@@ -44,7 +44,9 @@ def test_a_record_compares_the_box_with_the_drone_it_really_is():
     assert abs(t['range_error_pct']) < 3 and t['direction_error_deg'] < 0.5
     check = t['friend_check']['1']
     assert check['angle_deg'] == pytest.approx(0.0, abs=0.1)
-    assert not check['range_fits'] or check['distance'] / 2 <= t['box_range']
+    # The check measures the box as one of ours (FRIENDLY_BOX_SIZE_M, as live.py does)
+    friend_range = t['box_range'] * FRIENDLY_BOX_SIZE_M / BOX_SIZE_M
+    assert check['range_fits'] == (check['distance'] / 2 <= friend_range <= check['distance'] * 2)
     json.dumps(rec)  # one JSON line
 
 
